@@ -16,7 +16,8 @@ COPY packages/ui packages/ui
 COPY packages/api-client-inmo24x7 packages/api-client-inmo24x7
 COPY apps/inmo24x7/backoffice apps/inmo24x7/backoffice
 
-ARG VITE_API_URL=http://localhost:8001
+ARG VITE_API_URL
+RUN test -n "$VITE_API_URL" || (echo "VITE_API_URL build argument is required." >&2; exit 1)
 ENV VITE_API_URL=$VITE_API_URL
 
 RUN corepack pnpm --filter @inmo24x7/backoffice build

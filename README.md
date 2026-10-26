@@ -61,7 +61,8 @@ flowchart TB
 
     subgraph Shared["Shared frontend packages"]
         UI["@followup/ui"]
-        CLIENT["Typed API client<br/>@followup/api-client-inmo24x7"]
+        INMO_CLIENT["Typed API client<br/>@followup/api-client-inmo24x7"]
+        CC_CLIENT["Typed API client<br/>@followup/api-client-cuentas-claras<br/>(planned)"]
     end
 
     subgraph APIs["Product APIs"]
@@ -102,10 +103,10 @@ flowchart TB
     CC_WEB -.-> UI
     CC_BACKOFFICE -.-> UI
 
-    WEB --> CLIENT
-    BACKOFFICE --> CLIENT
-    CC_WEB -.-> CLIENT
-    CC_BACKOFFICE -.-> CLIENT
+    WEB --> INMO_CLIENT
+    BACKOFFICE --> INMO_CLIENT
+    CC_WEB -.-> CC_CLIENT
+    CC_BACKOFFICE -.-> CC_CLIENT
 
     API --> TENANCY
     API -.-> IDENTITY
@@ -128,7 +129,7 @@ flowchart TB
     CC_API -.-> MERCADO_PAGO
 
     classDef planned fill:#ffffff,stroke:#8b8b8b,stroke-width:1px,stroke-dasharray: 5 5,color:#666666;
-    class WHATSAPP,SIMULATOR,CC_WEB,CC_BACKOFFICE,CC_API,IDENTITY,MESSAGING,CONVERSATION,PORT,LANGGRAPH,CHECKPOINTER,SUPABASE,AUTH,ARCA,MERCADO_PAGO planned;
+    class WHATSAPP,SIMULATOR,CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,IDENTITY,MESSAGING,CONVERSATION,PORT,LANGGRAPH,CHECKPOINTER,SUPABASE,AUTH,ARCA,MERCADO_PAGO planned;
 ```
 
 The same context layers apply to every bounded context. Dependencies point inward, and the domain has no outward imports.
@@ -148,7 +149,7 @@ flowchart LR
 
 - Docker with Compose.
 - [uv](https://docs.astral.sh/uv/).
-- Node.js 22 or newer. Corepack, included with Node, provides `pnpm`.
+- Node.js 22.13 or newer. Corepack, included with Node, provides `pnpm`.
 
 > **Security warning:** the API has no authentication until milestone 2. Do not deploy it publicly before then.
 
@@ -174,7 +175,7 @@ Local Postgres uses port 5433 to avoid conflicts with other databases.
 uv sync --all-packages
 corepack pnpm install --frozen-lockfile
 docker compose up -d --wait db
-uv --directory apps/inmo24x7/api run alembic upgrade head
+uv run alembic upgrade head
 ```
 
 Then, in separate terminals:
@@ -185,7 +186,22 @@ corepack pnpm --filter @inmo24x7/web dev
 corepack pnpm --filter @inmo24x7/backoffice dev
 ```
 
-Migrations are owned by package: core revisions live in `packages/core/migrations`, product revisions live in the product API. The product's Alembic configuration loads both locations against one database.
+One root `alembic.ini` loads every version location against one database and one version table. Core revisions live in `packages/core/migrations`; product revisions live in each product API. Product revision chains start from the current core head.
+
+### Production migrations
+
+Run migrations once as a one-off container from the API image before starting the new API version:
+
+```bash
+docker run --rm \
+  -e APP_ENV=production \
+  -e DATABASE_URL=postgresql+psycopg://user:password@host:5432/database \
+  -e CORS_ORIGINS=https://app.example.com \
+  ghcr.io/owner/repository/inmo24x7-api:sha-<commit> \
+  alembic upgrade head
+```
+
+The API image contains the root Alembic configuration and runs from `/app`. Start the new API only after the migration exits successfully.
 
 ## Environment variables
 
@@ -213,7 +229,7 @@ Only the development script loads `.env` into API processes. When using the manu
 
 ## Tests and lint
 
-The API integration tests use a real Postgres database. Locally, make sure the compose database is running:
+The API integration tests use a real Postgres database and build its schema by running the Alembic migrations. Locally, make sure the compose database is running:
 
 ```bash
 docker compose up -d --wait db
@@ -276,12 +292,14 @@ apps/cuentas-claras                second product scope
 packages/core                      shared domain, application, adapters, core migrations
 packages/ui                        shared React components (@followup/ui)
 packages/api-client-inmo24x7       generated OpenAPI types and typed client
+alembic.ini                        single migration configuration
+migrations                         root Alembic environment
 scripts                            local startup and type generation
 ```
 
 ## Images
 
-On every push to `main`, after tests pass, CI builds and pushes amd64 + arm64 images for the API, web, and backoffice to GitHub Container Registry. Images use `latest` and `sha-<commit>` tags. The API receives `APP_VERSION`, `GIT_COMMIT`, and `BUILD_DATE`; the panels receive `VITE_API_URL` from the `INMO24X7_API_URL` repository variable. If that variable is not set, the build falls back to `http://localhost:8001`.
+On every push to the repository's default branch, after tests pass, CI builds and pushes amd64 + arm64 images for the API, web, and backoffice to GitHub Container Registry. Images use `latest` and `sha-<commit>` tags. The API receives `APP_VERSION`, `GIT_COMMIT`, and `BUILD_DATE`; the panels receive `VITE_API_URL` from the required `INMO24X7_API_URL` repository variable. Frontend image builds fail when it is missing.
 
 Run the API image with `APP_ENV=production`, `DATABASE_URL`, and `CORS_ORIGINS` set.
 
@@ -296,7 +314,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   -t my-registry/inmo24x7-api:latest --push .
 ```
 
-Use the same pattern with the `web` and `backoffice` Dockerfiles, adding `--build-arg VITE_API_URL=https://api.example.com`.
+Use the same pattern with the `web` and `backoffice` Dockerfiles. Both require `--build-arg VITE_API_URL=https://api.example.com`; the build fails without it.
 
 ## License
 

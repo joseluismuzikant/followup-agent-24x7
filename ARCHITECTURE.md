@@ -37,14 +37,16 @@ Milestone 1 implements Tenancy, its endpoints, and both panels.
 
 ## Migrations
 
-There is one database and one Alembic version table.
+There is one database, one root `alembic.ini`, and one Alembic version table.
 
+- The root `migrations` directory contains the environment and revision template.
+- Version locations include the core chain and every product chain.
 - Core revisions live in `packages/core/migrations/versions`.
 - Product revisions live in each product API's `migrations/versions`.
-- The product API's Alembic configuration lists both version locations.
-- Running migrations from any product applies the core revisions plus that product's revisions.
-
-Core tables are migrated from core. Product tables are migrated from the product that owns them.
+- Product revision chains must set `down_revision` to the current core head, so every product chain depends on core.
+- Run `uv run alembic upgrade head` from the repository root to apply all locations.
+- API integration tests build their schema by running these migrations.
+- The API image contains the root configuration, so deployments run `alembic upgrade head` once in a one-off container before starting the new API version.
 
 ## Composition root
 

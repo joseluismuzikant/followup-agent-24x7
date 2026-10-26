@@ -42,8 +42,15 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_error_handler(
-        _request: Request,
+        request: Request,
         error: Exception,
     ) -> JSONResponse:
-        logger.exception("unhandled_exception", exc_info=error)
-        return error_response(500, "internal_error")
+        request_id = getattr(request.state, "request_id", "-")
+        logger.exception(
+            "unhandled_exception",
+            exc_info=error,
+            extra={"request_id": request_id},
+        )
+        response = error_response(500, "internal_error")
+        response.headers["X-Request-ID"] = request_id
+        return response

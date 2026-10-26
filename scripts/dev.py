@@ -29,7 +29,7 @@ def main() -> int:
     run(["uv", "sync", "--all-packages"])
     run([*PNPM, "install", "--frozen-lockfile"])
     run(["docker", "compose", "up", "-d", "--wait", "db"])
-    run(["uv", "--directory", API_DIR, "run", "alembic", "upgrade", "head"])
+    run(["uv", "run", "alembic", "upgrade", "head"])
 
     processes = [
         spawn(

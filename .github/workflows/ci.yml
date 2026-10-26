@@ -38,7 +38,7 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pyright
-      - run: uv --directory apps/inmo24x7/api run alembic upgrade head
+      - run: uv run alembic upgrade head
       - run: uv run pytest
 
   typescript:
@@ -67,7 +67,7 @@ jobs:
       - run: pnpm test
 
   images:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
     needs:
       - python
       - typescript
@@ -111,6 +111,6 @@ jobs:
             APP_VERSION=${{ env.APP_VERSION }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ env.BUILD_DATE }}
-            VITE_API_URL=${{ vars.INMO24X7_API_URL || 'http://localhost:8001' }}
+            VITE_API_URL=${{ vars.INMO24X7_API_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

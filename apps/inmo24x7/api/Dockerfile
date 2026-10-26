@@ -13,6 +13,8 @@ COPY apps/inmo24x7/api/pyproject.toml apps/inmo24x7/api/pyproject.toml
 
 RUN uv sync --frozen --no-dev --all-packages --no-install-project
 
+COPY alembic.ini alembic.ini
+COPY migrations migrations
 COPY packages/core packages/core
 COPY apps/inmo24x7/api apps/inmo24x7/api
 
@@ -29,6 +31,8 @@ RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --create-home app
 WORKDIR /app
 
 COPY --from=builder /app/.venv .venv
+COPY --from=builder /app/alembic.ini alembic.ini
+COPY --from=builder /app/migrations migrations
 COPY --from=builder /app/packages/core packages/core
 COPY --from=builder /app/apps/inmo24x7/api apps/inmo24x7/api
 
@@ -39,8 +43,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
     BUILD_DATE=$BUILD_DATE
 
 USER app
-
-WORKDIR /app/apps/inmo24x7/api
 
 EXPOSE 8001
 

@@ -1,16 +1,19 @@
 import os
 import re
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
-from followup_core.infrastructure.db import Base
 from inmo24x7_api.database import get_session
 from inmo24x7_api.main import app
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
+ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_TEST_DATABASE_URL = "postgresql+psycopg://followup:followup@localhost:5433/followup_test"
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
 _DATABASE_NAME = re.compile(r"^[a-z_][a-z0-9_]*$")
@@ -46,12 +49,24 @@ def test_engine():
     engine.dispose()
 
 
+def migrate_database(engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(text("DROP SCHEMA public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+    engine.dispose()
+
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option(
+        "sqlalchemy.url",
+        TEST_DATABASE_URL.replace("%", "%%"),
+    )
+    command.upgrade(config, "head")
+
+
 @pytest.fixture
 def database(test_engine):
-    Base.metadata.drop_all(test_engine)
-    Base.metadata.create_all(test_engine)
+    migrate_database(test_engine)
     yield test_engine
-    Base.metadata.drop_all(test_engine)
 
 
 @pytest.fixture
