@@ -5,10 +5,7 @@ import json
 from _cli import PNPM, ROOT, run
 from inmo24x7_api.main import app
 
-OUTPUTS = (
-    "apps/inmo24x7/web/src/api/schema.ts",
-    "apps/inmo24x7/backoffice/src/api/schema.ts",
-)
+OUTPUTS = ("packages/api-client-inmo24x7/src/schema.ts",)
 
 
 def main() -> None:

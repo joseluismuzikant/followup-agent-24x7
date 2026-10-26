@@ -6,12 +6,14 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/ui/package.json packages/ui/package.json
+COPY packages/api-client-inmo24x7/package.json packages/api-client-inmo24x7/package.json
 COPY apps/inmo24x7/web/package.json apps/inmo24x7/web/package.json
 COPY apps/inmo24x7/backoffice/package.json apps/inmo24x7/backoffice/package.json
 
 RUN corepack pnpm install --frozen-lockfile
 
 COPY packages/ui packages/ui
+COPY packages/api-client-inmo24x7 packages/api-client-inmo24x7
 COPY apps/inmo24x7/web apps/inmo24x7/web
 
 ARG VITE_API_URL=http://localhost:8001

@@ -14,8 +14,12 @@ class InMemoryTenantRepository:
     def add(self, tenant: Tenant) -> None:
         self.tenants.append(tenant)
 
-    def list_all(self) -> list[Tenant]:
-        return list(self.tenants)
+    def list_page(self, page: int, limit: int) -> list[Tenant]:
+        offset = (page - 1) * limit
+        return self.tenants[offset : offset + limit]
+
+    def count(self) -> int:
+        return len(self.tenants)
 
     def slug_exists(self, slug: str) -> bool:
         return any(tenant.slug == slug for tenant in self.tenants)

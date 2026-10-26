@@ -20,6 +20,10 @@ RUN uv sync --frozen --no-dev --all-packages
 
 FROM python:3.12-slim
 
+ARG APP_VERSION=0.1.0
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --create-home app
 
 WORKDIR /app
@@ -29,12 +33,15 @@ COPY --from=builder /app/packages/core packages/core
 COPY --from=builder /app/apps/inmo24x7/api apps/inmo24x7/api
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    APP_VERSION=$APP_VERSION \
+    GIT_COMMIT=$GIT_COMMIT \
+    BUILD_DATE=$BUILD_DATE
 
 USER app
 
 WORKDIR /app/apps/inmo24x7/api
 
-EXPOSE 8000
+EXPOSE 8001
 
-CMD ["uvicorn", "inmo24x7_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "inmo24x7_api.main:app", "--host", "0.0.0.0", "--port", "8001"]

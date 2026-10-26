@@ -12,14 +12,18 @@ class InMemoryTenantRepository:
     def add(self, tenant: Tenant) -> None:
         self.tenants.append(tenant)
 
-    def list_all(self) -> list[Tenant]:
-        return list(self.tenants)
+    def list_page(self, page: int, limit: int) -> list[Tenant]:
+        offset = (page - 1) * limit
+        return self.tenants[offset : offset + limit]
+
+    def count(self) -> int:
+        return len(self.tenants)
 
     def slug_exists(self, slug: str) -> bool:
         return any(tenant.slug == slug for tenant in self.tenants)
 
 
-def test_list_tenants_returns_repository_items() -> None:
+def test_list_tenants_returns_a_page() -> None:
     tenant = Tenant(
         id=uuid4(),
         name="Inmobiliaria Sur",
@@ -27,6 +31,10 @@ def test_list_tenants_returns_repository_items() -> None:
         created_at=datetime.now(UTC),
     )
 
-    result = ListTenants(InMemoryTenantRepository([tenant])).execute()
+    result = ListTenants(InMemoryTenantRepository([tenant])).execute(page=1, limit=10)
 
-    assert result == [tenant]
+    assert result.items == [tenant]
+    assert result.page == 1
+    assert result.limit == 10
+    assert result.total == 1
+    assert result.total_pages == 1

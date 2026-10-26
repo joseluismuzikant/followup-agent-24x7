@@ -32,3 +32,10 @@ def test_tenant_rejects_blank_name() -> None:
 def test_tenant_rejects_invalid_slug() -> None:
     with pytest.raises(InvalidTenantSlugError):
         build_tenant(slug="Inmobiliaria Sur")
+
+
+def test_tenant_create_normalizes_name_and_derives_slug() -> None:
+    tenant = Tenant.create("  Inmobiliaria Ñandú  ")
+
+    assert tenant.name == "Inmobiliaria Ñandú"
+    assert tenant.slug == "inmobiliaria-nandu"

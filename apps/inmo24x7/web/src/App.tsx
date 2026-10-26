@@ -1,4 +1,15 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, PanelLayout } from "@inmo24x7/ui";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  PanelLayout,
+} from "@followup/ui";
+import { useQuery } from "@tanstack/react-query";
+
+import { fetchReadiness } from "./api/health";
+import { apiErrorMessage } from "./lib/api-errors";
 
 const navItems = [
   { label: "Inicio", href: "/", active: true },
@@ -22,6 +33,41 @@ const features = [
   },
 ];
 
+function ServiceStatus() {
+  const readinessQuery = useQuery({
+    queryKey: ["readiness"],
+    queryFn: fetchReadiness,
+    retry: 1,
+  });
+
+  if (readinessQuery.isPending) {
+    return (
+      <span className="text-sm text-muted-foreground" aria-live="polite">
+        Verificando servicio...
+      </span>
+    );
+  }
+
+  if (readinessQuery.isError) {
+    return (
+      <span
+        className="text-sm text-destructive"
+        title={apiErrorMessage(readinessQuery.error, "Servicio no disponible.")}
+        aria-live="polite"
+      >
+        Servicio no disponible
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+      <span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />
+      Servicio disponible
+    </span>
+  );
+}
+
 export function App() {
   return (
     <PanelLayout
@@ -30,6 +76,7 @@ export function App() {
       title="Hola"
       description="Este es el espacio donde vas a hacer crecer tu inmobiliaria."
       navItems={navItems}
+      action={<ServiceStatus />}
     >
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,1fr)]">
         <Card>

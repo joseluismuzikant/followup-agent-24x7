@@ -1,15 +1,19 @@
-import type { components } from "./schema";
+import {
+  ApiRequestError,
+  errorCode,
+  type TenantPage,
+} from "@followup/api-client-inmo24x7";
 
-export type Tenant = components["schemas"]["TenantRead"];
+import { apiClient } from "./client";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8001";
+export async function fetchTenants(page: number, limit: number): Promise<TenantPage> {
+  const { data, error, response } = await apiClient.GET("/tenants", {
+    params: { query: { page, limit } },
+  });
 
-export async function fetchTenants(): Promise<Tenant[]> {
-  const response = await fetch(`${API_URL}/tenants`);
-
-  if (!response.ok) {
-    throw new Error("No pudimos cargar los negocios.");
+  if (data) {
+    return data;
   }
 
-  return response.json() as Promise<Tenant[]>;
+  throw new ApiRequestError(response.status, errorCode(error));
 }

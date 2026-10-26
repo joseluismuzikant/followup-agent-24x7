@@ -9,7 +9,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/.venv/**",
       "**/migrations/**",
-      "**/api/schema.ts",
+      "packages/api-client-inmo24x7/src/schema.ts",
     ],
   },
   js.configs.recommended,

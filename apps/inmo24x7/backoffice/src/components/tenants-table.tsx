@@ -1,6 +1,12 @@
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@inmo24x7/ui";
-
-import type { Tenant } from "../api/tenants";
+import type { Tenant } from "@followup/api-client-inmo24x7";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@followup/ui";
 
 interface TenantsTableProps {
   tenants: Tenant[];

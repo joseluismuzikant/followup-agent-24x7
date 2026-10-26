@@ -10,7 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@inmo24x7/ui": "workspace:*",
+    "@followup/api-client-inmo24x7": "workspace:*",
+    "@followup/ui": "workspace:*",
     "@tanstack/react-query": "^5.105.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

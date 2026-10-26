@@ -6,18 +6,23 @@ import {
   CardHeader,
   CardTitle,
   PanelLayout,
-} from "@inmo24x7/ui";
-import { useQuery } from "@tanstack/react-query";
+} from "@followup/ui";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { fetchTenants } from "./api/tenants";
 import { TenantsTable } from "./components/tenants-table";
+import { apiErrorMessage } from "./lib/api-errors";
 
+const PAGE_SIZE = 10;
 const navItems = [{ label: "Negocios", href: "/", active: true }];
 
 export function App() {
+  const [page, setPage] = useState(1);
   const tenantsQuery = useQuery({
-    queryKey: ["tenants"],
-    queryFn: fetchTenants,
+    queryKey: ["tenants", page, PAGE_SIZE],
+    queryFn: () => fetchTenants(page, PAGE_SIZE),
+    placeholderData: keepPreviousData,
   });
 
   return (
@@ -46,7 +51,10 @@ export function App() {
           <CardHeader>
             <CardTitle>No pudimos cargar los negocios</CardTitle>
             <CardDescription>
-              Revisá que la API esté funcionando y volvé a intentarlo.
+              {apiErrorMessage(
+                tenantsQuery.error,
+                "Revisá que la API esté funcionando y volvé a intentarlo.",
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -55,7 +63,7 @@ export function App() {
         </Card>
       ) : null}
 
-      {tenantsQuery.isSuccess && tenantsQuery.data.length === 0 ? (
+      {tenantsQuery.isSuccess && tenantsQuery.data.total === 0 ? (
         <Card className="max-w-xl">
           <CardHeader>
             <CardTitle>Todavía no hay negocios</CardTitle>
@@ -66,10 +74,36 @@ export function App() {
         </Card>
       ) : null}
 
-      {tenantsQuery.isSuccess && tenantsQuery.data.length > 0 ? (
+      {tenantsQuery.isSuccess && tenantsQuery.data.total > 0 ? (
         <Card>
           <CardContent>
-            <TenantsTable tenants={tenantsQuery.data} />
+            <TenantsTable tenants={tenantsQuery.data.items} />
+            <div className="mt-4 flex flex-col gap-3 border-t pt-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Página {tenantsQuery.data.page} de {tenantsQuery.data.total_pages} ·{" "}
+                {tenantsQuery.data.total} negocios
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1 || tenantsQuery.isFetching}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    page >= tenantsQuery.data.total_pages || tenantsQuery.isFetching
+                  }
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  Siguiente
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : null}

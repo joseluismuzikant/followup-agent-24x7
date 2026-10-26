@@ -1,19 +1,11 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TenantCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-
-    @field_validator("name")
-    @classmethod
-    def strip_name(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("Tenant name cannot be empty.")
-        return stripped
 
 
 class TenantRead(BaseModel):
@@ -23,3 +15,15 @@ class TenantRead(BaseModel):
     name: str
     slug: str
     created_at: datetime
+
+
+class TenantPageRead(BaseModel):
+    items: list[TenantRead]
+    page: int
+    limit: int
+    total: int
+    total_pages: int
+
+
+class ErrorResponse(BaseModel):
+    code: str
