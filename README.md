@@ -315,7 +315,7 @@ scripts                            local startup and type generation
 
 ## Images
 
-On every push to the repository's default branch, after tests pass, CI builds and pushes amd64 + arm64 images for the API, web, and backoffice to GitHub Container Registry. Images use `latest` and `sha-<commit>` tags. The API receives `APP_VERSION`, `GIT_COMMIT`, and `BUILD_DATE`; the panels receive `VITE_API_URL` from the required `INMO24X7_API_URL` repository variable. Frontend image builds fail when it is missing.
+On every push to the repository's default branch, after tests pass, CI builds and pushes amd64 + arm64 images for the API, web, and backoffice to GitHub Container Registry. Images use `latest` and `sha-<commit>` tags. The API receives `APP_VERSION`, `GIT_COMMIT`, and `BUILD_DATE`; the panels receive `VITE_API_URL` from the `INMO24X7_API_URL` repository variable (or the `INMO24X7_API_URL` secret). If neither is set, CI falls back to `http://localhost:8001`; set it to the production API URL before deploying.
 
 Run the API image with `APP_ENV=production`, `DATABASE_URL`, and `CORS_ORIGINS` set.
 

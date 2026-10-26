@@ -111,6 +111,6 @@ jobs:
             APP_VERSION=${{ env.APP_VERSION }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ env.BUILD_DATE }}
-            VITE_API_URL=${{ vars.INMO24X7_API_URL }}
+            VITE_API_URL=${{ vars.INMO24X7_API_URL || secrets.INMO24X7_API_URL || 'http://localhost:8001' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
