@@ -1,0 +1,27 @@
+[project]
+name = "followup-agent-24x7"
+version = "0.1.0"
+description = "Monorepo for follow-up agents on WhatsApp"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.uv.workspace]
+members = ["packages/core", "apps/inmo24x7/api"]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.0",
+    "pytest>=8.3.4",
+    "ruff>=0.9.7",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/core/tests", "apps/inmo24x7/api/tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

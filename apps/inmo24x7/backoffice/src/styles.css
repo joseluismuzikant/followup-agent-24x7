@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@inmo24x7/ui/styles.css";
+
+@source "./";
+@source "../../../../packages/ui/src";
