@@ -1,45 +1,46 @@
-# Arquitectura
+# Architecture
 
-Monorepo con un motor compartido y dos productos. Todo el código, nombres y
-comentarios están en inglés; los textos de interfaz están en español.
+Monorepo with a shared engine and two products. All code, names, comments, and
+documentation are in English; product UI copy is in Spanish.
 
-## Capas
+## Layers
 
-Cada contexto tiene tres carpetas:
+Each context has three folders:
 
-- `domain/`: entidades, valores y contratos de repositorio. Python puro.
-- `application/`: casos de uso.
-- `infrastructure/`: SQLAlchemy, WhatsApp, LangGraph, FastAPI y demás adaptadores.
+- `domain/`: entities, value objects, and repository contracts. Pure Python.
+- `application/`: use cases.
+- `infrastructure/`: SQLAlchemy, WhatsApp, LangGraph, FastAPI, and other adapters.
 
-`domain` nunca importa de `application` ni de `infrastructure`. Si dos productos
-necesitan una pieza, vive en `packages/core`; si no, vive en el producto.
+`domain` never imports from `application` or `infrastructure`. If both products
+need a piece, it belongs in `packages/core`; otherwise, it stays in the product.
 
-## Contextos
+## Contexts
 
-En `packages/core`:
+In `packages/core`:
 
-- **Tenancy**: clientes, planes, onboarding, notificaciones y auditoría.
-- **Identity**: perfiles, roles y administración global.
-- **Messaging**: WhatsApp Cloud API y Embedded Signup.
-- **Conversation**: seguimientos, agente y derivación a una persona.
+- **Tenancy**: customers, plans, onboarding, notifications, and audit log.
+- **Identity**: profiles, roles, and global administration.
+- **Messaging**: WhatsApp Cloud API and Embedded Signup.
+- **Conversation**: follow-up threads, agent runtime, and human handoff.
 
-En `apps/inmo24x7/api`:
+In `apps/inmo24x7/api`:
 
-- **Leads**: calificación y coordinación de visitas.
-- **Properties**: importación y validación de propiedades.
+- **Leads**: qualification and property visit coordination.
+- **Properties**: property import and validation.
 
-Milestone 1 implementa Tenancy, sus endpoints y los dos paneles. El resto se
-agrega en los milestones 2 y 3.
+Milestone 1 implements Tenancy, its endpoints, and both panels. The remaining
+contexts are added in milestones 2 and 3.
 
-## Límites actuales
+## Current boundaries
 
-- Sin autenticación: Supabase llega con el onboarding.
-- Sin LangGraph ni WhatsApp: se incorporan con el agente y la conexión.
-- Los tests de API usan SQLite en memoria; desarrollo y producción usan Postgres.
+- No authentication yet: Supabase arrives with onboarding.
+- No LangGraph or WhatsApp yet: they arrive with the agent and connection flows.
+- API tests use in-memory SQLite; development and production use Postgres.
 
-## Agente
+## Agent
 
-Cuando se incorpore, el estado vivirá en LangGraph con el checkpointer de Postgres
-y `thread_id = tenant_id:channel:visitor_id`. Las herramientas se declararán una
-sola vez y tendrán un handler testeado. El grafo controlará el flujo; el LLM no
-lo decidirá desde el prompt. El mismo agente servirá para WhatsApp y el simulador.
+When added, conversation state will live in LangGraph with the Postgres
+checkpointer and `thread_id = tenant_id:channel:visitor_id`. Tools will be
+declared once and each will have a tested handler. The graph will control the
+flow; the LLM will not decide it through prompt rules. The same agent will serve
+WhatsApp and the simulator.

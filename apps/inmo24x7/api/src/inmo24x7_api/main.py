@@ -11,7 +11,7 @@ settings = get_settings()
 def create_app() -> FastAPI:
     application = FastAPI(
         title="inmo24x7 API",
-        description="API para agentes inmobiliarios de seguimiento.",
+        description="API for real estate follow-up agents.",
         version="0.1.0",
     )
     application.add_middleware(

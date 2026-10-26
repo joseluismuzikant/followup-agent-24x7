@@ -1,36 +1,37 @@
 # followup-agent-24x7
 
-Plataforma de agentes de WhatsApp que siguen cada conversación hasta un resultado.
+Platform for WhatsApp agents that follow up on every conversation until it reaches an outcome.
 
-- **inmo24x7**: califica consultas inmobiliarias y coordina visitas. Es el primer producto.
-- **Cuentas Claras**: cobranza de facturas para empresas de servicios. Solo está definido el alcance.
+- **inmo24x7**: qualifies real estate leads and books property visits. This is the first product.
+- **Cuentas Claras**: invoice collection for service companies. Only the scope is defined.
 
-Estado actual: **milestone 1**, la base del panel, la API y la tenencia.
+Current state: **milestone 1**, the foundation for the panel, API, and tenancy.
 
-## Requisitos
+All repository documentation and code are in English. The product UI is in Spanish (Argentina).
 
-- Docker con Compose.
+## Requirements
+
+- Docker with Compose.
 - [uv](https://docs.astral.sh/uv/).
-- Node.js 22 o superior. Corepack, incluido con Node, provee `pnpm`.
+- Node.js 22 or newer. Corepack, included with Node, provides `pnpm`.
 
-
-## Arrancar
+## Start
 
 ```bash
 uv run --all-packages python scripts/dev.py
 ```
 
-El comando instala dependencias, levanta Postgres, aplica migraciones y arranca
-la API y los dos paneles. Se detiene todo con `Ctrl+C`.
+The command installs dependencies, starts Postgres, applies migrations, and starts
+the API and both panels. Press `Ctrl+C` to stop everything.
 
 - Panel: http://localhost:5173
 - Backoffice: http://localhost:5174
 - API: http://localhost:8001
-- Documentación de la API: http://localhost:8001/docs
+- API documentation: http://localhost:8001/docs
 
-Postgres local usa el puerto 5433 para no chocar con otras bases.
+Local Postgres uses port 5433 to avoid conflicts with other databases.
 
-### Paso a paso, sin script
+### Manual start
 
 ```bash
 uv sync --all-packages
@@ -39,7 +40,7 @@ docker compose up -d --wait db
 uv --directory apps/inmo24x7/api run alembic upgrade head
 ```
 
-Después, en terminales separadas:
+Then, in separate terminals:
 
 ```bash
 uv --directory apps/inmo24x7/api run uvicorn inmo24x7_api.main:app --reload --port 8001
@@ -47,24 +48,24 @@ corepack pnpm --filter @inmo24x7/web dev
 corepack pnpm --filter @inmo24x7/backoffice dev
 ```
 
-## Variables de entorno
+## Environment variables
 
-Copiá `.env.example` a `.env` para cambiarlas. El script de desarrollo y Vite
-leen el `.env` de la raíz. Docker Compose también lo lee automáticamente.
+Copy `.env.example` to `.env` to change the defaults. The development script and
+Vite read the root `.env`. Docker Compose also reads it automatically.
 
-| Variable | Valor local por defecto | La usa | Descripción |
+| Variable | Local default | Used by | Description |
 | --- | --- | --- | --- |
-| `POSTGRES_USER` | `followup` | Docker Compose | Usuario inicial de Postgres local. |
-| `POSTGRES_PASSWORD` | `followup` | Docker Compose | Contraseña inicial de Postgres local. |
-| `POSTGRES_DB` | `followup` | Docker Compose | Nombre de la base local. |
-| `DATABASE_URL` | `postgresql+psycopg://followup:followup@localhost:5433/followup` | API, Alembic | Conexión a Postgres. En producción apunta a Supabase. Si cambiás usuario, contraseña, base o puerto, actualizala. |
-| `CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` | API | Orígenes permitidos, separados por coma. |
-| `VITE_API_URL` | `http://localhost:8001` | Web, backoffice | URL pública de la API. Se incorpora al build de los paneles. |
+| `POSTGRES_USER` | `followup` | Docker Compose | Initial local Postgres user. |
+| `POSTGRES_PASSWORD` | `followup` | Docker Compose | Initial local Postgres password. |
+| `POSTGRES_DB` | `followup` | Docker Compose | Local database name. |
+| `DATABASE_URL` | `postgresql+psycopg://followup:followup@localhost:5433/followup` | API, Alembic | Postgres connection. In production it points to Supabase. Update it if you change the user, password, database, or port. |
+| `CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` | API | Allowed origins, separated by commas. |
+| `VITE_API_URL` | `http://localhost:8001` | Web, backoffice | Public API URL. It is embedded in the panel builds. |
 
-Las variables de Supabase y Meta se agregan en los milestones 2 y 3. No hay
-secretos reales en el repositorio.
+Supabase and Meta variables are added in milestones 2 and 3. The repository
+contains no real secrets.
 
-## Tests, lint y tipos
+## Tests, lint, and types
 
 ```bash
 uv run --all-packages pytest
@@ -88,30 +89,30 @@ curl -X POST http://localhost:8001/tenants \
   -d '{"name":"Inmobiliaria Sur"}'
 ```
 
-## Estructura
+## Structure
 
 ```text
-apps/inmo24x7/api          API FastAPI
-apps/inmo24x7/web          panel para clientes
-apps/inmo24x7/backoffice   administración interna
-apps/cuentas-claras        alcance del segundo producto
-packages/core              dominio y aplicación compartidos
-packages/ui                componentes React compartidos
-scripts                    arranque local y generación de tipos
+apps/inmo24x7/api          FastAPI API
+apps/inmo24x7/web          customer panel
+apps/inmo24x7/backoffice   internal administration
+apps/cuentas-claras        second product scope
+packages/core              shared domain and application layer
+packages/ui                shared React components
+scripts                    local startup and type generation
 ```
 
-## Imágenes
+## Images
 
-Las imágenes son multiarquitectura (amd64 y arm64):
+Images support multiple architectures (amd64 and arm64):
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 \
-  -f apps/inmo24x7/api/Dockerfile -t mi-registro/inmo24x7-api:latest --push .
+  -f apps/inmo24x7/api/Dockerfile -t my-registry/inmo24x7-api:latest --push .
 ```
 
-Se repite el mismo comando con los Dockerfiles de `web` y `backoffice`. Los paneles
-necesitan `--build-arg VITE_API_URL=https://api.example.com` en el build.
+Use the same command with the `web` and `backoffice` Dockerfiles. The panels need
+`--build-arg VITE_API_URL=https://api.example.com` at build time.
 
-## Licencia
+## License
 
-TODO: elegir una licencia antes de distribuir el proyecto.
+TODO: choose a license before distributing this project.

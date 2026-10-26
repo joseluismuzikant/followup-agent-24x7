@@ -1,9 +1,9 @@
 # Cuentas Claras
 
-Producto de cobranza de facturas para empresas de servicios.
+Invoice collection product for service companies.
 
-Alcance: contactar a clientes con facturas pendientes, recordar vencimientos,
-registrar promesas de pago y derivar casos complejos a una persona.
+Scope: contact customers with overdue invoices, remind them about due dates,
+record payment promises, and hand complex cases off to a person.
 
-Todavía no tiene código. Comparte la plataforma y los contextos de
-`packages/core` con inmo24x7.
+There is no code yet. It shares the platform and the contexts in
+`packages/core` with inmo24x7.
