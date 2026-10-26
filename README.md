@@ -43,10 +43,19 @@ Both are follow-up agents: inmo24x7 follows a lead until a visit is booked; Cuen
 
 ## Screens
 
-Design mockups (open the HTML files in a browser):
+Selected screens from the product prototypes. Click an image to open its full gallery.
 
-- [inmo24x7 screens](docs/inmo24-screens.html): sign-up, onboarding, and the agency backoffice.
-- [Cuentas Claras screens](docs/cuentas-claras-screens.html): dashboard, invoices, and approvals.
+| inmo24x7 | Cuentas Claras |
+| --- | --- |
+| <a href="docs/inmo24-screens.html"><img src="docs/screens/inmo24x7-onboarding-simulator.png" width="480" alt="inmo24x7 onboarding chat simulator"></a> | <a href="docs/cuentas-claras-screens.html"><img src="docs/screens/cuentas-claras-panel.png" width="480" alt="Cuentas Claras collections dashboard"></a> |
+| <a href="docs/inmo24-screens.html"><img src="docs/screens/inmo24x7-panel.png" width="480" alt="inmo24x7 panel home"></a> | <a href="docs/cuentas-claras-screens.html"><img src="docs/screens/cuentas-claras-approvals.png" width="480" alt="Cuentas Claras payment approvals"></a> |
+
+Full galleries:
+
+- [inmo24x7 screens](docs/inmo24-screens.html): sign-in, onboarding, chat simulator, WhatsApp connection, dashboard, inquiries, properties, and backoffice.
+- [Cuentas Claras screens](docs/cuentas-claras-screens.html): dashboard, invoices, approvals, reminders and collections, and backoffice.
+
+Open the gallery HTML files in a browser to browse every screen.
 
 ## Architecture
 
