@@ -41,6 +41,13 @@ Both are follow-up agents: inmo24x7 follows a lead until a visit is booked; Cuen
 | inmo24x7 | A real estate lead | A property visit is booked | WhatsApp via Meta Cloud API; the agency's listings |
 | Cuentas Claras | An invoice | The invoice is paid | WhatsApp via Meta Cloud API; ARCA; Mercado Pago |
 
+## Screens
+
+Design mockups (open the HTML files in a browser):
+
+- [inmo24x7 screens](docs/inmo24-screens.html): sign-up, onboarding, and the agency backoffice.
+- [Cuentas Claras screens](docs/cuentas-claras-screens.html): dashboard, invoices, and approvals.
+
 ## Architecture
 
 Dashed components and edges are planned.
