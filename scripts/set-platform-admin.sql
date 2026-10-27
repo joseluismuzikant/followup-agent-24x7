@@ -1,0 +1,6 @@
+-- Mark a Supabase user as a platform administrator.
+--
+-- Replace the UUID below with the user's Supabase `auth.users` id. This only
+-- works after the user has signed up and therefore has a row in `profiles`.
+--
+--   UPDATE profiles SET is_platform_admin = true WHERE id = '00000000-0000-0000-0000-000000000000';

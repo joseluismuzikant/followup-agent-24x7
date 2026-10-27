@@ -22,7 +22,21 @@ def error_response(status_code: int, code: str) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={"code": code})
 
 
+class ApiError(Exception):
+    def __init__(self, status_code: int, code: str) -> None:
+        super().__init__(code)
+        self.status_code = status_code
+        self.code = code
+
+
 def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(ApiError)
+    async def api_error_handler(
+        _request: Request,
+        error: ApiError,
+    ) -> JSONResponse:
+        return error_response(error.status_code, error.code)
+
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
         _request: Request,

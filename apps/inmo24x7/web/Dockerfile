@@ -20,6 +20,11 @@ ARG VITE_API_URL
 RUN test -n "$VITE_API_URL" || (echo "VITE_API_URL build argument is required." >&2; exit 1)
 ENV VITE_API_URL=$VITE_API_URL
 
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
+    VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
 RUN corepack pnpm --filter @inmo24x7/web build
 
 FROM nginx:alpine

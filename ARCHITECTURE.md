@@ -26,12 +26,11 @@ In `apps/inmo24x7/api`:
 - **Leads**: qualification and property visit coordination.
 - **Properties**: property import and validation.
 
-Milestone 1 implements Tenancy, its endpoints, and both panels.
+Milestone 1 implements Tenancy, Identity, their endpoints, and both panels.
 
 ## Current boundaries
 
-- No authentication yet: Supabase arrives with onboarding.
-- **Do not deploy the API publicly before milestone 2.** There is no authentication or authorization yet; every endpoint is open.
+- Authentication is provided by Supabase Auth behind a `TokenVerifier` port; profiles carry roles and the platform-admin flag.
 - No LangGraph or WhatsApp yet: they arrive with the agent and connection flows.
 - API integration tests run against a dedicated Postgres test database. Core unit tests use in-memory repositories.
 

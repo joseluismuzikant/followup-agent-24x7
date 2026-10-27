@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -6,15 +6,18 @@ from followup_core.tenancy.domain.errors import (
     InvalidTenantNameError,
     InvalidTenantSlugError,
 )
-from followup_core.tenancy.domain.tenant import Tenant
+from followup_core.tenancy.domain.tenant import Tenant, TenantStatus
 
 
 def build_tenant(name: str = "Inmobiliaria Sur", slug: str = "inmobiliaria-sur") -> Tenant:
+    now = datetime.now(UTC)
     return Tenant(
         id=uuid4(),
         name=name,
         slug=slug,
-        created_at=datetime.now(UTC),
+        created_at=now,
+        status=TenantStatus.ACTIVE,
+        trial_ends_at=now + timedelta(days=14),
     )
 
 
@@ -39,3 +42,5 @@ def test_tenant_create_normalizes_name_and_derives_slug() -> None:
 
     assert tenant.name == "Inmobiliaria Ñandú"
     assert tenant.slug == "inmobiliaria-nandu"
+    assert tenant.status == TenantStatus.ACTIVE
+    assert tenant.trial_ends_at > tenant.created_at

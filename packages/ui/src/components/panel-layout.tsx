@@ -15,6 +15,7 @@ interface PanelLayoutProps {
   description?: string;
   navItems: PanelNavItem[];
   action?: React.ReactNode;
+  subtitle?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -25,6 +26,7 @@ export function PanelLayout({
   description,
   navItems,
   action,
+  subtitle,
   children,
 }: PanelLayoutProps) {
   return (
@@ -39,6 +41,9 @@ export function PanelLayout({
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               {areaName}
             </p>
+            {subtitle ? (
+              <p className="mt-0.5 text-xs font-medium text-foreground">{subtitle}</p>
+            ) : null}
           </div>
         </div>
 
