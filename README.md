@@ -6,6 +6,8 @@ A platform of WhatsApp agents that follow up on every conversation until it reac
 
 All repository documentation and code are in English. Product UI copy is in Spanish (Argentina).
 
+See the [12-day MVP roadmap](docs/roadmap-mvp.md) and the [screen specifications](docs/screens-spec.md).
+
 ## The products and their business goals
 
 ### inmo24x7: never lose a lead again
@@ -14,6 +16,7 @@ All repository documentation and code are in English. Product UI copy is in Span
 - **Problem:** inquiries arrive at night and on weekends, answers come hours later, and most leads go cold before anyone talks to them.
 - **What it does:** replies on WhatsApp in seconds at any hour, qualifies the lead (operation, area, budget, financing), suggests matching properties from the agency's own listings, books visits, and hands off to an agent with a summary.
 - **Success metric:** booked visits per month.
+- **Status:** the foundation (milestone 1) is implemented; the full product follows Days 1–7 of the roadmap.
 
 ### Cuentas Claras: collect without chasing
 
@@ -30,7 +33,7 @@ All repository documentation and code are in English. Product UI copy is in Span
 - **Not for:** large consumer debt collection or retail stores that charge at the counter.
 - **Pricing model:** a base fee plus a fee per managed client, so the price grows with the customer.
 - **Success metric:** money recovered per month and days sales outstanding.
-- **Status:** scope only; it is built after inmo24x7 on the same engine.
+- **Status:** scope only today; it is built on Days 8–12 of the roadmap on the same engine.
 
 ### What both share
 
@@ -55,7 +58,7 @@ Full galleries:
 - [inmo24x7 screens](docs/inmo24-screens.html): sign-in, onboarding, chat simulator, WhatsApp connection, dashboard, inquiries, properties, and backoffice.
 - [Cuentas Claras screens](docs/cuentas-claras-screens.html): dashboard, invoices, approvals, reminders and collections, and backoffice.
 
-Open the gallery HTML files in a browser to browse every screen.
+Open the gallery HTML files in a browser to browse every screen. Behavior, API, and data requirements for each screen live in the [screen specification](docs/screens-spec.md).
 
 ## Architecture
 
