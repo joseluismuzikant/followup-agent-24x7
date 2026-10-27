@@ -91,7 +91,7 @@ flowchart TB
 
     subgraph Core["packages/core"]
         TENANCY["Tenancy"]
-        IDENTITY["Identity<br/>(planned)"]
+        IDENTITY["Identity"]
         MESSAGING["Messaging<br/>(planned)"]
         CONVERSATION["Conversation<br/>(planned)"]
     end
@@ -103,7 +103,7 @@ flowchart TB
     subgraph Data["Data and identity"]
         POSTGRES["Postgres<br/>local development"]
         SUPABASE["Postgres on Supabase<br/>(planned)"]
-        AUTH["Supabase Auth<br/>(planned)"]
+        AUTH["Supabase Auth"]
     end
 
     ARCA["ARCA<br/>(planned)"]
@@ -128,7 +128,7 @@ flowchart TB
     CC_BACKOFFICE -.-> CC_CLIENT
 
     API --> TENANCY
-    API -.-> IDENTITY
+    API --> IDENTITY
     API -.-> MESSAGING
     API -.-> CONVERSATION
     CC_API -.-> TENANCY
@@ -142,13 +142,13 @@ flowchart TB
     CHECKPOINTER -.-> POSTGRES
     TENANCY --> POSTGRES
     POSTGRES -.-> SUPABASE
-    IDENTITY -.-> AUTH
+    IDENTITY --> AUTH
     AUTH -.-> SUPABASE
     CC_API -.-> ARCA
     CC_API -.-> MERCADO_PAGO
 
     classDef planned fill:#ffffff,stroke:#8b8b8b,stroke-width:1px,stroke-dasharray: 5 5,color:#666666;
-    class WHATSAPP,SIMULATOR,CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,IDENTITY,MESSAGING,CONVERSATION,PORT,LANGGRAPH,CHECKPOINTER,SUPABASE,AUTH,ARCA,MERCADO_PAGO planned;
+    class WHATSAPP,SIMULATOR,CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,MESSAGING,CONVERSATION,PORT,LANGGRAPH,CHECKPOINTER,SUPABASE,ARCA,MERCADO_PAGO planned;
 ```
 
 The same context layers apply to every bounded context. Dependencies point inward, and the domain has no outward imports.
@@ -169,8 +169,6 @@ flowchart LR
 - Docker with Compose.
 - [uv](https://docs.astral.sh/uv/).
 - Node.js 22.13 or newer. Corepack, included with Node, provides `pnpm`.
-
-> **Security warning:** the API has no authentication until milestone 2. Do not deploy it publicly before then.
 
 ## Start
 
@@ -238,6 +236,12 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `TEST_DATABASE_URL` | `postgresql+psycopg://followup:followup@localhost:5433/followup_test` | API tests | Dedicated test database. Tests create it when necessary and never modify the development database. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` | API | Allowed origins, separated by commas. Required in production. |
 | `VITE_API_URL` | `http://localhost:8001` | Web, backoffice | Public API URL. It is embedded in the panel builds. |
+| `SUPABASE_URL` | *(empty)* | API | Supabase project URL. Required in production. |
+| `SUPABASE_ANON_KEY` | *(empty)* | API | Supabase anon key. Required in production. |
+| `SUPABASE_JWT_SECRET` | *(empty)* | API | Supabase JWT secret for verifying access tokens. Required in production. |
+| `SUPABASE_JWKS_URL` | *(empty)* | API | Optional JWKS URL when tokens are verified with RS256 instead of HS256. |
+| `VITE_SUPABASE_URL` | *(empty)* | Web, backoffice | Supabase URL for the auth client in the panels. |
+| `VITE_SUPABASE_ANON_KEY` | *(empty)* | Web, backoffice | Supabase anon key for the auth client in the panels. |
 | `APP_VERSION` | `0.1.0` | API, Docker | Version returned by readiness. Passed as a Docker build argument. |
 | `GIT_COMMIT` | `unknown` | API, Docker | Commit returned by readiness. Passed as a Docker build argument. |
 | `BUILD_DATE` | `unknown` | API, Docker | Build date returned by readiness. Passed as a Docker build argument. |

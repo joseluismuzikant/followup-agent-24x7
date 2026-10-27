@@ -13,6 +13,8 @@ describe("TenantsTable", () => {
             name: "Inmobiliaria Sur",
             slug: "inmobiliaria-sur",
             created_at: "2026-10-26T15:17:45.102780Z",
+            status: "active",
+            trial_ends_at: "2026-11-09T15:17:45.102780Z",
           },
         ]}
       />,

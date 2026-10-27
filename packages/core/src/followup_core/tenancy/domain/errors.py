@@ -12,3 +12,7 @@ class InvalidTenantSlugError(TenantError):
 
 class DuplicateTenantSlugError(TenantError):
     """Raised when a tenant slug is already taken."""
+
+
+class TenantNotFoundError(TenantError):
+    """Raised when a tenant does not exist."""

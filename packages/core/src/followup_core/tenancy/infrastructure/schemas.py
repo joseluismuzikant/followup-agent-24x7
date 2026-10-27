@@ -15,6 +15,8 @@ class TenantRead(BaseModel):
     name: str
     slug: str
     created_at: datetime
+    status: str
+    trial_ends_at: datetime
 
 
 class TenantPageRead(BaseModel):

@@ -1,12 +1,19 @@
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from uuid import UUID, uuid4
 
 from .errors import InvalidTenantNameError, InvalidTenantSlugError
 
 _SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_TRIAL_DAYS = 14
+
+
+class TenantStatus(StrEnum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
 
 
 def _slugify(name: str) -> str:
@@ -21,14 +28,19 @@ class Tenant:
     name: str
     slug: str
     created_at: datetime
+    status: TenantStatus
+    trial_ends_at: datetime
 
     @classmethod
     def create(cls, name: str) -> "Tenant":
+        now = datetime.now(UTC)
         return cls(
             id=uuid4(),
             name=name,
             slug=_slugify(name),
-            created_at=datetime.now(UTC),
+            created_at=now,
+            status=TenantStatus.ACTIVE,
+            trial_ends_at=now + timedelta(days=_TRIAL_DAYS),
         )
 
     def __post_init__(self) -> None:

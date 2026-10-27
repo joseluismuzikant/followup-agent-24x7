@@ -14,3 +14,5 @@ class TenantModel(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     slug: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    trial_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

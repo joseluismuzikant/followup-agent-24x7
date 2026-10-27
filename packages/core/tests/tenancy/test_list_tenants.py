@@ -1,8 +1,8 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from followup_core.tenancy.application.list_tenants import ListTenants
-from followup_core.tenancy.domain.tenant import Tenant
+from followup_core.tenancy.domain.tenant import Tenant, TenantStatus
 
 
 class InMemoryTenantRepository:
@@ -11,6 +11,9 @@ class InMemoryTenantRepository:
 
     def add(self, tenant: Tenant) -> None:
         self.tenants.append(tenant)
+
+    def get_by_id(self, tenant_id) -> Tenant | None:
+        return next((tenant for tenant in self.tenants if tenant.id == tenant_id), None)
 
     def list_page(self, page: int, limit: int) -> list[Tenant]:
         offset = (page - 1) * limit
@@ -29,6 +32,8 @@ def test_list_tenants_returns_a_page() -> None:
         name="Inmobiliaria Sur",
         slug="inmobiliaria-sur",
         created_at=datetime.now(UTC),
+        status=TenantStatus.ACTIVE,
+        trial_ends_at=datetime.now(UTC) + timedelta(days=14),
     )
 
     result = ListTenants(InMemoryTenantRepository([tenant])).execute(page=1, limit=10)

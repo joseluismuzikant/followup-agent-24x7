@@ -2,11 +2,15 @@ import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from followup_core.identity.domain.token_verifier import VerifiedToken
+from followup_core.identity.infrastructure.supabase_verifier import FakeTokenVerifier
+from inmo24x7_api.container import get_token_verifier
 from inmo24x7_api.database import get_session
 from inmo24x7_api.main import app
 from sqlalchemy import create_engine, text
@@ -70,6 +74,13 @@ def database(test_engine):
 
 
 @pytest.fixture
+def db_session(database):
+    session = sessionmaker(bind=database, autoflush=False, expire_on_commit=False)()
+    yield session
+    session.close()
+
+
+@pytest.fixture
 def client(database) -> Iterator[TestClient]:
     testing_session = sessionmaker(bind=database, autoflush=False, expire_on_commit=False)
 
@@ -88,3 +99,31 @@ def client(database) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def fake_verifier(client) -> Iterator[FakeTokenVerifier]:
+    verifier = FakeTokenVerifier()
+    app.dependency_overrides[get_token_verifier] = lambda: verifier
+    yield verifier
+    app.dependency_overrides.pop(get_token_verifier, None)
+
+
+@pytest.fixture
+def auth(fake_verifier, db_session):
+    class AuthHelper:
+        @staticmethod
+        def register(user_id: UUID, email: str = "a@example.com") -> str:
+            token = f"tok-{user_id}"
+            fake_verifier.register(token, VerifiedToken(user_id=user_id, email=email))
+            return token
+
+        @staticmethod
+        def make_admin(user_id: UUID) -> None:
+            db_session.execute(
+                text("UPDATE profiles SET is_platform_admin = true WHERE id = :id"),
+                {"id": user_id},
+            )
+            db_session.commit()
+
+    return AuthHelper()

@@ -1,15 +1,22 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from followup_core.tenancy.infrastructure.router import build_tenancy_router
 
+from .auth import require_platform_admin
 from .config import get_settings
-from .container import create_tenant_use_case, list_tenants_use_case
+from .container import (
+    create_tenant_use_case,
+    get_tenant_use_case,
+    list_tenants_use_case,
+    sign_up_use_case,
+)
 from .database import get_session
 from .health import build_health_router
 from .http_errors import register_error_handlers
 from .logging import configure_logging
+from .me import build_me_router
 from .middleware import RequestContextMiddleware
 
 configure_logging()
@@ -35,10 +42,17 @@ def create_app() -> FastAPI:
 
     application.include_router(build_health_router(get_session, settings))
     application.include_router(
+        build_me_router(
+            sign_up_use_case,
+            get_tenant_use_case,
+        )
+    )
+    application.include_router(
         build_tenancy_router(
             create_tenant_use_case,
             list_tenants_use_case,
-        )
+        ),
+        dependencies=[Depends(require_platform_admin)],
     )
 
     logger.info(
