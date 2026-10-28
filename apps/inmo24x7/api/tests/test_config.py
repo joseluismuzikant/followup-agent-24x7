@@ -16,7 +16,6 @@ def clear_settings_cache():
 def _production_env(monkeypatch, *, database_url: str | None = None, cors: str | None = None):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
-    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "jwt-secret")
     if database_url is None:
         monkeypatch.delenv("DATABASE_URL", raising=False)
@@ -56,15 +55,43 @@ def test_production_requires_cors_origins(monkeypatch) -> None:
         get_settings()
 
 
-def test_production_requires_supabase_jwt_secret(monkeypatch) -> None:
+def test_production_requires_supabase_secret_or_jwks(monkeypatch) -> None:
     _production_env(
         monkeypatch,
         database_url="postgresql+psycopg://db/app",
         cors="https://app.example.com",
     )
     monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
 
-    with pytest.raises(ConfigurationError, match="SUPABASE_JWT_SECRET"):
+    with pytest.raises(ConfigurationError, match="SUPABASE_JWT_SECRET or SUPABASE_JWKS_URL"):
+        get_settings()
+
+
+def test_production_accepts_jwks_without_secret_or_anon_key(monkeypatch) -> None:
+    _production_env(
+        monkeypatch,
+        database_url="postgresql+psycopg://db/app",
+        cors="https://app.example.com",
+    )
+    monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    monkeypatch.setenv(
+        "SUPABASE_JWKS_URL", "https://example.supabase.co/auth/v1/.well-known/jwks.json"
+    )
+
+    assert get_settings().supabase_jwks_url.endswith("jwks.json")
+
+
+def test_production_requires_supabase_url(monkeypatch) -> None:
+    _production_env(
+        monkeypatch,
+        database_url="postgresql+psycopg://db/app",
+        cors="https://app.example.com",
+    )
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+
+    with pytest.raises(ConfigurationError, match="SUPABASE_URL"):
         get_settings()
 
 
@@ -73,7 +100,6 @@ def test_startup_fails_fast_without_production_database() -> None:
     env["APP_ENV"] = "production"
     env["CORS_ORIGINS"] = "https://app.example.com"
     env["SUPABASE_URL"] = "https://example.supabase.co"
-    env["SUPABASE_ANON_KEY"] = "anon-key"
     env["SUPABASE_JWT_SECRET"] = "jwt-secret"
     env.pop("DATABASE_URL", None)
 

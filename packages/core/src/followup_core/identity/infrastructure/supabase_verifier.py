@@ -2,26 +2,30 @@ from collections.abc import Mapping
 from uuid import UUID
 
 import jwt
+from jwt.types import Options
 
 from ..domain.errors import InvalidTokenError
 from ..domain.token_verifier import VerifiedToken
 
 
 class SupabaseJwtVerifier:
-    """Verifies Supabase access tokens (HS256 secret or RS256 JWKS)."""
+    """Verifies Supabase access tokens (HS256 secret or ES256/RS256 JWKS)."""
 
     def __init__(
         self,
         *,
         secret: str | None = None,
         jwks_url: str | None = None,
+        issuer: str | None = None,
         audience: str = "authenticated",
     ) -> None:
         self._secret = secret
-        self._jwks_url = jwks_url
+        self._issuer = issuer
         self._audience = audience
+        self._jwks_client = jwt.PyJWKClient(jwks_url) if jwks_url else None
 
     def verify(self, token: str) -> VerifiedToken:
+        options: Options = {"require": ["exp", "sub"]}
         try:
             if self._secret:
                 payload = jwt.decode(
@@ -29,15 +33,18 @@ class SupabaseJwtVerifier:
                     self._secret,
                     algorithms=["HS256"],
                     audience=self._audience,
+                    issuer=self._issuer,
+                    options=options,
                 )
-            elif self._jwks_url:
-                client = jwt.PyJWKClient(self._jwks_url)
-                signing_key = client.get_signing_key_from_jwt(token)
+            elif self._jwks_client is not None:
+                signing_key = self._jwks_client.get_signing_key_from_jwt(token)
                 payload = jwt.decode(
                     token,
                     signing_key.key,
-                    algorithms=["RS256"],
+                    algorithms=["ES256", "RS256"],
                     audience=self._audience,
+                    issuer=self._issuer,
+                    options=options,
                 )
             else:
                 raise InvalidTokenError("No token verification method configured.")
@@ -49,7 +56,12 @@ class SupabaseJwtVerifier:
         if not subject or not email:
             raise InvalidTokenError("Access token is missing required claims.")
 
-        return VerifiedToken(user_id=UUID(subject), email=email)
+        try:
+            user_id = UUID(subject)
+        except ValueError as error:
+            raise InvalidTokenError("Access token has an invalid subject.") from error
+
+        return VerifiedToken(user_id=user_id, email=email)
 
 
 class FakeTokenVerifier:

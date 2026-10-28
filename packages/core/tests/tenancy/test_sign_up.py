@@ -3,10 +3,7 @@ from uuid import UUID, uuid4
 import pytest
 from followup_core.identity.domain.profile import Profile, Role
 from followup_core.tenancy.application.sign_up import SignUp
-from followup_core.tenancy.domain.errors import (
-    DuplicateTenantSlugError,
-    InvalidTenantNameError,
-)
+from followup_core.tenancy.domain.errors import InvalidTenantNameError
 from followup_core.tenancy.domain.tenant import Tenant, TenantStatus
 
 
@@ -96,19 +93,19 @@ def test_sign_up_rejects_blank_business_name() -> None:
         )
 
 
-def test_sign_up_rejects_duplicate_slug_for_different_users() -> None:
+def test_sign_up_picks_next_free_slug_for_same_business_name() -> None:
     tenants = InMemoryTenantRepository()
     profiles = InMemoryProfileRepository()
 
-    SignUp(tenants, profiles).execute(
-        user_id=uuid4(),
-        email="a@example.com",
-        business_name="Inmobiliaria Sur",
-    )
-
-    with pytest.raises(DuplicateTenantSlugError):
-        SignUp(tenants, profiles).execute(
+    slugs = [
+        SignUp(tenants, profiles)
+        .execute(
             user_id=uuid4(),
-            email="b@example.com",
+            email=f"user{index}@example.com",
             business_name="Inmobiliaria Sur",
         )
+        .tenant.slug
+        for index in range(3)
+    ]
+
+    assert slugs == ["inmobiliaria-sur", "inmobiliaria-sur-2", "inmobiliaria-sur-3"]

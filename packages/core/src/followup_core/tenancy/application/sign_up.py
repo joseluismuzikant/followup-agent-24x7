@@ -1,10 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 from followup_core.identity.domain.profile import Profile, Role
 from followup_core.identity.domain.profile_repository import ProfileRepository
 
-from ..domain.errors import DuplicateTenantSlugError, TenantNotFoundError
+from ..domain.errors import TenantNotFoundError
 from ..domain.tenant import Tenant
 from ..domain.tenant_repository import TenantRepository
 
@@ -37,9 +37,7 @@ class SignUp:
                 created=False,
             )
 
-        tenant = Tenant.create(business_name)
-        if self._tenant_repository.slug_exists(tenant.slug):
-            raise DuplicateTenantSlugError(f"Tenant slug '{tenant.slug}' already exists.")
+        tenant = self._with_free_slug(Tenant.create(business_name))
 
         profile = Profile(
             id=user_id,
@@ -53,3 +51,11 @@ class SignUp:
         self._tenant_repository.add(tenant)
         self._profile_repository.add(profile)
         return SignUpResult(profile=profile, tenant=tenant, created=True)
+
+    def _with_free_slug(self, tenant: Tenant) -> Tenant:
+        slug = tenant.slug
+        suffix = 2
+        while self._tenant_repository.slug_exists(slug):
+            slug = f"{tenant.slug}-{suffix}"
+            suffix += 1
+        return replace(tenant, slug=slug)

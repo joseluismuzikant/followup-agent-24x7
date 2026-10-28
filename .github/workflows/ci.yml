@@ -112,10 +112,6 @@ jobs:
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ env.BUILD_DATE }}
             VITE_API_URL=${{ vars.INMO24X7_API_URL || secrets.INMO24X7_API_URL || 'http://localhost:8001' }}
-            SUPABASE_URL=${{ vars.SUPABASE_URL || '' }}
-            SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || '' }}
-            SUPABASE_JWT_SECRET=${{ secrets.SUPABASE_JWT_SECRET || '' }}
-            SUPABASE_JWKS_URL=${{ vars.SUPABASE_JWKS_URL || '' }}
             VITE_SUPABASE_URL=${{ vars.SUPABASE_URL || '' }}
             VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || '' }}
           cache-from: type=gha

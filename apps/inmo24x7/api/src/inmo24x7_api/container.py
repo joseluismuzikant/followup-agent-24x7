@@ -1,3 +1,4 @@
+import logging
 from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
@@ -19,7 +20,13 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .database import get_session
 
+logger = logging.getLogger("inmo24x7.container")
+
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def _issuer(supabase_url: str) -> str | None:
+    return f"{supabase_url.rstrip('/')}/auth/v1" if supabase_url else None
 
 
 @lru_cache
@@ -29,7 +36,12 @@ def get_token_verifier() -> TokenVerifier:
         return SupabaseJwtVerifier(
             secret=settings.supabase_jwt_secret or None,
             jwks_url=settings.supabase_jwks_url or None,
+            issuer=_issuer(settings.supabase_url),
         )
+    logger.warning(
+        "fake_token_verifier_active",
+        extra={"detail": "Any bearer token is accepted. Development only."},
+    )
     return FakeTokenVerifier(
         default=VerifiedToken(
             user_id=UUID("00000000-0000-0000-0000-000000000001"),

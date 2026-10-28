@@ -9,6 +9,7 @@ from .config import get_settings
 from .container import (
     create_tenant_use_case,
     get_tenant_use_case,
+    get_token_verifier,
     list_tenants_use_case,
     sign_up_use_case,
 )
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     )
     application.add_middleware(RequestContextMiddleware)
     register_error_handlers(application)
+    get_token_verifier()  # build once at startup so misconfiguration and the dev warning show early
 
     application.include_router(build_health_router(get_session, settings))
     application.include_router(

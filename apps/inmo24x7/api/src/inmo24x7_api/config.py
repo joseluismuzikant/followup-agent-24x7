@@ -19,7 +19,6 @@ class Settings:
     commit: str
     build_date: str
     supabase_url: str
-    supabase_anon_key: str
     supabase_jwt_secret: str
     supabase_jwks_url: str
 
@@ -45,14 +44,18 @@ def get_settings() -> Settings:
         database_url = _required("DATABASE_URL")
         raw_origins = _required("CORS_ORIGINS")
         supabase_url = _required("SUPABASE_URL")
-        supabase_anon_key = _required("SUPABASE_ANON_KEY")
-        supabase_jwt_secret = _required("SUPABASE_JWT_SECRET")
+        supabase_jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+        supabase_jwks_url = os.getenv("SUPABASE_JWKS_URL", "").strip()
+        if not supabase_jwt_secret and not supabase_jwks_url:
+            raise ConfigurationError(
+                "SUPABASE_JWT_SECRET or SUPABASE_JWKS_URL must be set when APP_ENV=production."
+            )
     else:
         database_url = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
         raw_origins = os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
         supabase_url = os.getenv("SUPABASE_URL", "")
-        supabase_anon_key = os.getenv("SUPABASE_ANON_KEY", "")
         supabase_jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "")
+        supabase_jwks_url = os.getenv("SUPABASE_JWKS_URL", "")
 
     return Settings(
         app_env=app_env,
@@ -62,7 +65,6 @@ def get_settings() -> Settings:
         commit=os.getenv("GIT_COMMIT", "unknown"),
         build_date=os.getenv("BUILD_DATE", "unknown"),
         supabase_url=supabase_url,
-        supabase_anon_key=supabase_anon_key,
         supabase_jwt_secret=supabase_jwt_secret,
-        supabase_jwks_url=os.getenv("SUPABASE_JWKS_URL", ""),
+        supabase_jwks_url=supabase_jwks_url,
     )
