@@ -5,11 +5,19 @@ from uuid import UUID
 
 from followup_core.identity.domain.profile_repository import ProfileRepository
 
-from ..domain.agent_config import AgentConfig
+from ..domain.agent_config import (
+    AfterHoursMode,
+    AgentConfig,
+    QualificationQuestion,
+    QuestionKind,
+    Tone,
+    custom_key,
+    custom_key_number,
+)
 from ..domain.agent_config_repository import AgentConfigRepository, AgentConfigVersion
 from ..domain.business_settings import ScheduleBlock
 from ..domain.business_settings_repository import BusinessSettingsRepository
-from ..domain.errors import TenantSetupNotFoundError
+from ..domain.errors import InvalidQuestionsError, TenantSetupNotFoundError
 from .defaults import SetupDefaults
 
 
@@ -21,6 +29,25 @@ class AgentSetup:
     team_hours: tuple[ScheduleBlock, ...]
     notification_emails: tuple[str, ...]
     defaults: AgentConfig
+
+
+@dataclass(frozen=True, slots=True)
+class QuestionDraft:
+    """A question as the panel sends it. `key` is None for a question added in this save."""
+
+    key: str | None
+    label: str
+    kind: QuestionKind
+    options: tuple[str, ...] = ()
+    enabled: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class AgentConfigDraft:
+    agent_name: str
+    tone: Tone
+    after_hours_mode: AfterHoursMode
+    qualification_questions: tuple[QuestionDraft, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +89,10 @@ class SaveAgentSetup:
 
     The caller's transaction makes the two writes atomic. A new agent version is only
     created when the configuration actually changed.
+
+    The server owns question keys: built-in keys come from the product defaults, and a new
+    question gets `custom_<n>` with n above any custom key this tenant ever used, so a
+    deleted question's key (and the answers stored under it) is never reused.
     """
 
     def __init__(
@@ -72,13 +103,16 @@ class SaveAgentSetup:
     ) -> None:
         self._agent_configs = agent_configs
         self._settings = settings
+        self._built_in_keys = {
+            question.key for question in defaults.agent_config.qualification_questions
+        }
         self._get = GetAgentSetup(agent_configs, settings, defaults)
 
     def execute(
         self,
         tenant_id: UUID,
         profile_id: UUID,
-        config: AgentConfig,
+        draft: AgentConfigDraft,
         team_hours: tuple[ScheduleBlock, ...],
         notification_emails: tuple[str, ...],
     ) -> AgentSetup:
@@ -90,6 +124,7 @@ class SaveAgentSetup:
             team_hours=team_hours,
             notification_emails=notification_emails,
         )
+        config = self._config_from_draft(tenant_id, draft)
         latest = self._agent_configs.latest(tenant_id)
         if latest is None or latest.config != config:
             self._agent_configs.add_version(
@@ -105,6 +140,38 @@ class SaveAgentSetup:
             self._settings.save(new_settings)
 
         return self._get.execute(tenant_id)
+
+    def _config_from_draft(self, tenant_id: UUID, draft: AgentConfigDraft) -> AgentConfig:
+        used_keys = self._agent_configs.question_keys(tenant_id)
+        for question in draft.qualification_questions:
+            if question.key is None or question.key in self._built_in_keys:
+                continue
+            if custom_key_number(question.key) is None or question.key not in used_keys:
+                raise InvalidQuestionsError(f"Question key '{question.key}' is unknown.")
+
+        used_numbers = [custom_key_number(key) for key in used_keys]
+        next_number = max((number for number in used_numbers if number is not None), default=0)
+        questions: list[QualificationQuestion] = []
+        for question in draft.qualification_questions:
+            key = question.key
+            if key is None:
+                next_number += 1
+                key = custom_key(next_number)
+            questions.append(
+                QualificationQuestion(
+                    key=key,
+                    label=question.label,
+                    kind=question.kind,
+                    options=question.options,
+                    enabled=question.enabled,
+                )
+            )
+        return AgentConfig(
+            agent_name=draft.agent_name,
+            tone=draft.tone,
+            after_hours_mode=draft.after_hours_mode,
+            qualification_questions=tuple(questions),
+        )
 
 
 class ListAgentConfigVersions:

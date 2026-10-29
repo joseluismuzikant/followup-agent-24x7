@@ -309,15 +309,17 @@ function TryStep() {
 const whatsappSteps = [
   {
     title: "Entrá con tu cuenta de Facebook",
-    text: "Necesitás una cuenta de Facebook para vincular tu negocio con WhatsApp.",
+    text: "La que administra la página o el negocio de la inmobiliaria.",
   },
   {
-    title: "Elegí o creá tu cuenta de empresa en Meta",
-    text: "Es la cuenta que le da permiso a tu agente para responder en tu nombre.",
+    title: "Elegí el número",
+    text:
+      "Puede ser uno nuevo o el que ya usan. Si está en la app de WhatsApp Business, Meta te guía para pasarlo.",
   },
   {
-    title: "Verificá tu número",
-    text: "Te llega un código por SMS o llamada al número que quieras usar con tus clientes.",
+    title: "Confirmá con el código por SMS",
+    text:
+      "Listo: nosotros configuramos todo lo demás y te mandamos un mensaje de prueba.",
   },
 ];
 
@@ -327,7 +329,7 @@ function WhatsAppStep() {
   return (
     <StepCard
       title="Conectá WhatsApp"
-      description="Son tres pasos. La conexión automática llega muy pronto."
+      description="Se abre una ventana de Meta. Tarda unos 3 minutos y no necesitás saber nada técnico."
     >
       <div className="flex flex-col gap-6">
         <ol className="flex flex-col gap-3">

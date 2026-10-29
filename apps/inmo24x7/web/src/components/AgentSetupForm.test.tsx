@@ -68,6 +68,32 @@ describe("AgentSetupForm", () => {
     expect(screen.queryByRole("button", { name: /^Eliminar: Zona/ })).toBeNull();
   });
 
+  it("sends new questions without a key so the server assigns one", async () => {
+    const saved = {
+      ...defaultConfig,
+      qualification_questions: [
+        ...defaultConfig.qualification_questions,
+        { key: "custom_3", label: "Mascotas", kind: "text" as const, options: [], enabled: true },
+      ],
+    };
+    const { user, onSubmit } = renderForm({ setup: agentSetup({ config: saved, version: 4 }) });
+
+    await user.click(screen.getByRole("button", { name: "+ Agregar una pregunta" }));
+    await user.click(screen.getByRole("button", { name: "+ Agregar una pregunta" }));
+    await user.click(screen.getAllByRole("button", { name: "Eliminar: Nueva pregunta" })[0]);
+    await user.click(screen.getByRole("button", { name: "Guardar y probar mi agente" }));
+
+    const questions = onSubmit.mock.calls[0][0].config.qualification_questions;
+    expect(questions.map((q: { key?: string | null }) => q.key ?? null)).toEqual([
+      "operation",
+      "zone",
+      "budget",
+      "custom_3",
+      null,
+    ]);
+    expect(questions[4]).not.toHaveProperty("id");
+  });
+
   it("reorders questions", async () => {
     const { user } = renderForm();
 

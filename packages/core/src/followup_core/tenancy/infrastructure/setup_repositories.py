@@ -3,11 +3,13 @@ from datetime import UTC, datetime, time
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..domain.agent_config import AgentConfig
 from ..domain.agent_config_repository import AgentConfigVersion
 from ..domain.business_settings import BusinessSettings, BusinessType, ScheduleBlock
+from ..domain.errors import AgentConfigConflictError
 from ..domain.onboarding import Onboarding, OnboardingStep
 from .models import AgentConfigVersionModel, BusinessSettingsModel, OnboardingModel
 
@@ -143,7 +145,24 @@ class SqlAlchemyAgentConfigRepository:
                 config=version.config.to_primitives(),
             )
         )
-        self._session.flush()
+        try:
+            self._session.flush()
+        except IntegrityError as error:
+            # Only the unique (tenant_id, version) constraint can fail here: someone else
+            # saved between our read of the latest version and this insert.
+            raise AgentConfigConflictError(
+                f"Agent config version {version.version} already exists."
+            ) from error
+
+    def question_keys(self, tenant_id: UUID) -> set[str]:
+        configs = self._session.scalars(
+            select(AgentConfigVersionModel.config).where(
+                AgentConfigVersionModel.tenant_id == tenant_id
+            )
+        ).all()
+        return {
+            question["key"] for config in configs for question in config["qualification_questions"]
+        }
 
     def list_versions(self, tenant_id: UUID, limit: int) -> Sequence[AgentConfigVersion]:
         models = self._session.scalars(

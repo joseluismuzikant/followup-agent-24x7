@@ -1,19 +1,19 @@
 import type {
   AgentConfig,
-  AgentQuestion,
+  AgentConfigInput,
+  AgentQuestionInput,
   AgentSetup,
   AgentSetupInput,
   ScheduleBlock,
 } from "@followup/api-client-inmo24x7";
 import { Button, FormField, Input, SegmentedControl } from "@followup/ui";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
   defaultHours,
   isCustomQuestion,
   MAX_QUESTIONS,
-  nextCustomKey,
   parseEmails,
   tones,
 } from "../lib/setup";
@@ -33,7 +33,36 @@ interface AgentSetupFormProps {
   showIntro?: boolean;
 }
 
-/** The agent form shared by wizard step 2 and the Agente page. */
+/** A question in the form. `id` keeps React rows stable while a new question has no key. */
+type FormQuestion = AgentQuestionInput & { id: string };
+type FormConfig = Omit<AgentConfigInput, "qualification_questions"> & {
+  qualification_questions: FormQuestion[];
+};
+
+function toFormConfig(config: AgentConfig): FormConfig {
+  return {
+    ...config,
+    qualification_questions: config.qualification_questions.map((question) => ({
+      ...question,
+      id: question.key,
+    })),
+  };
+}
+
+function toConfigInput(config: FormConfig): AgentConfigInput {
+  return {
+    ...config,
+    qualification_questions: config.qualification_questions.map(
+      ({ key, label, kind, options, enabled }) => ({ key, label, kind, options, enabled }),
+    ),
+  };
+}
+
+/**
+ * The agent form shared by wizard step 2 and the Agente page.
+ *
+ * New questions are sent without a key: the server assigns `custom_<n>` and never reuses one.
+ */
 export function AgentSetupForm({
   setup,
   businessName,
@@ -46,18 +75,19 @@ export function AgentSetupForm({
   showIntro = false,
 }: AgentSetupFormProps) {
   const nameId = useId();
-  const [config, setConfig] = useState<AgentConfig>(setup.config);
+  const [config, setConfig] = useState<FormConfig>(() => toFormConfig(setup.config));
+  const newQuestionCount = useRef(0);
   const [hours, setHours] = useState<ScheduleBlock[]>(setup.business_hours);
   const [emails, setEmails] = useState(setup.notification_emails.join(", "));
   const [localError, setLocalError] = useState<string | null>(null);
 
   const questions = config.qualification_questions;
 
-  function updateQuestions(next: AgentQuestion[]) {
+  function updateQuestions(next: FormQuestion[]) {
     setConfig({ ...config, qualification_questions: next });
   }
 
-  function updateQuestion(index: number, changes: Partial<AgentQuestion>) {
+  function updateQuestion(index: number, changes: Partial<AgentQuestionInput>) {
     updateQuestions(
       questions.map((question, position) =>
         position === index ? { ...question, ...changes } : question,
@@ -76,10 +106,11 @@ export function AgentSetupForm({
   }
 
   function addQuestion() {
+    newQuestionCount.current += 1;
     updateQuestions([
       ...questions,
       {
-        key: nextCustomKey(questions),
+        id: `new-${newQuestionCount.current}`,
         label: "Nueva pregunta",
         kind: "text",
         options: [],
@@ -89,7 +120,7 @@ export function AgentSetupForm({
   }
 
   function useRecommended() {
-    setConfig(setup.defaults);
+    setConfig(toFormConfig(setup.defaults));
     setHours(defaultHours.map((item) => ({ ...item })));
     setLocalError(null);
   }
@@ -109,7 +140,7 @@ export function AgentSetupForm({
       return;
     }
     setLocalError(null);
-    onSubmit({ config, business_hours: hours, notification_emails: notificationEmails });
+    onSubmit({ config: toConfigInput(config), business_hours: hours, notification_emails: notificationEmails });
   }
 
   const shownError = localError ?? error;
@@ -160,7 +191,7 @@ export function AgentSetupForm({
       >
         <ul className="flex flex-col gap-2">
           {questions.map((question, index) => (
-            <li key={question.key} className="flex items-center gap-2">
+            <li key={question.id} className="flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={question.enabled}

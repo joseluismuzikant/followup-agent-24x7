@@ -1,8 +1,19 @@
+from typing import Annotated
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Depends
 from fastapi.testclient import TestClient
+from followup_core.tenancy.application.agent_setup import SaveAgentSetup
+from followup_core.tenancy.infrastructure.setup_repositories import (
+    SqlAlchemyAgentConfigRepository,
+    SqlAlchemyBusinessSettingsRepository,
+)
+from inmo24x7_api.container import get_setup_defaults, save_agent_setup_use_case
+from inmo24x7_api.database import get_session
+from inmo24x7_api.main import app
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 
 class Account:
@@ -229,6 +240,82 @@ def test_invalid_tone_is_a_validation_error(owner: Account) -> None:
 
     assert response.status_code == 422
     assert response.json() == {"code": "validation_error"}
+
+
+def _with_questions(setup: dict, *questions: dict) -> dict:
+    config = {**setup["config"], "qualification_questions": list(questions)}
+    return _body(setup, config=config)
+
+
+def _new_question(label: str) -> dict:
+    return {"label": label, "kind": "text"}
+
+
+def _keys(setup: dict) -> list[str]:
+    return [question["key"] for question in setup["config"]["qualification_questions"]]
+
+
+def test_server_assigns_custom_keys_and_never_reuses_them(owner: Account) -> None:
+    setup = owner.get("/agent-setup").json()
+    zone = setup["config"]["qualification_questions"][1]
+
+    added = owner.put(
+        "/agent-setup",
+        _with_questions(setup, zone, _new_question("Mascotas"), _new_question("Cochera")),
+    ).json()
+    assert _keys(added) == ["zone", "custom_1", "custom_2"]
+
+    pets = added["config"]["qualification_questions"][1]
+    owner.put("/agent-setup", _with_questions(added, zone, pets))  # deletes custom_2
+    readded = owner.put(
+        "/agent-setup", _with_questions(added, zone, pets, _new_question("Balcón"))
+    ).json()
+
+    assert _keys(readded) == ["zone", "custom_1", "custom_3"]
+
+
+@pytest.mark.parametrize("key", ["custom_1", "made_up"])
+def test_unknown_question_keys_are_rejected(owner: Account, key: str) -> None:
+    setup = owner.get("/agent-setup").json()
+
+    response = owner.put(
+        "/agent-setup", _with_questions(setup, {"key": key, "label": "Algo", "kind": "text"})
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"code": "questions_invalid"}
+    assert owner.get("/agent-setup").json()["version"] == 0
+
+
+class _StaleAgentConfigRepository(SqlAlchemyAgentConfigRepository):
+    """Reads the latest version as it was before another request saved."""
+
+    def latest(self, tenant_id):
+        return None
+
+
+def test_concurrent_saves_conflict_instead_of_failing(owner: Account) -> None:
+    setup = owner.get("/agent-setup").json()
+    assert owner.put("/agent-setup", _body(setup)).json()["version"] == 1
+
+    def stale_save(session: Annotated[Session, Depends(get_session)]) -> SaveAgentSetup:
+        return SaveAgentSetup(
+            _StaleAgentConfigRepository(session),
+            SqlAlchemyBusinessSettingsRepository(session),
+            get_setup_defaults(),
+        )
+
+    app.dependency_overrides[save_agent_setup_use_case] = stale_save
+    try:
+        renamed = {**setup["config"], "agent_name": "Lucía"}
+        response = owner.put("/agent-setup", _body(setup, config=renamed))
+    finally:
+        app.dependency_overrides.pop(save_agent_setup_use_case)
+
+    assert response.status_code == 409
+    assert response.json() == {"code": "agent_setup_conflict"}
+    after = owner.get("/agent-setup").json()
+    assert (after["version"], after["config"]["agent_name"]) == (1, "Sofía")
 
 
 def test_version_history_is_capped_at_20(owner: Account) -> None:

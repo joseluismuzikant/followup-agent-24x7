@@ -68,6 +68,26 @@ describe("OnboardingPage", () => {
     expect(where()).toBe("/onboarding/tu-agente");
   });
 
+  it("explains the three WhatsApp steps with the S4 copy", async () => {
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("whatsapp"));
+
+    renderWizard("/onboarding/whatsapp");
+
+    expect(
+      await screen.findByText(
+        "Se abre una ventana de Meta. Tarda unos 3 minutos y no necesitás saber nada técnico.",
+      ),
+    ).toBeTruthy();
+    for (const title of [
+      "Entrá con tu cuenta de Facebook",
+      "Elegí el número",
+      "Confirmá con el código por SMS",
+    ]) {
+      expect(screen.getByText(title)).toBeTruthy();
+    }
+    expect(screen.queryByRole("button", { name: "Conectar WhatsApp" })).toBeNull();
+  });
+
   it("lets the stepper jump to completed steps only", async () => {
     const user = userEvent.setup();
     vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("try"));

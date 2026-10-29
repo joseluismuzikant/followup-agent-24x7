@@ -1,6 +1,7 @@
 import { ApiRequestError } from "@followup/api-client-inmo24x7";
 
 const messages: Record<string, string> = {
+  agent_setup_conflict: "Alguien más guardó cambios. Recargá para ver la última versión.",
   agent_name_invalid: "El nombre del agente debe tener entre 1 y 40 caracteres.",
   business_type_invalid: "Elegí un tipo de negocio válido.",
   database_unavailable: "El servicio no está disponible. Probá en unos minutos.",

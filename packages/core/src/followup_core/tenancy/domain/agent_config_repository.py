@@ -19,7 +19,13 @@ class AgentConfigVersion:
 class AgentConfigRepository(Protocol):
     def latest(self, tenant_id: UUID) -> AgentConfigVersion | None: ...
 
-    def add_version(self, version: AgentConfigVersion) -> None: ...
+    def question_keys(self, tenant_id: UUID) -> set[str]:
+        """Every question key used in any version of this tenant's config."""
+        ...
+
+    def add_version(self, version: AgentConfigVersion) -> None:
+        """Raises AgentConfigConflictError when the version number is already taken."""
+        ...
 
     def list_versions(self, tenant_id: UUID, limit: int) -> Sequence[AgentConfigVersion]:
         """Newest first."""

@@ -38,6 +38,10 @@ class InvalidQuestionsError(TenantError):
     """Raised when the qualification questions are malformed."""
 
 
+class AgentConfigConflictError(TenantError):
+    """Raised when another save created the same agent config version first."""
+
+
 class InvalidOnboardingStepError(TenantError):
     """Raised when onboarding is moved to a step that is not reachable yet."""
 

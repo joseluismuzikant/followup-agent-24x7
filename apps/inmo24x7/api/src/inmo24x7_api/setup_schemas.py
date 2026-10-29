@@ -7,10 +7,10 @@ validate them and the routers translate domain errors into stable error codes.
 from datetime import time
 from typing import Literal
 
+from followup_core.tenancy.application.agent_setup import AgentConfigDraft, QuestionDraft
 from followup_core.tenancy.domain.agent_config import (
     AfterHoursMode,
     AgentConfig,
-    QualificationQuestion,
     QuestionKind,
     Tone,
 )
@@ -38,6 +38,23 @@ class AgentConfigModel(BaseModel):
     qualification_questions: list[QuestionModel]
 
 
+class QuestionInputModel(BaseModel):
+    """A question as the panel sends it. New questions have no key: the server assigns one."""
+
+    key: str | None = None
+    label: str
+    kind: QuestionKindName
+    options: list[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class AgentConfigInputModel(BaseModel):
+    agent_name: str
+    tone: ToneName
+    after_hours_mode: AfterHoursModeName
+    qualification_questions: list[QuestionInputModel]
+
+
 class ScheduleBlockModel(BaseModel):
     weekday: int
     opens: str
@@ -62,13 +79,13 @@ def config_to_model(config: AgentConfig) -> AgentConfigModel:
     )
 
 
-def config_from_model(model: AgentConfigModel) -> AgentConfig:
-    return AgentConfig(
+def draft_from_model(model: AgentConfigInputModel) -> AgentConfigDraft:
+    return AgentConfigDraft(
         agent_name=model.agent_name,
         tone=Tone(model.tone),
         after_hours_mode=AfterHoursMode(model.after_hours_mode),
         qualification_questions=tuple(
-            QualificationQuestion(
+            QuestionDraft(
                 key=question.key,
                 label=question.label,
                 kind=QuestionKind(question.kind),

@@ -203,6 +203,23 @@ export interface components {
             /** To Step */
             to_step: string;
         };
+        /** AgentConfigInputModel */
+        AgentConfigInputModel: {
+            /** Agent Name */
+            agent_name: string;
+            /**
+             * Tone
+             * @enum {string}
+             */
+            tone: "warm" | "professional" | "formal";
+            /**
+             * After Hours Mode
+             * @constant
+             */
+            after_hours_mode: "keep_answering_and_propose_visit";
+            /** Qualification Questions */
+            qualification_questions: components["schemas"]["QuestionInputModel"][];
+        };
         /** AgentConfigModel */
         AgentConfigModel: {
             /** Agent Name */
@@ -235,7 +252,7 @@ export interface components {
         };
         /** AgentSetupWrite */
         AgentSetupWrite: {
-            config: components["schemas"]["AgentConfigModel"];
+            config: components["schemas"]["AgentConfigInputModel"];
             /** Business Hours */
             business_hours: components["schemas"]["ScheduleBlockModel"][];
             /** Notification Emails */
@@ -333,6 +350,28 @@ export interface components {
             role: string;
             /** Is Platform Admin */
             is_platform_admin: boolean;
+        };
+        /**
+         * QuestionInputModel
+         * @description A question as the panel sends it. New questions have no key: the server assigns one.
+         */
+        QuestionInputModel: {
+            /** Key */
+            key?: string | null;
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "choice" | "text" | "number" | "money" | "boolean";
+            /** Options */
+            options?: string[];
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** QuestionModel */
         QuestionModel: {

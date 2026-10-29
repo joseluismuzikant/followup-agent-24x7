@@ -5,6 +5,7 @@ from followup_core.identity.domain.profile import Profile, Role
 from followup_core.tenancy.application.agent_setup import (
     GetAgentSetup,
     ListAgentConfigVersions,
+    QuestionDraft,
     SaveAgentSetup,
 )
 from followup_core.tenancy.domain.agent_config import (
@@ -15,6 +16,7 @@ from followup_core.tenancy.domain.agent_config import (
 )
 from followup_core.tenancy.domain.business_settings import TEAM_HOURS_MON_SAT_9_13
 from followup_core.tenancy.domain.errors import (
+    AgentConfigConflictError,
     InvalidAgentNameError,
     InvalidQuestionsError,
     InvalidTeamHoursError,
@@ -26,6 +28,7 @@ from tenancy_fakes import (
     InMemoryProfileRepository,
     sample_config,
     sample_defaults,
+    sample_draft,
     sample_settings,
 )
 
@@ -96,9 +99,9 @@ def test_save_creates_versions_only_when_the_config_changes() -> None:
     assert current is not None
     emails, hours = current.notification_emails, current.team_hours
 
-    first = save.execute(tenant_id, author, sample_config(), hours, emails)
-    same = save.execute(tenant_id, author, sample_config(), hours, emails)
-    changed = save.execute(tenant_id, author, sample_config(tone=Tone.FORMAL), hours, emails)
+    first = save.execute(tenant_id, author, sample_draft(), hours, emails)
+    same = save.execute(tenant_id, author, sample_draft(), hours, emails)
+    changed = save.execute(tenant_id, author, sample_draft(tone=Tone.FORMAL), hours, emails)
 
     assert (first.version, same.version, changed.version) == (1, 1, 2)
     assert len(configs.versions) == 2
@@ -108,10 +111,10 @@ def test_save_creates_versions_only_when_the_config_changes() -> None:
 def test_save_updates_hours_and_emails_without_a_new_version() -> None:
     tenant_id = uuid4()
     configs, settings, _, save = _setup(tenant_id)
-    save.execute(tenant_id, uuid4(), sample_config(), TEAM_HOURS_MON_SAT_9_13, ("a@x.com",))
+    save.execute(tenant_id, uuid4(), sample_draft(), TEAM_HOURS_MON_SAT_9_13, ("a@x.com",))
 
     result = save.execute(
-        tenant_id, uuid4(), sample_config(), TEAM_HOURS_MON_SAT_9_13, ("a@x.com", "b@x.com")
+        tenant_id, uuid4(), sample_draft(), TEAM_HOURS_MON_SAT_9_13, ("a@x.com", "b@x.com")
     )
 
     assert result.version == 1
@@ -125,7 +128,7 @@ def test_save_without_settings_fails() -> None:
     )
 
     with pytest.raises(TenantSetupNotFoundError):
-        save.execute(uuid4(), uuid4(), sample_config(), (), ("a@x.com",))
+        save.execute(uuid4(), uuid4(), sample_draft(), (), ("a@x.com",))
 
 
 def test_invalid_hours_do_not_write_a_version() -> None:
@@ -141,7 +144,7 @@ def test_invalid_hours_do_not_write_a_version() -> None:
         save.execute(
             tenant_id,
             uuid4(),
-            sample_config(),
+            sample_draft(),
             (ScheduleBlock(0, time(9), time(13)), ScheduleBlock(0, time(12), time(18))),
             ("a@x.com",),
         )
@@ -161,7 +164,7 @@ def test_versions_list_is_newest_first_capped_and_has_author_email() -> None:
         save.execute(
             tenant_id,
             author.id,
-            sample_config(agent_name=f"Agente {index}"),
+            sample_draft(agent_name=f"Agente {index}"),
             current.team_hours,
             current.notification_emails,
         )
@@ -171,3 +174,74 @@ def test_versions_list_is_newest_first_capped_and_has_author_email() -> None:
     assert len(listed) == 20
     assert listed[0].version == 25
     assert listed[0].author_email == "autor@x.com"
+
+
+def _new_question(label: str) -> QuestionDraft:
+    return QuestionDraft(None, label, QuestionKind.TEXT)
+
+
+def _keys(setup) -> list[str]:
+    return [question.key for question in setup.config.qualification_questions]
+
+
+def _save(save: SaveAgentSetup, tenant_id, draft):
+    return save.execute(tenant_id, uuid4(), draft, (), ("a@x.com",))
+
+
+def test_new_questions_get_server_assigned_custom_keys() -> None:
+    tenant_id = uuid4()
+    _, _, _, save = _setup(tenant_id)
+
+    setup = _save(
+        save, tenant_id, sample_draft(_new_question("Mascotas"), _new_question("Cochera"))
+    )
+
+    assert _keys(setup) == ["operation", "zone", "custom_1", "custom_2"]
+
+
+def test_deleted_custom_keys_are_never_reused() -> None:
+    tenant_id = uuid4()
+    _, _, _, save = _setup(tenant_id)
+    _save(save, tenant_id, sample_draft(_new_question("Mascotas"), _new_question("Cochera")))
+    # Delete custom_2, keep custom_1.
+    kept = QuestionDraft("custom_1", "Mascotas", QuestionKind.TEXT)
+    _save(save, tenant_id, sample_draft(kept))
+
+    setup = _save(save, tenant_id, sample_draft(kept, _new_question("Balcón")))
+
+    assert _keys(setup) == ["operation", "zone", "custom_1", "custom_3"]
+
+
+def test_keys_are_counted_per_tenant() -> None:
+    tenant_a, tenant_b = uuid4(), uuid4()
+    configs, settings, _, save = _setup(tenant_a)
+    settings.add(sample_settings(tenant_b))
+    _save(save, tenant_a, sample_draft(_new_question("Mascotas"), _new_question("Cochera")))
+
+    setup = _save(save, tenant_b, sample_draft(_new_question("Balcón")))
+
+    assert _keys(setup)[-1] == "custom_1"
+
+
+@pytest.mark.parametrize("key", ["custom_7", "made_up", "custom_x"])
+def test_unknown_keys_are_rejected(key: str) -> None:
+    tenant_id = uuid4()
+    configs, _, _, save = _setup(tenant_id)
+
+    with pytest.raises(InvalidQuestionsError):
+        _save(save, tenant_id, sample_draft(QuestionDraft(key, "Algo", QuestionKind.TEXT)))
+
+    assert configs.versions == []
+
+
+def test_a_concurrent_save_of_the_same_version_conflicts() -> None:
+    tenant_id = uuid4()
+    configs, _, _, save = _setup(tenant_id)
+    _save(save, tenant_id, sample_draft())
+    # Another request read version 1 as latest too, and saved version 2 first.
+    stale_latest = configs.latest(tenant_id)
+    _save(save, tenant_id, sample_draft(agent_name="Lucía"))
+    configs.latest = lambda _tenant_id: stale_latest  # type: ignore[method-assign]
+
+    with pytest.raises(AgentConfigConflictError):
+        _save(save, tenant_id, sample_draft(agent_name="Marta"))
