@@ -6,7 +6,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..domain.errors import DuplicateTenantSlugError
+from ..domain.errors import DuplicateTenantSlugError, TenantNotFoundError
 from ..domain.tenant import Tenant, TenantStatus
 from .models import TenantModel
 
@@ -51,6 +51,14 @@ class SqlAlchemyTenantRepository:
             raise DuplicateTenantSlugError(
                 f"Tenant slug '{tenant.slug}' already exists."
             ) from error
+
+    def save(self, tenant: Tenant) -> None:
+        model = self._session.get(TenantModel, tenant.id)
+        if model is None:
+            raise TenantNotFoundError(f"Tenant '{tenant.id}' does not exist.")
+        model.name = tenant.name
+        model.status = tenant.status.value
+        self._session.flush()
 
     def get_by_id(self, tenant_id: UUID) -> Tenant | None:
         model = self._session.get(TenantModel, tenant_id)

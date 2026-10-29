@@ -70,7 +70,7 @@ These do not depend on code and some take days. Start them all on day 1.
 
 ## Days 1–7: inmo24x7
 
-### Day 1: identity, app shell and sign-up
+### Day 1: identity, app shell and sign-up (done)
 
 - **Identity** context in core: verify Supabase JWTs behind a port, profiles with roles
   (owner, manager, agent, viewer) and the global admin flag.
@@ -85,7 +85,12 @@ These do not depend on code and some take days. Start them all on day 1.
 **Done when:** you can sign up with Google, land on your own empty panel, and the backoffice
 is only reachable with an admin user.
 
-### Day 2: the onboarding wizard and agent configuration
+**Follow-up fixes (done with Day 2):** Supabase secrets are no longer baked into the API
+image; JWT verification accepts ES256/RS256 with one cached JWKS client and checks the
+issuer; production config accepts a JWT secret or a JWKS URL; the web no longer loops when
+`/me` fails; self-serve sign-up picks the next free slug.
+
+### Day 2: the onboarding wizard and agent configuration (done)
 
 - Full five-step S2 wizard with progress and "Terminar después" resume.
 - Agent configuration stored in Tenancy and versioned.
@@ -98,6 +103,11 @@ is only reachable with an admin user.
 
 **Done when:** a new account reaches the "try your agent" step in under 3 minutes without
 help, and resumes at the same step after leaving.
+
+**Moved or placeholder:** step 3 (Probalo) is a placeholder until the Day 3 simulator, step
+4 (WhatsApp) is static until Day 7, and the checklist facts for tested agent, properties,
+WhatsApp and Meta verification are providers that return false until their days plug in.
+The lead notification email is stored but sent on Day 5.
 
 ### Day 3: conversation runtime and the simulator
 

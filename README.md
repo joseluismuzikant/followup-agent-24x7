@@ -296,6 +296,16 @@ curl -X POST http://localhost:8001/tenants \
 }
 ```
 
+All routes below need a Supabase access token and are scoped to the caller's business. Writes need the owner or manager role (otherwise `403 {"code": "forbidden"}`).
+
+| Route | Purpose |
+| --- | --- |
+| `POST /me/sign-up` | Create the business, owner profile, default settings and onboarding record. Body: `{business_name, business_type}`. |
+| `GET /onboarding`, `POST /onboarding/advance` | Wizard progress and setup checklist. |
+| `GET /agent-setup`, `PUT /agent-setup` | Agent configuration plus team hours and notification emails, saved together. |
+| `GET /agent-setup/versions` | Latest 20 agent configuration versions. |
+| `GET /tenant/settings`, `PUT /tenant/settings` | Business name, type, hours and notification emails. |
+
 Errors return stable codes instead of user-facing text:
 
 ```json

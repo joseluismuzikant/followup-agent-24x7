@@ -13,6 +13,16 @@ export type TenantSummary = components["schemas"]["TenantSummaryRead"];
 export type Profile = components["schemas"]["ProfileRead"];
 export type MeResponse = components["schemas"]["MeResponse"];
 export type SignUpResponse = components["schemas"]["SignUpResponse"];
+export type OnboardingState = components["schemas"]["OnboardingRead"];
+export type SetupChecklist = components["schemas"]["ChecklistRead"];
+export type AgentSetup = components["schemas"]["AgentSetupRead"];
+export type AgentSetupInput = components["schemas"]["AgentSetupWrite"];
+export type AgentConfig = components["schemas"]["AgentConfigModel"];
+export type AgentQuestion = components["schemas"]["QuestionModel"];
+export type ScheduleBlock = components["schemas"]["ScheduleBlockModel"];
+export type AgentVersion = components["schemas"]["AgentVersionRead"];
+export type TenantSettings = components["schemas"]["TenantSettingsRead"];
+export type TenantSettingsInput = components["schemas"]["TenantSettingsWrite"];
 
 export class ApiRequestError extends Error {
   readonly status: number;

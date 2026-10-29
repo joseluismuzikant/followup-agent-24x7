@@ -1,44 +1,29 @@
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
-from followup_core.identity.domain.profile import Profile, Role
+from followup_core.identity.domain.profile import Role
 from followup_core.tenancy.application.sign_up import SignUp
-from followup_core.tenancy.domain.errors import InvalidTenantNameError
-from followup_core.tenancy.domain.tenant import Tenant, TenantStatus
+from followup_core.tenancy.domain.business_settings import BusinessType
+from followup_core.tenancy.domain.errors import InvalidBusinessTypeError, InvalidTenantNameError
+from followup_core.tenancy.domain.onboarding import OnboardingStep
+from followup_core.tenancy.domain.tenant import TenantStatus
+from tenancy_fakes import (
+    InMemoryBusinessSettingsRepository,
+    InMemoryOnboardingRepository,
+    InMemoryProfileRepository,
+    InMemoryTenantRepository,
+    sample_defaults,
+)
 
 
-class InMemoryTenantRepository:
-    def __init__(self) -> None:
-        self.tenants: dict[UUID, Tenant] = {}
-        self.slugs: set[str] = set()
-
-    def add(self, tenant: Tenant) -> None:
-        self.tenants[tenant.id] = tenant
-        self.slugs.add(tenant.slug)
-
-    def get_by_id(self, tenant_id: UUID) -> Tenant | None:
-        return self.tenants.get(tenant_id)
-
-    def list_page(self, page: int, limit: int) -> list[Tenant]:
-        offset = (page - 1) * limit
-        return list(self.tenants.values())[offset : offset + limit]
-
-    def count(self) -> int:
-        return len(self.tenants)
-
-    def slug_exists(self, slug: str) -> bool:
-        return slug in self.slugs
-
-
-class InMemoryProfileRepository:
-    def __init__(self) -> None:
-        self.profiles: dict[UUID, Profile] = {}
-
-    def get_by_id(self, user_id: UUID) -> Profile | None:
-        return self.profiles.get(user_id)
-
-    def add(self, profile: Profile) -> None:
-        self.profiles[profile.id] = profile
+def _sign_up_use_case(tenants=None, profiles=None, onboardings=None, settings=None) -> SignUp:
+    return SignUp(
+        tenants or InMemoryTenantRepository(),
+        profiles or InMemoryProfileRepository(),
+        onboardings or InMemoryOnboardingRepository(),
+        settings or InMemoryBusinessSettingsRepository(),
+        sample_defaults(),
+    )
 
 
 def test_sign_up_creates_tenant_owner_and_trial() -> None:
@@ -46,10 +31,11 @@ def test_sign_up_creates_tenant_owner_and_trial() -> None:
     profiles = InMemoryProfileRepository()
     user_id = uuid4()
 
-    result = SignUp(tenants, profiles).execute(
+    result = _sign_up_use_case(tenants, profiles).execute(
         user_id=user_id,
         email="owner@example.com",
         business_name="Inmobiliaria Sur",
+        business_type="inmobiliaria",
     )
 
     assert result.created is True
@@ -67,15 +53,17 @@ def test_sign_up_is_idempotent_per_user() -> None:
     profiles = InMemoryProfileRepository()
     user_id = uuid4()
 
-    first = SignUp(tenants, profiles).execute(
+    first = _sign_up_use_case(tenants, profiles).execute(
         user_id=user_id,
         email="owner@example.com",
         business_name="Inmobiliaria Sur",
+        business_type="inmobiliaria",
     )
-    second = SignUp(tenants, profiles).execute(
+    second = _sign_up_use_case(tenants, profiles).execute(
         user_id=user_id,
         email="owner@example.com",
         business_name="Otro Nombre",
+        business_type="inmobiliaria",
     )
 
     assert second.created is False
@@ -86,10 +74,11 @@ def test_sign_up_is_idempotent_per_user() -> None:
 
 def test_sign_up_rejects_blank_business_name() -> None:
     with pytest.raises(InvalidTenantNameError):
-        SignUp(InMemoryTenantRepository(), InMemoryProfileRepository()).execute(
+        _sign_up_use_case().execute(
             user_id=uuid4(),
             email="owner@example.com",
             business_name="   ",
+            business_type="inmobiliaria",
         )
 
 
@@ -98,14 +87,51 @@ def test_sign_up_picks_next_free_slug_for_same_business_name() -> None:
     profiles = InMemoryProfileRepository()
 
     slugs = [
-        SignUp(tenants, profiles)
+        _sign_up_use_case(tenants, profiles)
         .execute(
             user_id=uuid4(),
             email=f"user{index}@example.com",
             business_name="Inmobiliaria Sur",
+            business_type="inmobiliaria",
         )
         .tenant.slug
         for index in range(3)
     ]
 
     assert slugs == ["inmobiliaria-sur", "inmobiliaria-sur-2", "inmobiliaria-sur-3"]
+
+
+def test_sign_up_creates_onboarding_and_default_settings() -> None:
+    onboardings = InMemoryOnboardingRepository()
+    settings = InMemoryBusinessSettingsRepository()
+
+    result = _sign_up_use_case(onboardings=onboardings, settings=settings).execute(
+        user_id=uuid4(),
+        email="Owner@Example.com",
+        business_name="Inmobiliaria Sur",
+        business_type="corredor",
+    )
+
+    onboarding = onboardings.get(result.tenant.id)
+    assert onboarding is not None
+    assert onboarding.current_step is OnboardingStep.AGENT
+    assert OnboardingStep.BUSINESS in onboarding.completed_steps
+    saved = settings.get(result.tenant.id)
+    assert saved is not None
+    assert saved.business_type is BusinessType.BROKER
+    assert saved.notification_emails == ("owner@example.com",)
+    assert saved.team_hours == sample_defaults().team_hours
+
+
+def test_sign_up_rejects_unknown_business_type() -> None:
+    tenants = InMemoryTenantRepository()
+
+    with pytest.raises(InvalidBusinessTypeError):
+        _sign_up_use_case(tenants).execute(
+            user_id=uuid4(),
+            email="owner@example.com",
+            business_name="Inmobiliaria Sur",
+            business_type="pizzeria",
+        )
+
+    assert tenants.count() == 0

@@ -14,6 +14,9 @@ class InMemoryTenantRepository:
     def add(self, tenant: Tenant) -> None:
         self.tenants.append(tenant)
 
+    def save(self, tenant: Tenant) -> None:
+        raise NotImplementedError
+
     def get_by_id(self, tenant_id) -> Tenant | None:
         return next((tenant for tenant in self.tenants if tenant.id == tenant_id), None)
 

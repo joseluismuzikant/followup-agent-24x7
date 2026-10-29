@@ -4,14 +4,22 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from followup_core.tenancy.infrastructure.router import build_tenancy_router
 
+from .agent_setup import build_agent_setup_router
 from .auth import require_platform_admin
 from .config import get_settings
 from .container import (
+    advance_onboarding_use_case,
     create_tenant_use_case,
+    get_agent_setup_use_case,
+    get_onboarding_use_case,
+    get_tenant_settings_use_case,
     get_tenant_use_case,
     get_token_verifier,
+    list_agent_versions_use_case,
     list_tenants_use_case,
+    save_agent_setup_use_case,
     sign_up_use_case,
+    update_tenant_settings_use_case,
 )
 from .database import get_session
 from .health import build_health_router
@@ -19,6 +27,8 @@ from .http_errors import register_error_handlers
 from .logging import configure_logging
 from .me import build_me_router
 from .middleware import RequestContextMiddleware
+from .onboarding import build_onboarding_router
+from .tenant_settings import build_tenant_settings_router
 
 configure_logging()
 settings = get_settings()
@@ -47,6 +57,22 @@ def create_app() -> FastAPI:
         build_me_router(
             sign_up_use_case,
             get_tenant_use_case,
+        )
+    )
+    application.include_router(
+        build_onboarding_router(get_onboarding_use_case, advance_onboarding_use_case)
+    )
+    application.include_router(
+        build_agent_setup_router(
+            get_agent_setup_use_case,
+            save_agent_setup_use_case,
+            list_agent_versions_use_case,
+        )
+    )
+    application.include_router(
+        build_tenant_settings_router(
+            get_tenant_settings_use_case,
+            update_tenant_settings_use_case,
         )
     )
     application.include_router(

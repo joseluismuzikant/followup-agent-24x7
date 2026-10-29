@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -42,6 +42,10 @@ class Tenant:
             status=TenantStatus.ACTIVE,
             trial_ends_at=now + timedelta(days=_TRIAL_DAYS),
         )
+
+    def rename(self, name: str) -> "Tenant":
+        """Change the display name. The slug is a stable identifier and stays as is."""
+        return replace(self, name=name)
 
     def __post_init__(self) -> None:
         normalized_name = self.name.strip()

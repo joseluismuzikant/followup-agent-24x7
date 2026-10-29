@@ -10,6 +10,7 @@ from followup_core.tenancy.application.get_tenant import GetTenant
 from followup_core.tenancy.application.sign_up import SignUp
 from followup_core.tenancy.domain.errors import (
     DuplicateTenantSlugError,
+    InvalidBusinessTypeError,
     InvalidTenantNameError,
     InvalidTenantSlugError,
     TenantNotFoundError,
@@ -26,6 +27,7 @@ GetTenantFactory = Callable[..., GetTenant]
 
 class SignUpRequest(BaseModel):
     business_name: str = Field(min_length=1, max_length=200)
+    business_type: str
 
 
 class ProfileRead(BaseModel):
@@ -96,9 +98,12 @@ def build_me_router(
                 user_id=identity.user_id,
                 email=identity.email,
                 business_name=payload.business_name,
+                business_type=payload.business_type,
             )
         except DuplicateTenantSlugError as error:
             raise ApiError(409, "tenant_slug_taken") from error
+        except InvalidBusinessTypeError as error:
+            raise ApiError(422, "business_type_invalid") from error
         except InvalidTenantNameError as error:
             raise ApiError(422, "tenant_name_invalid") from error
         except InvalidTenantSlugError as error:

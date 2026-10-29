@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router";
 
 import { AppShell } from "./components/AppShell";
 import { RequireProfile } from "./components/RequireProfile";
+import { ResumeOnboarding } from "./components/ResumeOnboarding";
 import { RedirectIfAuthed, RequireAuth } from "./lib/auth";
 import { AgentePage } from "./pages/agente";
 import { ConfiguracionPage } from "./pages/configuracion";
@@ -21,7 +22,7 @@ export const router = createBrowserRouter([
     ),
   },
   {
-    path: "/onboarding",
+    path: "/onboarding/:step?",
     element: (
       <RequireAuth>
         <OnboardingPage />
@@ -32,7 +33,9 @@ export const router = createBrowserRouter([
     element: (
       <RequireAuth>
         <RequireProfile>
-          <AppShell />
+          <ResumeOnboarding>
+            <AppShell />
+          </ResumeOnboarding>
         </RequireProfile>
       </RequireAuth>
     ),
