@@ -1,4 +1,4 @@
-import type { AgentQuestion, ScheduleBlock } from "@followup/api-client-inmo24x7";
+import type { AgentQuestionInput, ScheduleBlock } from "@followup/api-client-inmo24x7";
 
 export const MAX_QUESTIONS = 10;
 
@@ -62,16 +62,9 @@ export function presetForHours(blocks: readonly ScheduleBlock[]): HoursPresetVal
   return hoursPresets.find((preset) => sameHours(preset.blocks, blocks))?.value ?? null;
 }
 
-export function isCustomQuestion(question: AgentQuestion): boolean {
-  return question.key.startsWith("custom_");
-}
-
-export function nextCustomKey(questions: readonly AgentQuestion[]): string {
-  const used = questions
-    .map((question) => /^custom_(\d+)$/.exec(question.key))
-    .filter((match): match is RegExpExecArray => match !== null)
-    .map((match) => Number(match[1]));
-  return `custom_${Math.max(0, ...used) + 1}`;
+/** Custom questions can be deleted; a question without a key is new and not saved yet. */
+export function isCustomQuestion(question: AgentQuestionInput): boolean {
+  return !question.key || question.key.startsWith("custom_");
 }
 
 export function parseEmails(text: string): string[] {

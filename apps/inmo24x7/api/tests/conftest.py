@@ -1,4 +1,8 @@
 import os
+
+# No test may send anything to LangSmith, whatever the developer's environment says.
+os.environ["LANGSMITH_TRACING"] = "false"
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -8,9 +12,10 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from followup_core.conversation.infrastructure.fake_llm import FakeLanguageModel
 from followup_core.identity.domain.token_verifier import VerifiedToken
 from followup_core.identity.infrastructure.supabase_verifier import FakeTokenVerifier
-from inmo24x7_api.container import get_token_verifier
+from inmo24x7_api.container import get_language_model, get_token_verifier
 from inmo24x7_api.database import get_session
 from inmo24x7_api.main import app
 from sqlalchemy import create_engine, text
@@ -96,6 +101,8 @@ def client(database) -> Iterator[TestClient]:
             session.close()
 
     app.dependency_overrides[get_session] = override_session
+    # Never call a real model from tests, whatever LLM_MODEL the environment has.
+    app.dependency_overrides[get_language_model] = lambda: FakeLanguageModel()
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

@@ -27,7 +27,10 @@ export function AppShell() {
       item.href === "/" ? location.pathname === "/" : location.pathname.startsWith(item.href),
   }));
 
-  const title = items.find((item) => item.active)?.label ?? "Inicio";
+  const title =
+    location.pathname === "/probar"
+      ? "Probar el agente"
+      : (items.find((item) => item.active)?.label ?? "Inicio");
 
   return (
     <PanelLayout

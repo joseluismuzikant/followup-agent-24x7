@@ -11,6 +11,7 @@ from followup_core.tenancy.application.agent_setup import (
     SaveAgentSetup,
 )
 from followup_core.tenancy.domain.errors import (
+    AgentConfigConflictError,
     InvalidAgentNameError,
     InvalidNotificationEmailError,
     InvalidQuestionsError,
@@ -22,10 +23,11 @@ from pydantic import BaseModel
 from .auth import current_profile, require_role
 from .http_errors import ApiError
 from .setup_schemas import (
+    AgentConfigInputModel,
     AgentConfigModel,
     ScheduleBlockModel,
-    config_from_model,
     config_to_model,
+    draft_from_model,
     hours_from_models,
     hours_to_models,
 )
@@ -45,7 +47,7 @@ class AgentSetupRead(BaseModel):
 
 
 class AgentSetupWrite(BaseModel):
-    config: AgentConfigModel
+    config: AgentConfigInputModel
     business_hours: list[ScheduleBlockModel]
     notification_emails: list[str]
 
@@ -94,7 +96,7 @@ def build_agent_setup_router(
             setup = use_case.execute(
                 tenant_id=profile.tenant_id,
                 profile_id=profile.id,
-                config=config_from_model(payload.config),
+                draft=draft_from_model(payload.config),
                 team_hours=hours_from_models(payload.business_hours),
                 notification_emails=tuple(payload.notification_emails),
             )
@@ -108,6 +110,8 @@ def build_agent_setup_router(
             raise ApiError(422, "notification_email_invalid") from error
         except TenantSetupNotFoundError as error:
             raise ApiError(404, "setup_not_found") from error
+        except AgentConfigConflictError as error:
+            raise ApiError(409, "agent_setup_conflict") from error
         return _agent_setup_read(setup)
 
     @router.get("/agent-setup/versions", response_model=list[AgentVersionRead])

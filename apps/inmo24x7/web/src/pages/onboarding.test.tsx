@@ -8,13 +8,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchAgentSetup, saveAgentSetup } from "../api/agent-setup";
 import { fetchMe } from "../api/me";
 import { advanceOnboarding, fetchOnboarding } from "../api/onboarding";
+import { fetchSimulator } from "../api/simulator";
 import { isOnboardingDeferred, resumeOnboarding } from "../lib/onboarding-deferred";
-import { agentSetup, me, onboardingState } from "../test-fixtures";
+import { agentSetup, me, onboardingState, simulatorState } from "../test-fixtures";
 import { OnboardingPage } from "./onboarding";
 
 vi.mock("../api/me", () => ({ fetchMe: vi.fn(), signUp: vi.fn() }));
 vi.mock("../api/onboarding", () => ({ fetchOnboarding: vi.fn(), advanceOnboarding: vi.fn() }));
 vi.mock("../api/agent-setup", () => ({ fetchAgentSetup: vi.fn(), saveAgentSetup: vi.fn() }));
+vi.mock("../api/simulator", () => ({
+  fetchSimulator: vi.fn(),
+  sendSimulatorMessage: vi.fn(),
+  resetSimulator: vi.fn(),
+}));
 vi.mock("../api/tenant-settings", () => ({
   fetchTenantSettings: vi.fn(),
   saveTenantSettings: vi.fn(),
@@ -46,6 +52,7 @@ describe("OnboardingPage", () => {
     resumeOnboarding();
     vi.mocked(fetchMe).mockResolvedValue(me());
     vi.mocked(fetchAgentSetup).mockResolvedValue(agentSetup());
+    vi.mocked(fetchSimulator).mockResolvedValue(simulatorState());
   });
 
   it("resumes at the saved step", async () => {
@@ -53,10 +60,17 @@ describe("OnboardingPage", () => {
 
     renderWizard("/onboarding");
 
-    expect(await screen.findByText("Probá a tu agente")).toBeTruthy();
+    expect(await screen.findByText("Escribile como si fueras un cliente")).toBeTruthy();
     expect(where()).toBe("/onboarding/probalo");
-    expect(screen.getByText(/Paso 3 de 5/)).toBeTruthy();
-    expect(screen.getByText("Muy pronto vas a poder chatear con tu agente acá.")).toBeTruthy();
+    expect(screen.getByText(/Paso 3 de 5 · Probalo/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Así va a responder en WhatsApp. Todavía no conectaste nada: esto es una prueba privada.",
+      ),
+    ).toBeTruthy();
+    expect(await screen.findByLabelText("Mensaje")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "← Ajustar el agente" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Me gusta, conectar WhatsApp" })).toBeTruthy();
   });
 
   it("sends deep links to future steps back to the saved step", async () => {
@@ -68,11 +82,31 @@ describe("OnboardingPage", () => {
     expect(where()).toBe("/onboarding/tu-agente");
   });
 
+  it("explains the three WhatsApp steps with the S4 copy", async () => {
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("whatsapp"));
+
+    renderWizard("/onboarding/whatsapp");
+
+    expect(
+      await screen.findByText(
+        "Se abre una ventana de Meta. Tarda unos 3 minutos y no necesitás saber nada técnico.",
+      ),
+    ).toBeTruthy();
+    for (const title of [
+      "Entrá con tu cuenta de Facebook",
+      "Elegí el número",
+      "Confirmá con el código por SMS",
+    ]) {
+      expect(screen.getByText(title)).toBeTruthy();
+    }
+    expect(screen.queryByRole("button", { name: "Conectar WhatsApp" })).toBeNull();
+  });
+
   it("lets the stepper jump to completed steps only", async () => {
     const user = userEvent.setup();
     vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("try"));
     renderWizard("/onboarding/probalo");
-    await screen.findByText("Probá a tu agente");
+    await screen.findByText("Escribile como si fueras un cliente");
 
     expect((screen.getByRole("button", { name: "WhatsApp" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: /Tu agente/ }));
@@ -97,7 +131,7 @@ describe("OnboardingPage", () => {
 
     expect(saveAgentSetup).toHaveBeenCalledTimes(1);
     expect(advanceOnboarding).toHaveBeenCalledWith("try");
-    expect(await screen.findByText("Probá a tu agente")).toBeTruthy();
+    expect(await screen.findByText("Escribile como si fueras un cliente")).toBeTruthy();
   });
 
   it("Terminar después goes to the panel for this session", async () => {

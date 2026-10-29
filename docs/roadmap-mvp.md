@@ -124,6 +124,16 @@ The lead notification email is stored but sent on Day 5.
 **Done when:** you chat with a basic agent in the simulator, restart the API, and the
 conversation continues where it was, including the structured state panel.
 
+**Status: done** (together with the Day 2 follow-ups: server-owned question keys, the 409 on
+concurrent agent saves, and the S4 step copy).
+
+**Moved or changed:** sample properties are a static fixture behind a `PropertySearch` port
+instead of rows seeded per tenant, so Day 4 replaces the adapter rather than migrating seed
+data. The basic qualification graph, prompts and the LLM port with its five providers landed
+here; Day 4 adds real property search, visit proposals and hand-off on top of them. The
+backoffice simulator (S8) shipped with this day, and so did LangSmith tracing of every turn
+(PII redacted, "Ver traza" from backoffice messages).
+
 ### Day 4: properties and the lead agent
 
 - S7 properties: CSV and XLSX import with per-item validation, downloadable row-level error

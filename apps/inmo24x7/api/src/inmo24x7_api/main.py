@@ -1,4 +1,6 @@
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,13 +13,20 @@ from .container import (
     advance_onboarding_use_case,
     create_tenant_use_case,
     get_agent_setup_use_case,
+    get_language_model,
     get_onboarding_use_case,
+    get_simulator_use_case,
     get_tenant_settings_use_case,
     get_tenant_use_case,
     get_token_verifier,
+    get_trace_ui_url,
+    get_tracing,
     list_agent_versions_use_case,
     list_tenants_use_case,
+    own_properties_fact,
+    reset_simulator_use_case,
     save_agent_setup_use_case,
+    send_simulator_message_use_case,
     sign_up_use_case,
     update_tenant_settings_use_case,
 )
@@ -28,11 +37,19 @@ from .logging import configure_logging
 from .me import build_me_router
 from .middleware import RequestContextMiddleware
 from .onboarding import build_onboarding_router
+from .simulator import build_simulator_router
 from .tenant_settings import build_tenant_settings_router
+from .tracing import flush
 
 configure_logging()
 settings = get_settings()
 logger = logging.getLogger("inmo24x7.app")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    yield
+    flush(get_tracing())  # send pending LangSmith runs before the process exits
 
 
 def create_app() -> FastAPI:
@@ -40,6 +57,7 @@ def create_app() -> FastAPI:
         title="inmo24x7 API",
         description="API for real estate follow-up agents.",
         version=settings.version,
+        lifespan=lifespan,
     )
     application.add_middleware(
         CORSMiddleware,
@@ -50,7 +68,10 @@ def create_app() -> FastAPI:
     )
     application.add_middleware(RequestContextMiddleware)
     register_error_handlers(application)
-    get_token_verifier()  # build once at startup so misconfiguration and the dev warning show early
+    # Build once at startup so misconfiguration and the development warnings show early.
+    get_token_verifier()
+    get_language_model()
+    get_tracing()
 
     application.include_router(build_health_router(get_session, settings))
     application.include_router(
@@ -73,6 +94,16 @@ def create_app() -> FastAPI:
         build_tenant_settings_router(
             get_tenant_settings_use_case,
             update_tenant_settings_use_case,
+        )
+    )
+    application.include_router(
+        build_simulator_router(
+            get_simulator_use_case,
+            send_simulator_message_use_case,
+            reset_simulator_use_case,
+            get_tenant_use_case,
+            own_properties_fact,
+            get_trace_ui_url,
         )
     )
     application.include_router(

@@ -22,5 +22,7 @@ describe("TenantsTable", () => {
 
     expect(html).toContain("Inmobiliaria Sur");
     expect(html).toContain("inmobiliaria-sur");
+    expect(html).toContain('href="/simulador?negocio=6d57c8d4-6b5b-4fac-8e50-23b6f0c0f210"');
+    expect(html).toContain("Probar su agente");
   });
 });

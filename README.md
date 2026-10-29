@@ -68,7 +68,7 @@ Dashed components and edges are planned.
 flowchart TB
     subgraph Channels["Channels"]
         WHATSAPP["WhatsApp<br/>Meta Cloud API<br/>(planned)"]
-        SIMULATOR["Web chat simulator<br/>(planned)"]
+        SIMULATOR["Web chat simulator"]
     end
 
     subgraph Frontends["Frontends"]
@@ -93,12 +93,13 @@ flowchart TB
         TENANCY["Tenancy"]
         IDENTITY["Identity"]
         MESSAGING["Messaging<br/>(planned)"]
-        CONVERSATION["Conversation<br/>(planned)"]
+        CONVERSATION["Conversation"]
     end
 
-    PORT["AgentRuntime port<br/>(planned)"]
-    LANGGRAPH["LangGraph runtime<br/>(planned)"]
-    CHECKPOINTER["Postgres checkpointer<br/>(planned)"]
+    PORT["AgentRuntime port"]
+    LANGGRAPH["LangGraph runtime"]
+    CHECKPOINTER["Postgres checkpointer"]
+    LLM["LLM port<br/>Anthropic · OpenAI · DeepSeek · Kimi · MiMo"]
 
     subgraph Data["Data and identity"]
         POSTGRES["Postgres<br/>local development"]
@@ -110,7 +111,7 @@ flowchart TB
     MERCADO_PAGO["Mercado Pago<br/>(planned)"]
 
     WHATSAPP -.-> MESSAGING
-    SIMULATOR -.-> CONVERSATION
+    SIMULATOR --> WEB
 
     WEB --> API
     BACKOFFICE --> API
@@ -130,16 +131,18 @@ flowchart TB
     API --> TENANCY
     API --> IDENTITY
     API -.-> MESSAGING
-    API -.-> CONVERSATION
+    API --> CONVERSATION
     CC_API -.-> TENANCY
     CC_API -.-> IDENTITY
     CC_API -.-> MESSAGING
     CC_API -.-> CONVERSATION
 
-    CONVERSATION -.-> PORT
-    PORT -.-> LANGGRAPH
-    LANGGRAPH -.-> CHECKPOINTER
-    CHECKPOINTER -.-> POSTGRES
+    CONVERSATION --> PORT
+    PORT --> LANGGRAPH
+    LANGGRAPH --> LLM
+    LANGGRAPH --> CHECKPOINTER
+    CHECKPOINTER --> POSTGRES
+    CONVERSATION --> POSTGRES
     TENANCY --> POSTGRES
     POSTGRES -.-> SUPABASE
     IDENTITY --> AUTH
@@ -148,7 +151,7 @@ flowchart TB
     CC_API -.-> MERCADO_PAGO
 
     classDef planned fill:#ffffff,stroke:#8b8b8b,stroke-width:1px,stroke-dasharray: 5 5,color:#666666;
-    class WHATSAPP,SIMULATOR,CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,MESSAGING,CONVERSATION,PORT,LANGGRAPH,CHECKPOINTER,SUPABASE,ARCA,MERCADO_PAGO planned;
+    class WHATSAPP,CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,MESSAGING,SUPABASE,ARCA,MERCADO_PAGO planned;
 ```
 
 The same context layers apply to every bounded context. Dependencies point inward, and the domain has no outward imports.
@@ -241,11 +244,25 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `SUPABASE_JWKS_URL` | *(empty)* | API | JWKS URL for tokens signed with ES256 or RS256. Production requires this or `SUPABASE_JWT_SECRET`. |
 | `VITE_SUPABASE_URL` | *(empty)* | Web, backoffice | Supabase URL for the auth client in the panels. |
 | `VITE_SUPABASE_ANON_KEY` | *(empty)* | Web, backoffice | Supabase anon key for the auth client in the panels. |
+| `LLM_MODEL` | *(empty)* | API | Agent model as `provider:model`, with provider `anthropic`, `openai`, `deepseek`, `kimi` or `mimo` (for example `anthropic:claude-sonnet-5-5`). Empty in development uses a template-based fake model and logs a warning. Required in production. |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`, `MIMO_API_KEY` | *(empty)* | API | API key of the provider named in `LLM_MODEL` (Kimi uses `MOONSHOT_API_KEY`). Only that one is read, and it is required whenever `LLM_MODEL` is set. |
+| `LLM_BASE_URL` | *(empty)* | API | Optional endpoint override, e.g. Moonshot's China endpoint or MiMo's Token Plan URL. Kimi and MiMo default to their global OpenAI-compatible URLs. |
+| `LLM_TIMEOUT_SECONDS` | `20` | API | Timeout per model call. The adapter retries once; then the simulator returns `503 agent_unavailable`. |
+| `SIMULATOR_DAILY_LIMIT` | `300` | API | Simulator messages per business per day (in the business's timezone). Over it the API returns `429 simulator_limit_reached`. |
+| `LANGSMITH_TRACING` | `false` | API | `true` sends a trace of every agent turn to LangSmith. Optional in every environment; tests and CI force it off. |
+| `LANGSMITH_API_KEY` | *(empty)* | API | LangSmith key. Without it tracing stays off (with a warning), it never fails startup. |
+| `LANGSMITH_PROJECT` | `inmo24x7-dev` / `inmo24x7-prod` | API | Project for the traces; the default follows `APP_ENV`. |
+| `LANGSMITH_ENDPOINT` | *(LangSmith default)* | API | Only for the EU region or a self-hosted LangSmith. |
+| `LANGSMITH_TRACING_SAMPLING_RATE` | *(all turns)* | API | Fraction of turns traced, from 0 to 1. |
+| `LANGSMITH_REDACT_PII` | `true` | API | Masks emails, Argentine phone numbers and DNIs in every traced input and output before it is sent. |
+| `LANGSMITH_UI_URL` | *(empty)* | API | The project's page in the LangSmith UI (`…/o/<org>/projects/p/<project-id>`). When set, backoffice simulator messages get a "Ver traza" link. |
+| `LANGSMITH_HIDE_INPUTS`, `LANGSMITH_HIDE_OUTPUTS` | *(unset)* | API | Read by the LangSmith client: `true` drops inputs or outputs from traces entirely, keeping only names, timing and metadata. |
+| `VITE_PANEL_URL` | `http://localhost:5173` | Backoffice | Panel origin, used to open sample property links from the backoffice simulator. Optional Docker build argument. |
 | `APP_VERSION` | `0.1.0` | API, Docker | Version returned by readiness. Passed as a Docker build argument. |
 | `GIT_COMMIT` | `unknown` | API, Docker | Commit returned by readiness. Passed as a Docker build argument. |
 | `BUILD_DATE` | `unknown` | API, Docker | Build date returned by readiness. Passed as a Docker build argument. |
 
-The API reads the `SUPABASE_*` variables only at runtime; they are never Docker build arguments, so they cannot end up in an image layer. Only the public `VITE_SUPABASE_*` values are embedded in the panel builds. Meta variables are added in milestone 3. The repository contains no real secrets.
+The API reads the `SUPABASE_*`, LLM and `LANGSMITH_*` variables only at runtime; they are never Docker build arguments, so they cannot end up in an image layer. Only the public `VITE_SUPABASE_*` values are embedded in the panel builds. Meta variables are added in milestone 3. The repository contains no real secrets.
 
 Only the development script loads `.env` into API processes. When using the manual commands, export the variables in your shell.
 
@@ -305,6 +322,10 @@ All routes below need a Supabase access token and are scoped to the caller's bus
 | `GET /agent-setup`, `PUT /agent-setup` | Agent configuration plus team hours and notification emails, saved together. |
 | `GET /agent-setup/versions` | Latest 20 agent configuration versions. |
 | `GET /tenant/settings`, `PUT /tenant/settings` | Business name, type, hours and notification emails. |
+| `GET /simulator` | The caller's current simulator thread: transcript, "Lo que el agente ya sabe" rows, sample-properties and outdated-config flags. Creates nothing. Any role. |
+| `POST /simulator/messages` | Send `{text}` (1–1000 characters); returns the agent's new messages and the state panel. `503 agent_unavailable` if the model fails (nothing is stored), `429 simulator_limit_reached` over the daily limit. |
+| `POST /simulator/reset` | Reiniciar: start a new thread pinned to the current agent configuration. |
+| `GET /admin/tenants/{tenant_id}/simulator`, `.../messages`, `.../reset` | Platform admins only: the same simulator against any business, in the admin's own thread. |
 
 Errors return stable codes instead of user-facing text:
 

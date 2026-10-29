@@ -17,7 +17,7 @@ import { fetchMe, signUp } from "../api/me";
 import { advanceOnboarding, fetchOnboarding } from "../api/onboarding";
 import { fetchTenantSettings, saveTenantSettings } from "../api/tenant-settings";
 import { AgentSetupForm } from "../components/AgentSetupForm";
-import { AgentSummary } from "../components/onboarding/AgentSummary";
+import { SimulatorView } from "../components/SimulatorView";
 import { BusinessStep } from "../components/onboarding/BusinessStep";
 import { apiErrorMessage } from "../lib/api-errors";
 import { deferOnboarding, resumeOnboarding } from "../lib/onboarding-deferred";
@@ -111,7 +111,7 @@ function WizardFrame({ current, reachable, state, canDefer }: WizardFrameProps) 
         <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm font-medium">
-              inmo24x7 · Paso {index + 1} de {wizardSteps.length}
+              inmo24x7 · Paso {index + 1} de {wizardSteps.length} · {wizardSteps[index].label}
             </p>
             {canDefer ? (
               <Button variant="ghost" size="sm" onClick={finishLater}>
@@ -278,16 +278,15 @@ function useAdvance(to: WizardStepId) {
 
 function TryStep() {
   const navigate = useNavigate();
-  const setupQuery = useQuery({ queryKey: ["agent-setup"], queryFn: fetchAgentSetup });
   const advance = useAdvance("whatsapp");
 
   return (
-    <StepCard title="Probá a tu agente">
+    <StepCard
+      title="Escribile como si fueras un cliente"
+      description="Así va a responder en WhatsApp. Todavía no conectaste nada: esto es una prueba privada."
+    >
       <div className="flex flex-col gap-6">
-        <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-          Muy pronto vas a poder chatear con tu agente acá.
-        </div>
-        {setupQuery.data ? <AgentSummary setup={setupQuery.data} /> : null}
+        <SimulatorView />
         {advance.isError ? (
           <p className="text-sm text-destructive" role="alert">
             {apiErrorMessage(advance.error, "No pudimos avanzar. Probá de nuevo.")}
@@ -309,15 +308,17 @@ function TryStep() {
 const whatsappSteps = [
   {
     title: "Entrá con tu cuenta de Facebook",
-    text: "Necesitás una cuenta de Facebook para vincular tu negocio con WhatsApp.",
+    text: "La que administra la página o el negocio de la inmobiliaria.",
   },
   {
-    title: "Elegí o creá tu cuenta de empresa en Meta",
-    text: "Es la cuenta que le da permiso a tu agente para responder en tu nombre.",
+    title: "Elegí el número",
+    text:
+      "Puede ser uno nuevo o el que ya usan. Si está en la app de WhatsApp Business, Meta te guía para pasarlo.",
   },
   {
-    title: "Verificá tu número",
-    text: "Te llega un código por SMS o llamada al número que quieras usar con tus clientes.",
+    title: "Confirmá con el código por SMS",
+    text:
+      "Listo: nosotros configuramos todo lo demás y te mandamos un mensaje de prueba.",
   },
 ];
 
@@ -327,7 +328,7 @@ function WhatsAppStep() {
   return (
     <StepCard
       title="Conectá WhatsApp"
-      description="Son tres pasos. La conexión automática llega muy pronto."
+      description="Se abre una ventana de Meta. Tarda unos 3 minutos y no necesitás saber nada técnico."
     >
       <div className="flex flex-col gap-6">
         <ol className="flex flex-col gap-3">

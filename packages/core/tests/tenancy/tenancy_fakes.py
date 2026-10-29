@@ -4,6 +4,7 @@ from datetime import time
 from uuid import UUID
 
 from followup_core.identity.domain.profile import Profile
+from followup_core.tenancy.application.agent_setup import AgentConfigDraft, QuestionDraft
 from followup_core.tenancy.application.defaults import SetupDefaults
 from followup_core.tenancy.domain.agent_config import (
     AfterHoursMode,
@@ -20,6 +21,7 @@ from followup_core.tenancy.domain.business_settings import (
     BusinessType,
     ScheduleBlock,
 )
+from followup_core.tenancy.domain.errors import AgentConfigConflictError
 from followup_core.tenancy.domain.onboarding import Onboarding
 from followup_core.tenancy.domain.tenant import Tenant
 
@@ -99,7 +101,24 @@ class InMemoryAgentConfigRepository:
         versions = self.list_versions(tenant_id, 1)
         return versions[0] if versions else None
 
+    def get_version(self, tenant_id: UUID, version: int) -> AgentConfigVersion | None:
+        for saved in self.versions:
+            if (saved.tenant_id, saved.version) == (tenant_id, version):
+                return saved
+        return None
+
+    def question_keys(self, tenant_id: UUID) -> set[str]:
+        return {
+            question.key
+            for version in self.versions
+            if version.tenant_id == tenant_id
+            for question in version.config.qualification_questions
+        }
+
     def add_version(self, version: AgentConfigVersion) -> None:
+        taken = {(saved.tenant_id, saved.version) for saved in self.versions}
+        if (version.tenant_id, version.version) in taken:
+            raise AgentConfigConflictError("Version already exists.")
         self.versions.append(version)
 
     def list_versions(self, tenant_id: UUID, limit: int) -> list[AgentConfigVersion]:
@@ -121,6 +140,31 @@ def sample_config(**overrides) -> AgentConfig:
     }
     values.update(overrides)
     return AgentConfig(**values)
+
+
+def draft_of(config: AgentConfig) -> AgentConfigDraft:
+    return AgentConfigDraft(
+        agent_name=config.agent_name,
+        tone=config.tone,
+        after_hours_mode=config.after_hours_mode,
+        qualification_questions=tuple(
+            QuestionDraft(
+                question.key, question.label, question.kind, question.options, question.enabled
+            )
+            for question in config.qualification_questions
+        ),
+    )
+
+
+def sample_draft(*extra: QuestionDraft, **overrides) -> AgentConfigDraft:
+    """The sample config as the panel would send it, plus any extra questions."""
+    draft = draft_of(sample_config(**overrides))
+    return AgentConfigDraft(
+        agent_name=draft.agent_name,
+        tone=draft.tone,
+        after_hours_mode=draft.after_hours_mode,
+        qualification_questions=(*draft.qualification_questions, *extra),
+    )
 
 
 def sample_defaults() -> SetupDefaults:

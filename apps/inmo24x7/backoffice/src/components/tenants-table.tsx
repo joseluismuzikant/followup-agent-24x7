@@ -25,6 +25,9 @@ export function TenantsTable({ tenants }: TenantsTableProps) {
           <TableHead>Negocio</TableHead>
           <TableHead>Identificador</TableHead>
           <TableHead>Creado</TableHead>
+          <TableHead>
+            <span className="sr-only">Acciones</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -36,6 +39,14 @@ export function TenantsTable({ tenants }: TenantsTableProps) {
             </TableCell>
             <TableCell className="text-muted-foreground">
               {dateFormatter.format(new Date(tenant.created_at))}
+            </TableCell>
+            <TableCell className="text-right">
+              <a
+                href={`/simulador?negocio=${tenant.id}`}
+                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                Probar su agente
+              </a>
             </TableCell>
           </TableRow>
         ))}

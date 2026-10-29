@@ -176,6 +176,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/simulator": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Simulator */
+        get: operations["get_simulator_simulator_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/simulator/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Message */
+        post: operations["send_message_simulator_messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/simulator/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset */
+        post: operations["reset_simulator_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/simulator": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Get Simulator */
+        get: operations["admin_get_simulator_admin_tenants__tenant_id__simulator_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/simulator/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Send Message */
+        post: operations["admin_send_message_admin_tenants__tenant_id__simulator_messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/simulator/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Reset */
+        post: operations["admin_reset_admin_tenants__tenant_id__simulator_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants": {
         parameters: {
             query?: never;
@@ -202,6 +304,23 @@ export interface components {
         AdvanceRequest: {
             /** To Step */
             to_step: string;
+        };
+        /** AgentConfigInputModel */
+        AgentConfigInputModel: {
+            /** Agent Name */
+            agent_name: string;
+            /**
+             * Tone
+             * @enum {string}
+             */
+            tone: "warm" | "professional" | "formal";
+            /**
+             * After Hours Mode
+             * @constant
+             */
+            after_hours_mode: "keep_answering_and_propose_visit";
+            /** Qualification Questions */
+            qualification_questions: components["schemas"]["QuestionInputModel"][];
         };
         /** AgentConfigModel */
         AgentConfigModel: {
@@ -235,7 +354,7 @@ export interface components {
         };
         /** AgentSetupWrite */
         AgentSetupWrite: {
-            config: components["schemas"]["AgentConfigModel"];
+            config: components["schemas"]["AgentConfigInputModel"];
             /** Business Hours */
             business_hours: components["schemas"]["ScheduleBlockModel"][];
             /** Notification Emails */
@@ -290,6 +409,15 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** KnownFactRead */
+        KnownFactRead: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string | null;
+        };
         /** LivenessResponse */
         LivenessResponse: {
             /**
@@ -302,6 +430,35 @@ export interface components {
         MeResponse: {
             profile: components["schemas"]["ProfileRead"];
             tenant: components["schemas"]["TenantSummaryRead"];
+        };
+        /** MessageRead */
+        MessageRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound";
+            /**
+             * Author
+             * @enum {string}
+             */
+            author: "visitor" | "agent" | "human" | "system";
+            /** Text */
+            text: string;
+            /** Cards */
+            cards: components["schemas"]["PropertyCardRead"][] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Trace Url */
+            trace_url?: string | null;
         };
         /** OnboardingRead */
         OnboardingRead: {
@@ -333,6 +490,54 @@ export interface components {
             role: string;
             /** Is Platform Admin */
             is_platform_admin: boolean;
+        };
+        /** PropertyCardRead */
+        PropertyCardRead: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Address */
+            address: string;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "sale" | "rent";
+            /** Zone */
+            zone: string;
+            /** Price Label */
+            price_label: string;
+            /** Rooms */
+            rooms: number;
+            /** Link */
+            link: string;
+            /** Over Budget */
+            over_budget: boolean;
+            /** Is Sample */
+            is_sample: boolean;
+        };
+        /**
+         * QuestionInputModel
+         * @description A question as the panel sends it. New questions have no key: the server assigns one.
+         */
+        QuestionInputModel: {
+            /** Key */
+            key?: string | null;
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "choice" | "text" | "number" | "money" | "boolean";
+            /** Options */
+            options?: string[];
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** QuestionModel */
         QuestionModel: {
@@ -415,6 +620,34 @@ export interface components {
         SignUpResponse: {
             profile: components["schemas"]["ProfileRead"];
             tenant: components["schemas"]["TenantSummaryRead"];
+        };
+        /** SimulatorMessageWrite */
+        SimulatorMessageWrite: {
+            /** Text */
+            text: string;
+        };
+        /** SimulatorRead */
+        SimulatorRead: {
+            thread: components["schemas"]["ThreadRead"] | null;
+            /** Messages */
+            messages: components["schemas"]["MessageRead"][];
+            /** Known */
+            known: components["schemas"]["KnownFactRead"][];
+            /** Uses Sample Properties */
+            uses_sample_properties: boolean;
+            /** Config Outdated */
+            config_outdated: boolean;
+            /** Agent Name */
+            agent_name: string;
+            /** Business Name */
+            business_name: string;
+        };
+        /** SimulatorReplyRead */
+        SimulatorReplyRead: {
+            /** Messages */
+            messages: components["schemas"]["MessageRead"][];
+            /** Known */
+            known: components["schemas"]["KnownFactRead"][];
         };
         /** TenantCreate */
         TenantCreate: {
@@ -500,6 +733,18 @@ export interface components {
              * Format: date-time
              */
             trial_ends_at: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ThreadRead */
+        ThreadRead: {
+            /** Key */
+            key: string;
+            /** Agent Config Version */
+            agent_config_version: number;
             /**
              * Created At
              * Format: date-time
@@ -816,6 +1061,176 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantSettingsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_simulator_simulator_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulatorRead"];
+                };
+            };
+        };
+    };
+    send_message_simulator_messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulatorMessageWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulatorReplyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_simulator_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulatorRead"];
+                };
+            };
+        };
+    };
+    admin_get_simulator_admin_tenants__tenant_id__simulator_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulatorRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_send_message_admin_tenants__tenant_id__simulator_messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulatorMessageWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulatorReplyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_reset_admin_tenants__tenant_id__simulator_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulatorRead"];
                 };
             };
             /** @description Validation Error */

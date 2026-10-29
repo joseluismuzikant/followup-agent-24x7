@@ -10,6 +10,17 @@ MAX_AGENT_NAME_LENGTH = 40
 MAX_QUESTIONS = 10
 MAX_LABEL_LENGTH = 120
 _KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+_CUSTOM_KEY_PATTERN = re.compile(r"^custom_([1-9][0-9]*)$")
+
+
+def custom_key(number: int) -> str:
+    return f"custom_{number}"
+
+
+def custom_key_number(key: str) -> int | None:
+    """The n in `custom_<n>`, or None when the key is not a custom question key."""
+    match = _CUSTOM_KEY_PATTERN.fullmatch(key)
+    return int(match.group(1)) if match else None
 
 
 class Tone(StrEnum):
