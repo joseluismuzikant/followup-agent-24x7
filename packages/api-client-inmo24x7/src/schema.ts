@@ -89,6 +89,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Onboarding */
+        get: operations["get_onboarding_onboarding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/onboarding/advance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Advance Onboarding */
+        post: operations["advance_onboarding_onboarding_advance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent-setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent Setup */
+        get: operations["get_agent_setup_agent_setup_get"];
+        /** Save Agent Setup */
+        put: operations["save_agent_setup_agent_setup_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent-setup/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Versions */
+        get: operations["list_versions_agent_setup_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenant/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["get_settings_tenant_settings_get"];
+        /** Update Settings */
+        put: operations["update_settings_tenant_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants": {
         parameters: {
             query?: never;
@@ -111,6 +198,88 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdvanceRequest */
+        AdvanceRequest: {
+            /** To Step */
+            to_step: string;
+        };
+        /** AgentConfigModel */
+        AgentConfigModel: {
+            /** Agent Name */
+            agent_name: string;
+            /**
+             * Tone
+             * @enum {string}
+             */
+            tone: "warm" | "professional" | "formal";
+            /**
+             * After Hours Mode
+             * @constant
+             */
+            after_hours_mode: "keep_answering_and_propose_visit";
+            /** Qualification Questions */
+            qualification_questions: components["schemas"]["QuestionModel"][];
+        };
+        /** AgentSetupRead */
+        AgentSetupRead: {
+            config: components["schemas"]["AgentConfigModel"];
+            /** Version */
+            version: number;
+            /** Updated At */
+            updated_at: string | null;
+            /** Business Hours */
+            business_hours: components["schemas"]["ScheduleBlockModel"][];
+            /** Notification Emails */
+            notification_emails: string[];
+            defaults: components["schemas"]["AgentConfigModel"];
+        };
+        /** AgentSetupWrite */
+        AgentSetupWrite: {
+            config: components["schemas"]["AgentConfigModel"];
+            /** Business Hours */
+            business_hours: components["schemas"]["ScheduleBlockModel"][];
+            /** Notification Emails */
+            notification_emails: string[];
+        };
+        /** AgentVersionRead */
+        AgentVersionRead: {
+            /** Version */
+            version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Author Email */
+            author_email: string | null;
+        };
+        /** ChecklistItemRead */
+        ChecklistItemRead: {
+            /** Key */
+            key: string;
+            /** Done */
+            done: boolean;
+        };
+        /** ChecklistRead */
+        ChecklistRead: {
+            /** Items */
+            items: components["schemas"]["ChecklistItemRead"][];
+            /** Ready Count */
+            ready_count: number;
+            /** Total */
+            total: number;
+            facts: components["schemas"]["SetupFactsRead"];
+        };
+        /** CompletedStepRead */
+        CompletedStepRead: {
+            /** Step */
+            step: string;
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+        };
         /** ErrorResponse */
         ErrorResponse: {
             /** Code */
@@ -134,6 +303,16 @@ export interface components {
             profile: components["schemas"]["ProfileRead"];
             tenant: components["schemas"]["TenantSummaryRead"];
         };
+        /** OnboardingRead */
+        OnboardingRead: {
+            /** Current Step */
+            current_step: string;
+            /** Completed Steps */
+            completed_steps: components["schemas"]["CompletedStepRead"][];
+            /** Finished */
+            finished: boolean;
+            checklist: components["schemas"]["ChecklistRead"];
+        };
         /** ProfileRead */
         ProfileRead: {
             /**
@@ -154,6 +333,25 @@ export interface components {
             role: string;
             /** Is Platform Admin */
             is_platform_admin: boolean;
+        };
+        /** QuestionModel */
+        QuestionModel: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "choice" | "text" | "number" | "money" | "boolean";
+            /** Options */
+            options?: string[];
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** ReadinessError */
         ReadinessError: {
@@ -182,10 +380,36 @@ export interface components {
             /** Build Date */
             build_date: string;
         };
+        /** ScheduleBlockModel */
+        ScheduleBlockModel: {
+            /** Weekday */
+            weekday: number;
+            /** Opens */
+            opens: string;
+            /** Closes */
+            closes: string;
+        };
+        /** SetupFactsRead */
+        SetupFactsRead: {
+            /** Account Created */
+            account_created: boolean;
+            /** Agent Configured */
+            agent_configured: boolean;
+            /** Agent Tested */
+            agent_tested: boolean;
+            /** Whatsapp Connected */
+            whatsapp_connected: boolean;
+            /** Own Properties */
+            own_properties: boolean;
+            /** Meta Business Verified */
+            meta_business_verified: boolean;
+        };
         /** SignUpRequest */
         SignUpRequest: {
             /** Business Name */
             business_name: string;
+            /** Business Type */
+            business_type: string;
         };
         /** SignUpResponse */
         SignUpResponse: {
@@ -233,6 +457,30 @@ export interface components {
              * Format: date-time
              */
             trial_ends_at: string;
+        };
+        /** TenantSettingsRead */
+        TenantSettingsRead: {
+            /** Business Name */
+            business_name: string;
+            /** Business Type */
+            business_type: string;
+            /** Timezone */
+            timezone: string;
+            /** Business Hours */
+            business_hours: components["schemas"]["ScheduleBlockModel"][];
+            /** Notification Emails */
+            notification_emails: string[];
+        };
+        /** TenantSettingsWrite */
+        TenantSettingsWrite: {
+            /** Business Name */
+            business_name: string;
+            /** Business Type */
+            business_type: string;
+            /** Business Hours */
+            business_hours: components["schemas"]["ScheduleBlockModel"][];
+            /** Notification Emails */
+            notification_emails: string[];
         };
         /** TenantSummaryRead */
         TenantSummaryRead: {
@@ -398,6 +646,185 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantSummaryRead"];
+                };
+            };
+        };
+    };
+    get_onboarding_onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingRead"];
+                };
+            };
+        };
+    };
+    advance_onboarding_onboarding_advance_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdvanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_setup_agent_setup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSetupRead"];
+                };
+            };
+        };
+    };
+    save_agent_setup_agent_setup_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentSetupWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSetupRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_versions_agent_setup_versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentVersionRead"][];
+                };
+            };
+        };
+    };
+    get_settings_tenant_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettingsRead"];
+                };
+            };
+        };
+    };
+    update_settings_tenant_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantSettingsWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSettingsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

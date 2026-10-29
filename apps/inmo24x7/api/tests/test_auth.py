@@ -9,7 +9,7 @@ def _sign_up(client: TestClient, auth, email: str) -> tuple[str, dict]:
     headers = {"Authorization": f"Bearer {token}"}
     response = client.post(
         "/me/sign-up",
-        json={"business_name": f"Negocio {user_id}"},
+        json={"business_name": f"Negocio {user_id}", "business_type": "inmobiliaria"},
         headers=headers,
     )
     assert response.status_code == 201

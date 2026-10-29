@@ -10,7 +10,7 @@ def _admin_headers(client: TestClient, auth) -> dict[str, str]:
     headers = {"Authorization": f"Bearer {token}"}
     client.post(
         "/me/sign-up",
-        json={"business_name": "Inmobiliaria Admin"},
+        json={"business_name": "Inmobiliaria Admin", "business_type": "inmobiliaria"},
         headers=headers,
     )
     auth.make_admin(user_id)

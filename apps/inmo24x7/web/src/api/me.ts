@@ -17,9 +17,12 @@ export async function fetchMe(): Promise<MeResponse> {
   throw new ApiRequestError(response.status, errorCode(error));
 }
 
-export async function signUp(businessName: string): Promise<SignUpResponse> {
+export async function signUp(
+  businessName: string,
+  businessType: string,
+): Promise<SignUpResponse> {
   const { data, error, response } = await apiClient.POST("/me/sign-up", {
-    body: { business_name: businessName },
+    body: { business_name: businessName, business_type: businessType },
   });
 
   if (data) {

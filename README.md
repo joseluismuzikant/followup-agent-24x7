@@ -236,17 +236,16 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `TEST_DATABASE_URL` | `postgresql+psycopg://followup:followup@localhost:5433/followup_test` | API tests | Dedicated test database. Tests create it when necessary and never modify the development database. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` | API | Allowed origins, separated by commas. Required in production. |
 | `VITE_API_URL` | `http://localhost:8001` | Web, backoffice | Public API URL. It is embedded in the panel builds. |
-| `SUPABASE_URL` | *(empty)* | API | Supabase project URL. Required in production. |
-| `SUPABASE_ANON_KEY` | *(empty)* | API | Supabase anon key. Required in production. |
-| `SUPABASE_JWT_SECRET` | *(empty)* | API | Supabase JWT secret for verifying access tokens. Required in production. |
-| `SUPABASE_JWKS_URL` | *(empty)* | API | Optional JWKS URL when tokens are verified with RS256 instead of HS256. |
+| `SUPABASE_URL` | *(empty)* | API | Supabase project URL. Required in production; tokens must be issued by `{SUPABASE_URL}/auth/v1`. |
+| `SUPABASE_JWT_SECRET` | *(empty)* | API | Supabase JWT secret (HS256). Production requires this or `SUPABASE_JWKS_URL`. |
+| `SUPABASE_JWKS_URL` | *(empty)* | API | JWKS URL for tokens signed with ES256 or RS256. Production requires this or `SUPABASE_JWT_SECRET`. |
 | `VITE_SUPABASE_URL` | *(empty)* | Web, backoffice | Supabase URL for the auth client in the panels. |
 | `VITE_SUPABASE_ANON_KEY` | *(empty)* | Web, backoffice | Supabase anon key for the auth client in the panels. |
 | `APP_VERSION` | `0.1.0` | API, Docker | Version returned by readiness. Passed as a Docker build argument. |
 | `GIT_COMMIT` | `unknown` | API, Docker | Commit returned by readiness. Passed as a Docker build argument. |
 | `BUILD_DATE` | `unknown` | API, Docker | Build date returned by readiness. Passed as a Docker build argument. |
 
-Supabase and Meta variables are added in milestones 2 and 3. The repository contains no real secrets.
+The API reads the `SUPABASE_*` variables only at runtime; they are never Docker build arguments, so they cannot end up in an image layer. Only the public `VITE_SUPABASE_*` values are embedded in the panel builds. Meta variables are added in milestone 3. The repository contains no real secrets.
 
 Only the development script loads `.env` into API processes. When using the manual commands, export the variables in your shell.
 
@@ -297,6 +296,16 @@ curl -X POST http://localhost:8001/tenants \
 }
 ```
 
+All routes below need a Supabase access token and are scoped to the caller's business. Writes need the owner or manager role (otherwise `403 {"code": "forbidden"}`).
+
+| Route | Purpose |
+| --- | --- |
+| `POST /me/sign-up` | Create the business, owner profile, default settings and onboarding record. Body: `{business_name, business_type}`. |
+| `GET /onboarding`, `POST /onboarding/advance` | Wizard progress and setup checklist. |
+| `GET /agent-setup`, `PUT /agent-setup` | Agent configuration plus team hours and notification emails, saved together. |
+| `GET /agent-setup/versions` | Latest 20 agent configuration versions. |
+| `GET /tenant/settings`, `PUT /tenant/settings` | Business name, type, hours and notification emails. |
+
 Errors return stable codes instead of user-facing text:
 
 ```json
@@ -322,9 +331,9 @@ scripts                            local startup and type generation
 
 ## Images
 
-On every push to the repository's default branch, after tests pass, CI builds and pushes amd64 + arm64 images for the API, web, and backoffice to GitHub Container Registry. Images use `latest` and `sha-<commit>` tags. The API receives `APP_VERSION`, `GIT_COMMIT`, and `BUILD_DATE`; the panels receive `VITE_API_URL` from the `INMO24X7_API_URL` repository variable (or the `INMO24X7_API_URL` secret). If neither is set, CI falls back to `http://localhost:8001`; set it to the production API URL before deploying.
+On every push to the repository's default branch, after tests pass, CI builds and pushes amd64 + arm64 images for the API, web, and backoffice to GitHub Container Registry. Images use `latest` and `sha-<commit>` tags. The API receives `APP_VERSION`, `GIT_COMMIT`, and `BUILD_DATE`; the panels receive `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (public by design), and `VITE_API_URL` from the `INMO24X7_API_URL` repository variable (or the `INMO24X7_API_URL` secret). If neither is set, CI falls back to `http://localhost:8001`; set it to the production API URL before deploying.
 
-Run the API image with `APP_ENV=production`, `DATABASE_URL`, and `CORS_ORIGINS` set.
+Run the API image with `APP_ENV=production`, `DATABASE_URL`, `CORS_ORIGINS`, `SUPABASE_URL`, and `SUPABASE_JWT_SECRET` (or `SUPABASE_JWKS_URL`) set at runtime (`docker run -e` or an env file). Never pass Supabase secrets as build arguments.
 
 Local multi-architecture build:
 
