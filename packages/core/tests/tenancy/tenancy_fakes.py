@@ -101,6 +101,12 @@ class InMemoryAgentConfigRepository:
         versions = self.list_versions(tenant_id, 1)
         return versions[0] if versions else None
 
+    def get_version(self, tenant_id: UUID, version: int) -> AgentConfigVersion | None:
+        for saved in self.versions:
+            if (saved.tenant_id, saved.version) == (tenant_id, version):
+                return saved
+        return None
+
     def question_keys(self, tenant_id: UUID) -> set[str]:
         return {
             question.key

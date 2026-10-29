@@ -1,5 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@followup/ui";
+import { Button, Card, CardContent, CardHeader, CardTitle } from "@followup/ui";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 
 import { fetchOnboarding } from "../api/onboarding";
 import { SetupChecklist } from "../components/SetupChecklist";
@@ -13,6 +14,11 @@ export function InicioPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <div>
+        <Button asChild>
+          <Link to="/probar">Probar el agente</Link>
+        </Button>
+      </div>
       {onboardingQuery.data ? (
         <SetupChecklist
           checklist={onboardingQuery.data.checklist}

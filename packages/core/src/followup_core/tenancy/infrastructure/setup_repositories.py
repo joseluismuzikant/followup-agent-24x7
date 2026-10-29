@@ -134,6 +134,15 @@ class SqlAlchemyAgentConfigRepository:
         versions = self.list_versions(tenant_id, 1)
         return versions[0] if versions else None
 
+    def get_version(self, tenant_id: UUID, version: int) -> AgentConfigVersion | None:
+        model = self._session.scalars(
+            select(AgentConfigVersionModel).where(
+                AgentConfigVersionModel.tenant_id == tenant_id,
+                AgentConfigVersionModel.version == version,
+            )
+        ).first()
+        return _version_to_domain(model) if model else None
+
     def add_version(self, version: AgentConfigVersion) -> None:
         self._session.add(
             AgentConfigVersionModel(

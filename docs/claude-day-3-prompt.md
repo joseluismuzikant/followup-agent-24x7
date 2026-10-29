@@ -134,6 +134,31 @@ ARCHITECTURE
    tenant has no own properties (use the existing own_properties fact provider).
 6. Setup facts: plug in the agent_tested provider — true once the tenant has a simulator
    thread with at least one inbound message.
+7. LangSmith tracing (observability only; the app must work identically with it off):
+   - Tracing is controlled by environment variables only: LANGSMITH_TRACING,
+     LANGSMITH_API_KEY, LANGSMITH_PROJECT, LANGSMITH_ENDPOINT (check the current LangSmith
+     docs for exact names before using them). Off by default. One project per environment
+     (e.g. inmo24x7-dev, inmo24x7-prod); production may set LANGSMITH_TRACING_SAMPLING_RATE.
+   - Every graph invocation passes run_name ("inmo24x7.lead_turn"), tags (product, channel,
+     APP_ENV) and metadata: tenant_id, thread_key, channel, agent_config_version, prompt
+     versions, app version and commit. LLM port calls appear as child runs named
+     "llm.extract" and "llm.compose_reply"; wrap the PropertySearch call as a child run too.
+   - Store the root run id of each turn on its outbound messages (nullable column) and
+     include it in the per-turn log line, so a support case can jump from a message to its
+     trace. Add a backoffice-only link "Ver traza" on simulator messages when a run id
+     exists and LANGSMITH_UI_URL is configured; no link otherwise.
+   - Personal data: lead messages contain names, phone numbers and emails. Configure the
+     LangSmith client once in the composition root with an anonymizer that masks emails,
+     phone numbers (Argentine formats, with or without +54 9) and DNI-like numbers before
+     anything is sent. Add LANGSMITH_REDACT_PII (default true; when true the anonymizer is
+     on) and document LANGSMITH_HIDE_INPUTS / LANGSMITH_HIDE_OUTPUTS for production if
+     full hiding is wanted. Unit-test the anonymizer.
+   - Flush pending traces on API shutdown (FastAPI lifespan), and never let a LangSmith
+     error, timeout or missing key fail or slow down a turn.
+   - Tests and CI run with tracing forced off (set in conftest and CI env), so no test
+     makes network calls to LangSmith.
+   - Prompts stay as versioned files in the repo; do not use the LangSmith prompt hub.
+     LangSmith datasets and evaluations are out of scope today.
 
 API
 Tenant-scoped (any role can use the simulator; visitor_id = the caller's profile id plus a
@@ -193,6 +218,10 @@ TESTS (all must pass)
   shape, agent_tested flips after the first message.
 - Concurrency test: two simultaneous POST /simulator/messages on one thread run one after
   the other (no interleaved state).
+- LangSmith tests: the anonymizer masks emails, Argentine phone numbers and DNI-like
+  numbers; graph invocation receives the expected run_name, tags and metadata (assert on the
+  config passed, no network); a failing tracer does not fail the turn; the run id is stored
+  on outbound messages.
 - Frontend tests: ChatSimulator rendering and send flow, KnownFactsPanel "Pendiente",
   optimistic bubble + error resend, config_outdated banner, backoffice tenant picker.
 - Run everything CI runs: uv run ruff check ., uv run ruff format --check ., uv run pyright,
@@ -201,10 +230,15 @@ TESTS (all must pass)
 
 CONFIG AND DOCS
 - .env.example, README env table and config.py: LLM_MODEL, the provider API key variable,
-  LLM_TIMEOUT_SECONDS (default 20), SIMULATOR_DAILY_LIMIT (default 300).
+  LLM_TIMEOUT_SECONDS (default 20), SIMULATOR_DAILY_LIMIT (default 300), and the LangSmith
+  variables (LANGSMITH_TRACING, LANGSMITH_API_KEY, LANGSMITH_PROJECT, LANGSMITH_ENDPOINT,
+  LANGSMITH_TRACING_SAMPLING_RATE, LANGSMITH_REDACT_PII, LANGSMITH_UI_URL). None of the
+  LangSmith variables is required in production. They are runtime env only, never Docker
+  build args.
 - ARCHITECTURE.md: replace the "When added" Agent paragraph with what now exists (ports,
   runtime, checkpointer migration, transcript vs checkpoint, where the product graph lives,
-  the LLM port and why it has two operations).
+  the LLM port and why it has two operations, and LangSmith: what is traced, the metadata,
+  PII redaction, and how to turn it on).
 - README architecture diagram: Conversation, AgentRuntime port, LangGraph runtime, Postgres
   checkpointer and the web chat simulator are no longer planned.
 - docs/roadmap-mvp.md: mark Day 3 done (with Part 0) or note what moved.

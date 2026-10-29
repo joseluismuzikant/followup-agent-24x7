@@ -1,6 +1,7 @@
 from logging.config import fileConfig
 
 from alembic import context
+from followup_core.conversation.infrastructure import models as conversation_models  # noqa: F401
 from followup_core.identity.infrastructure import models as identity_models  # noqa: F401
 from followup_core.infrastructure.db import Base
 from followup_core.tenancy.infrastructure import models as tenancy_models  # noqa: F401

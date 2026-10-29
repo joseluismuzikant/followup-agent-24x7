@@ -47,6 +47,9 @@ describe("Inicio setup checklist", () => {
     // Meta verification has no destination yet, so it is not a link.
     expect(screen.queryByRole("link", { name: "Verificar tu empresa en Meta" })).toBeNull();
     expect(screen.getByText(/Todavía no hay consultas/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Probar el agente" }).getAttribute("href")).toBe(
+      "/probar",
+    );
   });
 
   it("resumes the wizard from Continuar configuración", async () => {

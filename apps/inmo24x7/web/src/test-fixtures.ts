@@ -3,6 +3,7 @@ import type {
   AgentSetup,
   MeResponse,
   OnboardingState,
+  SimulatorState,
 } from "@followup/api-client-inmo24x7";
 
 export const defaultConfig: AgentConfig = {
@@ -86,5 +87,23 @@ export function me(role = "owner"): MeResponse {
       trial_ends_at: "2099-01-01T00:00:00Z",
       created_at: "2026-10-28T12:00:00Z",
     },
+  };
+}
+
+export function simulatorState(overrides: Partial<SimulatorState> = {}): SimulatorState {
+  return {
+    thread: null,
+    messages: [],
+    known: [
+      { key: "operation", label: "Si busca comprar o alquilar", value: null },
+      { key: "zone", label: "Zona o barrio", value: null },
+      { key: "visitor_name", label: "Nombre", value: null },
+      { key: "contact", label: "Contacto", value: null },
+    ],
+    uses_sample_properties: true,
+    config_outdated: false,
+    agent_name: "Sofía",
+    business_name: "Inmobiliaria Sur",
+    ...overrides,
   };
 }

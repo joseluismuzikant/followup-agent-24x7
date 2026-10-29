@@ -17,6 +17,8 @@ def _production_env(monkeypatch, *, database_url: str | None = None, cors: str |
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "jwt-secret")
+    monkeypatch.setenv("LLM_MODEL", "anthropic:claude-sonnet-5-5")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     if database_url is None:
         monkeypatch.delenv("DATABASE_URL", raising=False)
     else:
@@ -92,6 +94,72 @@ def test_production_requires_supabase_url(monkeypatch) -> None:
     monkeypatch.delenv("SUPABASE_URL", raising=False)
 
     with pytest.raises(ConfigurationError, match="SUPABASE_URL"):
+        get_settings()
+
+
+def _complete_production_env(monkeypatch) -> None:
+    _production_env(
+        monkeypatch, database_url="postgresql+psycopg://db/app", cors="https://app.example.com"
+    )
+
+
+def test_development_without_llm_model_uses_the_fake_llm(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+
+    settings = get_settings()
+
+    assert settings.llm_model == ""
+    assert settings.llm_timeout_seconds == 20
+    assert settings.simulator_daily_limit == 300
+
+
+def test_production_requires_llm_model(monkeypatch) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.delenv("LLM_MODEL")
+
+    with pytest.raises(ConfigurationError, match="LLM_MODEL must be set"):
+        get_settings()
+
+
+@pytest.mark.parametrize(
+    ("model", "key_env"),
+    [
+        ("anthropic:claude-sonnet-5-5", "ANTHROPIC_API_KEY"),
+        ("openai:gpt-5", "OPENAI_API_KEY"),
+        ("deepseek:deepseek-chat", "DEEPSEEK_API_KEY"),
+        ("kimi:kimi-k2.5", "MOONSHOT_API_KEY"),
+        ("mimo:mimo-v2.5-pro", "MIMO_API_KEY"),
+    ],
+)
+def test_llm_key_comes_from_the_provider_variable(monkeypatch, model: str, key_env: str) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.setenv("LLM_MODEL", model)
+    monkeypatch.delenv(key_env, raising=False)
+
+    with pytest.raises(ConfigurationError, match=key_env):
+        get_settings()
+
+    get_settings.cache_clear()
+    monkeypatch.setenv(key_env, "sk-provider")
+    settings = get_settings()
+    assert (settings.llm_model, settings.llm_api_key) == (model, "sk-provider")
+
+
+def test_unknown_llm_provider_is_rejected(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("LLM_MODEL", "gemini:pro")
+
+    with pytest.raises(ConfigurationError, match="provider:model"):
+        get_settings()
+
+
+@pytest.mark.parametrize("name", ["LLM_TIMEOUT_SECONDS", "SIMULATOR_DAILY_LIMIT"])
+def test_numeric_llm_settings_must_be_positive(monkeypatch, name: str) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv(name, "0")
+
+    with pytest.raises(ConfigurationError, match=name):
         get_settings()
 
 

@@ -7,9 +7,11 @@ import { RedirectIfAuthed, RequireAuth } from "./lib/auth";
 import { AgentePage } from "./pages/agente";
 import { ConfiguracionPage } from "./pages/configuracion";
 import { ConsultasPage } from "./pages/consultas";
+import { EjemploPage } from "./pages/ejemplo";
 import { IngresoPage } from "./pages/ingreso";
 import { InicioPage } from "./pages/inicio";
 import { OnboardingPage } from "./pages/onboarding";
+import { ProbarPage } from "./pages/probar";
 import { PropiedadesPage } from "./pages/propiedades";
 
 export const router = createBrowserRouter([
@@ -21,6 +23,7 @@ export const router = createBrowserRouter([
       </RedirectIfAuthed>
     ),
   },
+  { path: "/ejemplo/:id", element: <EjemploPage /> },
   {
     path: "/onboarding/:step?",
     element: (
@@ -44,6 +47,7 @@ export const router = createBrowserRouter([
       { path: "/consultas", element: <ConsultasPage /> },
       { path: "/propiedades", element: <PropiedadesPage /> },
       { path: "/agente", element: <AgentePage /> },
+      { path: "/probar", element: <ProbarPage /> },
       { path: "/configuracion", element: <ConfiguracionPage /> },
     ],
   },

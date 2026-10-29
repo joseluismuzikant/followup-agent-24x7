@@ -9,16 +9,18 @@ import {
 } from "@followup/ui";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useLocation } from "react-router";
 
 import { fetchTenants } from "./api/tenants";
 import { RequireAdmin } from "./components/RequireAdmin";
 import { TenantsTable } from "./components/tenants-table";
 import { apiErrorMessage } from "./lib/api-errors";
+import { navItems } from "./lib/nav";
 
 const PAGE_SIZE = 10;
-const navItems = [{ label: "Negocios", href: "/", active: true }];
 
 export function App() {
+  const location = useLocation();
   const [page, setPage] = useState(1);
   const tenantsQuery = useQuery({
     queryKey: ["tenants", page, PAGE_SIZE],
@@ -33,7 +35,7 @@ export function App() {
         areaName="Backoffice"
         title="Negocios"
         description="Clientes dados de alta en la plataforma."
-        navItems={navItems}
+        navItems={navItems(location.pathname)}
         action={
           <Button
             variant="outline"

@@ -23,6 +23,11 @@ export type AgentConfigInput = components["schemas"]["AgentConfigInputModel"];
 export type AgentQuestionInput = components["schemas"]["QuestionInputModel"];
 export type ScheduleBlock = components["schemas"]["ScheduleBlockModel"];
 export type AgentVersion = components["schemas"]["AgentVersionRead"];
+export type SimulatorState = components["schemas"]["SimulatorRead"];
+export type SimulatorReply = components["schemas"]["SimulatorReplyRead"];
+export type SimulatorMessage = components["schemas"]["MessageRead"];
+export type SimulatorPropertyCard = components["schemas"]["PropertyCardRead"];
+export type KnownFactRow = components["schemas"]["KnownFactRead"];
 export type TenantSettings = components["schemas"]["TenantSettingsRead"];
 export type TenantSettingsInput = components["schemas"]["TenantSettingsWrite"];
 
