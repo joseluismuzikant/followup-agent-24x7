@@ -114,13 +114,18 @@ class BusinessSettings:
         )
 
 
-def is_within_team_hours(settings: BusinessSettings, at: datetime) -> bool:
-    """True when `at` falls inside the team's schedule in the tenant's timezone."""
+def is_within_hours(team_hours: tuple[ScheduleBlock, ...], timezone: str, at: datetime) -> bool:
+    """True when `at` falls inside `team_hours` in `timezone`."""
     if at.tzinfo is None:
         raise ValueError("`at` must be timezone-aware.")
-    local = at.astimezone(ZoneInfo(settings.timezone))
+    local = at.astimezone(ZoneInfo(timezone))
     local_time = local.time().replace(tzinfo=None)
     return any(
         block.weekday == local.weekday() and block.opens <= local_time < block.closes
-        for block in settings.team_hours
+        for block in team_hours
     )
+
+
+def is_within_team_hours(settings: BusinessSettings, at: datetime) -> bool:
+    """True when `at` falls inside the team's schedule in the tenant's timezone."""
+    return is_within_hours(settings.team_hours, settings.timezone, at)

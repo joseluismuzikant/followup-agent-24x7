@@ -18,7 +18,13 @@ interface PendingMessage {
 }
 
 function toChatMessage(message: SimulatorMessage): ChatMessage {
-  return { id: message.id, author: message.author, text: message.text, cards: message.cards };
+  return {
+    id: message.id,
+    author: message.author,
+    text: message.text,
+    cards: message.cards,
+    slots: message.slots,
+  };
 }
 
 /** The Probalo chat: used by wizard step 3 and the /probar page. */

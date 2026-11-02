@@ -24,6 +24,8 @@ addopts = "-q"
 typeCheckingMode = "basic"
 venvPath = "."
 venv = ".venv"
+# The seed tests import scripts/seed_dev.py.
+extraPaths = ["scripts"]
 include = [
     "packages/core/src",
     "packages/core/tests",

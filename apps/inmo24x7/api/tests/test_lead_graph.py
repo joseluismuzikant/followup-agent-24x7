@@ -3,75 +3,21 @@ and an in-memory checkpointer. The flow must not depend on the model."""
 
 from dataclasses import replace
 from datetime import UTC, datetime
-from uuid import uuid4
 
 import pytest
-from followup_core.conversation.domain.llm import ReplyIntent, ReplyRequest
-from followup_core.conversation.domain.runtime import BusinessContext, TurnInput
-from followup_core.conversation.domain.thread import Channel, Thread, ThreadKey, ThreadStatus
-from followup_core.conversation.infrastructure.fake_llm import FakeLanguageModel
-from followup_core.conversation.infrastructure.langgraph_runtime import LangGraphRuntime
+from followup_core.conversation.domain.llm import ReplyIntent
 from followup_core.tenancy.domain.agent_config import (
     AgentConfig,
     QualificationQuestion,
     QuestionKind,
     Tone,
 )
-from inmo24x7_api.defaults import build_setup_defaults
-from inmo24x7_api.leads.display import known_rows
-from inmo24x7_api.leads.graph import build_lead_graph
-from inmo24x7_api.leads.properties import SamplePropertySearch
-from langgraph.checkpoint.memory import InMemorySaver
-
-DEFAULTS = build_setup_defaults().agent_config
-
-
-class RecordingLlm(FakeLanguageModel):
-    def __init__(self) -> None:
-        super().__init__()
-        self.replies: list[ReplyRequest] = []
-
-    def compose_reply(self, request: ReplyRequest):
-        self.replies.append(request)
-        return super().compose_reply(request)
-
-
-class Chat:
-    def __init__(self, config: AgentConfig = DEFAULTS) -> None:
-        self.config = config
-        self.llm = RecordingLlm()
-        self.runtime = LangGraphRuntime(
-            build_lead_graph(SamplePropertySearch()), InMemorySaver(), self.llm
-        )
-        tenant_id = uuid4()
-        self.thread = Thread(
-            uuid4(),
-            ThreadKey(tenant_id, Channel.SIMULATOR, "visitor.1"),
-            0,
-            ThreadStatus.OPEN,
-            datetime.now(UTC),
-            None,
-        )
-        self.business = BusinessContext(tenant_id, "Inmobiliaria Sur", "UTC")
-        self.turns: list[list[dict]] = []
-
-    def say(self, text: str) -> list[dict]:
-        turn = self.runtime.handle(self.thread, TurnInput(self.config, self.business, [], text))
-        messages = [
-            {"text": m.text, "cards": (m.payload or {}).get("cards")} for m in turn.outbound
-        ]
-        self.turns.append(messages)
-        return messages
-
-    def state(self) -> dict:
-        return dict(self.runtime.state(self.thread.key))
-
-    def asked(self) -> list[str]:
-        """Question keys in the order the agent asked them."""
-        return [r.question.key for r in self.llm.replies if r.question is not None]
-
-    def intents(self) -> list[str]:
-        return [r.intent.value for r in self.llm.replies]
+from inmo24x7_api.leads.display import known_rows, looking_for
+from inmo24x7_api.leads.graph import plan_turn
+from inmo24x7_api.leads.tools import DECLARED, HAND_OFF_EVENT, lead_handlers, lead_tools
+from inmo24x7_api.properties.domain.property import Currency, Operation
+from inmo24x7_api.properties.domain.search import Listing
+from lead_fakes import DEFAULTS, Chat, ListingSearch
 
 
 def _config(*questions: QualificationQuestion, tone: Tone = Tone.WARM) -> AgentConfig:
@@ -165,7 +111,8 @@ def test_cards_come_before_asking_for_name_or_contact() -> None:
     cards = chat.turns[2][0]["cards"]
     assert 0 < len(cards) <= 3
     assert all(card["is_sample"] and card["link"].startswith("/ejemplo/") for card in cards)
-    assert intents[-1] == "close"
+    # Contact known, nothing picked yet: the agent invites a visit once before handing off.
+    assert intents[-1] == "offer_visit"
     assert chat.state()["contact"] == "ana@example.com"
 
 
@@ -194,14 +141,18 @@ def test_tone_changes_wording_but_not_the_sequence_of_intents() -> None:
     assert runs[Tone.FORMAL][1][0].startswith("Buen día. Mi nombre es Sofía")
 
 
-def test_after_closing_the_agent_does_not_restart_the_flow() -> None:
+def test_declining_the_visit_hands_off_and_the_flow_never_restarts() -> None:
     chat = Chat()
     for text in SCRIPT:
         chat.say(text)
 
+    handed = chat.say("no, gracias")
     chat.say("¿y cuándo me llaman?")
 
-    assert chat.intents()[-1] == "after_close"
+    assert [m["author"] for m in handed] == ["agent", "system"]
+    assert handed[1]["text"] == HAND_OFF_EVENT
+    assert chat.state()["hand_off_reason"] == "qualified"
+    assert chat.intents()[-1] == "after_hand_off"
 
 
 @pytest.mark.parametrize(
@@ -219,3 +170,202 @@ def test_known_values_are_formatted_for_display(answers: dict, expected: str) ->
     values = [row.value for row in rows if row.value]
     assert values == [expected]
     assert [row.value for row in rows][-2:] == [None, None]
+
+
+# --- Day 4: visits and hand-off ---------------------------------------------------------
+
+DONE_WHEN = [
+    "Hola",
+    "Quiero alquilar",
+    "Palermo",
+    "Me interesa la primera",
+]
+
+
+def _pick_first_slot(chat: Chat) -> list[dict]:
+    (offer,) = chat.turns[-1]
+    return chat.say(offer["slots"][0]["label"])
+
+
+def test_done_when_conversation_proposes_slots_and_hands_off() -> None:
+    chat = Chat()
+    for text in DONE_WHEN[:3]:
+        chat.say(text)
+    cards = chat.turns[2][0]["cards"]
+
+    (offer,) = chat.say("Me interesa la primera")
+    assert [slot["label"] for slot in offer["slots"]] == [
+        "martes 3/11, 13:00",
+        "martes 3/11, 13:30",
+    ]
+    assert cards[0]["title"] in offer["text"]
+
+    chosen = _pick_first_slot(chat)
+    assert [m["text"] for m in chosen][0].startswith("¡Listo! Te anoté para el martes 3/11, 13:00")
+    assert chat.intents()[-2:] == ["slot_chosen", "ask_name"]
+
+    chat.say("Me llamo Ana Pérez")
+    assert chat.intents()[-1] == "ask_contact"
+    final = chat.say("11 5555-1234")
+
+    assert [(m["author"], m["text"]) for m in final][-1] == ("system", HAND_OFF_EVENT)
+    state = chat.state()
+    assert (state["visitor_name"], state["contact"]) == ("Ana Pérez", "+54 9 11 5555-1234")
+    assert state["visit"]["property_id"] == cards[0]["id"]
+    assert state["visit"]["starts_at"] == "2026-11-03T13:00:00-03:00"
+    assert state["hand_off_reason"] == "visit"
+    assert looking_for(state["answers"]) == "Alquiler · Palermo"
+
+
+def test_after_the_hand_off_the_agent_never_proposes_a_visit_again() -> None:
+    chat = Chat()
+    for text in DONE_WHEN:
+        chat.say(text)
+    _pick_first_slot(chat)
+    chat.say("Me llamo Ana Pérez")
+    chat.say("ana@example.com")
+
+    for text in ["Me interesa la segunda", "¿Tienen algo en Belgrano?", "la 1"]:
+        (reply,) = chat.say(text)
+        assert reply["slots"] is None and reply["cards"] is None
+    assert chat.intents()[-3:] == ["after_hand_off"] * 3
+
+
+@pytest.mark.parametrize("step", range(len(DONE_WHEN) + 2))
+def test_asking_for_a_person_hands_off_at_any_step(step: int) -> None:
+    chat = Chat()
+    for text in DONE_WHEN[:step]:
+        chat.say(text)
+    if step > len(DONE_WHEN):
+        _pick_first_slot(chat)
+
+    messages = chat.say("Prefiero hablar con una persona")
+
+    assert messages[-1] == {
+        "text": HAND_OFF_EVENT,
+        "author": "system",
+        "cards": None,
+        "slots": None,
+    }
+    assert chat.state()["hand_off_reason"] == "human"
+    (later,) = chat.say("Me interesa la primera")
+    assert later["slots"] is None
+    assert chat.intents()[-1] == "after_hand_off"
+
+
+def test_asking_for_a_person_after_a_visit_hand_off_marks_the_request() -> None:
+    chat = Chat()
+    for text in DONE_WHEN:
+        chat.say(text)
+    _pick_first_slot(chat)
+    chat.say("Me llamo Ana Pérez")
+    chat.say("ana@example.com")
+
+    chat.say("Quiero hablar con alguien ahora")
+
+    assert chat.state()["hand_off_reason"] == "human"
+    assert chat.intents()[-1] == "after_hand_off"
+
+
+def test_out_of_hours_the_agent_still_proposes_slots_and_says_the_team_confirms() -> None:
+    saturday = datetime(2026, 11, 7, 14, 0, tzinfo=UTC)
+    chat = Chat(now=saturday)
+    for text in DONE_WHEN:
+        chat.say(text)
+
+    (offer,) = chat.turns[-1]
+    assert [slot["label"] for slot in offer["slots"]] == ["lunes 9/11, 09:00", "lunes 9/11, 09:30"]
+    assert "te lo confirman apenas vuelvan" in offer["text"]
+
+
+def test_without_team_hours_the_visit_goes_to_a_person() -> None:
+    chat = Chat(team_hours=())
+    for text in DONE_WHEN:
+        chat.say(text)
+
+    assert chat.turns[-1][-1]["author"] == "system"
+    assert chat.state()["hand_off_reason"] == "qualified"
+
+
+def test_an_invalid_contact_is_not_saved_and_asked_again() -> None:
+    chat = Chat()
+    for text in SCRIPT[:-1]:
+        chat.say(text)
+
+    chat.say("5555-1234")  # no area code: not a valid Argentine number
+
+    assert chat.intents()[-1] == "invalid_contact"
+    assert chat.state().get("contact") is None
+    chat.say("011 15 5555-1234")
+    assert chat.state()["contact"] == "+54 9 11 5555-1234"
+
+
+OWN = [
+    Listing(
+        id="7d1e6c1e-1111-4a8e-9b1a-000000000001",
+        title="2 ambientes luminoso",
+        address="Gorriti 4800",
+        operation=Operation.RENT,
+        zone="Palermo",
+        price=850_000,
+        currency=Currency.ARS,
+        rooms=2,
+        link="https://www.inmobiliariasur.example/propiedades/gorriti-4800",
+        is_sample=False,
+    ),
+    Listing(
+        id="7d1e6c1e-1111-4a8e-9b1a-000000000002",
+        title="2 ambientes reciclado",
+        address="Thames 1500",
+        operation=Operation.RENT,
+        zone="Palermo",
+        price=900_000,
+        currency=Currency.ARS,
+        rooms=2,
+        link="https://www.inmobiliariasur.example/propiedades/thames-1500",
+        is_sample=False,
+    ),
+]
+
+
+def test_cards_only_carry_the_links_of_the_search_results() -> None:
+    chat = Chat(search=ListingSearch(OWN))
+    for text in DONE_WHEN:
+        chat.say(text)
+
+    links = {listing.link for listing in OWN}
+    cards = [card for m in chat.all_messages() for card in m["cards"] or []]
+    assert cards and {card["link"] for card in cards} <= links
+    assert not any(card["is_sample"] for card in cards)
+    # "la de Thames" picks by address.
+    chat2 = Chat(search=ListingSearch(OWN))
+    for text in DONE_WHEN[:3]:
+        chat2.say(text)
+    chat2.say("Me gusta la de Thames")
+    assert chat2.state()["visit_offer"]["property_id"] == OWN[1].id
+
+
+def test_every_declared_tool_has_a_handler_and_is_reached_from_the_graph() -> None:
+    search = ListingSearch()
+    assert set(DECLARED) == set(lead_handlers(search)) == lead_tools(search).names
+
+    reached: set[str] = set()
+    visit = Chat()
+    for text in DONE_WHEN:
+        visit.say(text)
+    _pick_first_slot(visit)
+    visit.say("Me llamo Ana Pérez")
+    visit.say("ana@example.com")
+    reached |= set(visit.tool_calls)
+
+    assert reached == set(DECLARED)
+
+
+def test_plan_never_asks_for_personal_data_before_showing_options() -> None:
+    questions = [q for q in DEFAULTS.qualification_questions if q.enabled]
+    state = {"inbound": "", "outbox": [], "turns": 3, "answers": {"operation": "alquiler"}}
+
+    steps = plan_turn(state, questions)  # type: ignore[arg-type]
+
+    assert [step.intent for step in steps] == [ReplyIntent.ASK]
+    assert steps[0].question is not None and steps[0].question.key == "zone"

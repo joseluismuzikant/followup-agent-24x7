@@ -1,7 +1,7 @@
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from followup_core.tenancy.domain.agent_config import AgentConfig
@@ -32,11 +32,21 @@ def utc_now() -> datetime:
 @dataclass(frozen=True, slots=True)
 class HandledTurn:
     thread: Thread
+    inbound: Message
     outbound: Sequence[Message]
     state: Mapping[str, Any]
     agent_config: AgentConfig
     metrics: TurnMetrics
+    # True when this message opened the thread.
+    started_thread: bool = False
     trace_run_id: UUID | None = None
+
+
+class TurnObserver(Protocol):
+    """Called after a turn is stored, inside the same transaction (the product records its
+    own view of the conversation, such as a lead). Raising rolls the whole turn back."""
+
+    def on_turn(self, turn: HandledTurn) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +93,7 @@ class HandleIncomingMessage:
         configs: AgentConfigSource,
         business: BusinessContextSource,
         clock: Clock = utc_now,
+        observers: Sequence[TurnObserver] = (),
     ) -> None:
         self._threads = threads
         self._messages = messages
@@ -91,6 +102,7 @@ class HandleIncomingMessage:
         self._configs = configs
         self._business = business
         self._clock = clock
+        self._observers = observers
 
     def execute(
         self, key: ThreadKey, text: str, started_by_profile_id: UUID | None = None
@@ -108,6 +120,7 @@ class HandleIncomingMessage:
 
         # Run the agent before writing anything: if it fails, no thread, inbound message or
         # partial reply is stored.
+        received_at = self._clock()
         turn = self._runtime.handle(
             thread,
             TurnInput(
@@ -118,21 +131,21 @@ class HandleIncomingMessage:
                     for message in history[-TRANSCRIPT_WINDOW:]
                 ],
                 text=text,
+                now=received_at,
             ),
         )
 
         if is_new:
             self._threads.add(thread)
-        self._messages.append(
-            Message(uuid4(), thread.id, Direction.INBOUND, Author.VISITOR, text, self._clock())
-        )
+        inbound = Message(uuid4(), thread.id, Direction.INBOUND, Author.VISITOR, text, received_at)
+        self._messages.append(inbound)
         outbound: list[Message] = []
         for item in turn.outbound:
             message = Message(
                 uuid4(),
                 thread.id,
                 Direction.OUTBOUND,
-                Author.AGENT,
+                item.author,
                 item.text,
                 self._clock(),
                 item.payload,
@@ -142,7 +155,19 @@ class HandleIncomingMessage:
             outbound.append(message)
         self._threads.touch(thread.id, self._clock())
 
-        return HandledTurn(thread, outbound, turn.state, config, turn.metrics, turn.trace_run_id)
+        handled = HandledTurn(
+            thread=thread,
+            inbound=inbound,
+            outbound=outbound,
+            state=turn.state,
+            agent_config=config,
+            metrics=turn.metrics,
+            started_thread=is_new,
+            trace_run_id=turn.trace_run_id,
+        )
+        for observer in self._observers:
+            observer.on_turn(handled)
+        return handled
 
 
 class GetThread:

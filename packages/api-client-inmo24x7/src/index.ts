@@ -27,9 +27,20 @@ export type SimulatorState = components["schemas"]["SimulatorRead"];
 export type SimulatorReply = components["schemas"]["SimulatorReplyRead"];
 export type SimulatorMessage = components["schemas"]["MessageRead"];
 export type SimulatorPropertyCard = components["schemas"]["PropertyCardRead"];
+export type SimulatorSlot = components["schemas"]["SlotRead"];
 export type KnownFactRow = components["schemas"]["KnownFactRead"];
 export type TenantSettings = components["schemas"]["TenantSettingsRead"];
 export type TenantSettingsInput = components["schemas"]["TenantSettingsWrite"];
+export type Property = components["schemas"]["PropertyRead"];
+export type PropertyList = components["schemas"]["PropertyListRead"];
+export type PropertyInput = components["schemas"]["PropertyCreate"];
+export type PropertyChanges = components["schemas"]["PropertyUpdate"];
+export type ImportReport = components["schemas"]["ImportReportRead"];
+export type Lead = components["schemas"]["LeadRead"];
+export type LeadList = components["schemas"]["LeadListRead"];
+export type LeadDetail = components["schemas"]["LeadDetailRead"];
+export type LeadStatus = Lead["status"];
+export type LeadVisit = components["schemas"]["VisitRead"];
 
 export class ApiRequestError extends Error {
   readonly status: number;

@@ -278,6 +278,160 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/properties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Properties */
+        get: operations["list_properties_properties_get"];
+        put?: never;
+        /** Create Property */
+        post: operations["create_property_properties_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/{property_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Property */
+        patch: operations["update_property_properties__property_id__patch"];
+        trace?: never;
+    };
+    "/properties/{property_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Property */
+        post: operations["publish_property_properties__property_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/{property_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause Property */
+        post: operations["pause_property_properties__property_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Properties */
+        post: operations["import_properties_properties_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/import/{import_id}/errors.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Import Errors */
+        get: operations["download_import_errors_properties_import__import_id__errors_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/import-template.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Import Template */
+        get: operations["download_import_template_properties_import_template_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Leads */
+        get: operations["list_leads_leads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Lead */
+        get: operations["get_lead_leads__lead_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants": {
         parameters: {
             query?: never;
@@ -372,6 +526,11 @@ export interface components {
             /** Author Email */
             author_email: string | null;
         };
+        /** Body_import_properties_properties_import_post */
+        Body_import_properties_properties_import_post: {
+            /** File */
+            file: string;
+        };
         /** ChecklistItemRead */
         ChecklistItemRead: {
             /** Key */
@@ -409,6 +568,28 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** ImportReportRead */
+        ImportReportRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** File Name */
+            file_name: string;
+            /** Total */
+            total: number;
+            /** Imported */
+            imported: number;
+            /** Created */
+            created: number;
+            /** Updated */
+            updated: number;
+            /** Failed */
+            failed: number;
+            /** Errors */
+            errors: string[];
+        };
         /** KnownFactRead */
         KnownFactRead: {
             /** Key */
@@ -417,6 +598,99 @@ export interface components {
             label: string;
             /** Value */
             value: string | null;
+        };
+        /** LeadDetailRead */
+        LeadDetailRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Visitor Name */
+            visitor_name: string | null;
+            /** Contact */
+            contact: string | null;
+            /** Looking For */
+            looking_for: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "qualifying" | "visit_proposed" | "human_requested" | "visit_confirmed";
+            /** Is Test */
+            is_test: boolean;
+            /** Channel */
+            channel: string;
+            /** Handed Off At */
+            handed_off_at: string | null;
+            /** Hand Off Reason */
+            hand_off_reason: ("human" | "visit" | "qualified") | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Last Activity At
+             * Format: date-time
+             */
+            last_activity_at: string;
+            /** Answers */
+            answers: components["schemas"]["KnownFactRead"][];
+            /** Status History */
+            status_history: components["schemas"]["StatusChangeRead"][];
+            /** Visits */
+            visits: components["schemas"]["VisitRead"][];
+            /** Transcript */
+            transcript: components["schemas"]["MessageRead"][];
+        };
+        /** LeadListRead */
+        LeadListRead: {
+            /** Items */
+            items: components["schemas"]["LeadRead"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
+        /** LeadRead */
+        LeadRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Visitor Name */
+            visitor_name: string | null;
+            /** Contact */
+            contact: string | null;
+            /** Looking For */
+            looking_for: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "qualifying" | "visit_proposed" | "human_requested" | "visit_confirmed";
+            /** Is Test */
+            is_test: boolean;
+            /** Channel */
+            channel: string;
+            /** Handed Off At */
+            handed_off_at: string | null;
+            /** Hand Off Reason */
+            hand_off_reason: ("human" | "visit" | "qualified") | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Last Activity At
+             * Format: date-time
+             */
+            last_activity_at: string;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -452,6 +726,8 @@ export interface components {
             text: string;
             /** Cards */
             cards: components["schemas"]["PropertyCardRead"][] | null;
+            /** Slots */
+            slots?: components["schemas"]["SlotRead"][] | null;
             /**
              * Created At
              * Format: date-time
@@ -516,6 +792,113 @@ export interface components {
             over_budget: boolean;
             /** Is Sample */
             is_sample: boolean;
+        };
+        /** PropertyCreate */
+        PropertyCreate: {
+            /** Title */
+            title: string;
+            /** Address */
+            address: string;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "sale" | "rent";
+            /** Zone */
+            zone: string;
+            /** Price */
+            price: number;
+            /** Currency */
+            currency?: ("ARS" | "USD") | null;
+            /** Rooms */
+            rooms: number;
+            /** Link */
+            link: string;
+            /**
+             * Status
+             * @default published
+             * @enum {string}
+             */
+            status: "published" | "paused";
+        };
+        /** PropertyListRead */
+        PropertyListRead: {
+            /** Items */
+            items: components["schemas"]["PropertyRead"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
+        /** PropertyRead */
+        PropertyRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Address */
+            address: string;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "sale" | "rent";
+            /** Zone */
+            zone: string;
+            /** Price */
+            price: number;
+            /**
+             * Currency
+             * @enum {string}
+             */
+            currency: "ARS" | "USD";
+            /** Rooms */
+            rooms: number;
+            /** Link */
+            link: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "published" | "paused";
+            /** Inquiries */
+            inquiries: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** PropertyUpdate */
+        PropertyUpdate: {
+            /** Title */
+            title?: string | null;
+            /** Address */
+            address?: string | null;
+            /** Operation */
+            operation?: ("sale" | "rent") | null;
+            /** Zone */
+            zone?: string | null;
+            /** Price */
+            price?: number | null;
+            /** Currency */
+            currency?: ("ARS" | "USD") | null;
+            /** Rooms */
+            rooms?: number | null;
+            /** Link */
+            link?: string | null;
+            /** Status */
+            status?: ("published" | "paused") | null;
         };
         /**
          * QuestionInputModel
@@ -649,6 +1032,26 @@ export interface components {
             /** Known */
             known: components["schemas"]["KnownFactRead"][];
         };
+        /** SlotRead */
+        SlotRead: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /** StatusChangeRead */
+        StatusChangeRead: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "qualifying" | "visit_proposed" | "human_requested" | "visit_confirmed";
+            /**
+             * Changed At
+             * Format: date-time
+             */
+            changed_at: string;
+        };
         /** TenantCreate */
         TenantCreate: {
             /** Name */
@@ -763,6 +1166,28 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** VisitRead */
+        VisitRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Property Id */
+            property_id: string | null;
+            /** Property Label */
+            property_label: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "proposed" | "confirmed" | "cancelled";
         };
     };
     responses: never;
@@ -1231,6 +1656,318 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SimulatorRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_properties_properties_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                operation?: ("sale" | "rent") | null;
+                status?: ("published" | "paused") | null;
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyListRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_property_properties_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PropertyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_property_properties__property_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                property_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PropertyUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_property_properties__property_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                property_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pause_property_properties__property_id__pause_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                property_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_properties_properties_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_properties_properties_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportReportRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_import_errors_properties_import__import_id__errors_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_import_template_properties_import_template_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+        };
+    };
+    list_leads_leads_get: {
+        parameters: {
+            query?: {
+                status?: ("qualifying" | "visit_proposed" | "human_requested" | "visit_confirmed") | null;
+                include_test?: boolean;
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadListRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_lead_leads__lead_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDetailRead"];
                 };
             };
             /** @description Validation Error */

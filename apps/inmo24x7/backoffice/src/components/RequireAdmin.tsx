@@ -1,11 +1,13 @@
-import { Button, Card, CardContent, CardHeader, CardTitle } from "@followup/ui";
+import { Button, Card, CardContent, CardHeader, CardTitle, DevSignIn } from "@followup/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import { fetchMe } from "../api/me";
 import { useAuth } from "../lib/auth";
-import { supabase } from "../lib/supabase";
+import { authMode } from "../lib/auth-mode";
+import { signInDev } from "../lib/dev-session";
+import { getSupabase } from "../lib/supabase";
 
 function BackofficeSignIn() {
   const [email, setEmail] = useState("");
@@ -14,7 +16,7 @@ function BackofficeSignIn() {
 
   async function signInWithGoogle() {
     setError(null);
-    const { error: signInError } = await supabase.auth.signInWithOAuth({
+    const { error: signInError } = await getSupabase().auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
     });
@@ -30,7 +32,7 @@ function BackofficeSignIn() {
       return;
     }
     setError(null);
-    const { error: signInError } = await supabase.auth.signInWithOtp({
+    const { error: signInError } = await getSupabase().auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo: window.location.origin },
     });
@@ -48,32 +50,38 @@ function BackofficeSignIn() {
           <CardTitle>Backoffice</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Button type="button" onClick={() => void signInWithGoogle()}>
-            Continuar con Google
-          </Button>
-          {sent ? (
-            <p className="text-sm text-muted-foreground" aria-live="polite">
-              Te enviamos un link a {email}.
-            </p>
-          ) : (
-            <form onSubmit={(event) => void sendMagicLink(event)} className="flex flex-col gap-2">
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="tu@email.com"
-                className="h-10 rounded-md border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-              <Button type="submit" variant="outline">
-                Enviarme un link para entrar
+          {authMode === "supabase" ? (
+            <>
+              <Button type="button" onClick={() => void signInWithGoogle()}>
+                Continuar con Google
               </Button>
-            </form>
+              {sent ? (
+                <p className="text-sm text-muted-foreground" aria-live="polite">
+                  Te enviamos un link a {email}.
+                </p>
+              ) : (
+                <form onSubmit={(event) => void sendMagicLink(event)} className="flex flex-col gap-2">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="tu@email.com"
+                    className="h-10 rounded-md border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <Button type="submit" variant="outline">
+                    Enviarme un link para entrar
+                  </Button>
+                </form>
+              )}
+              {error ? (
+                <p className="text-sm text-destructive" aria-live="polite">
+                  {error}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <DevSignIn onSignIn={signInDev} />
           )}
-          {error ? (
-            <p className="text-sm text-destructive" aria-live="polite">
-              {error}
-            </p>
-          ) : null}
         </CardContent>
       </Card>
     </div>

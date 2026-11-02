@@ -8,6 +8,7 @@ DEFAULT_DATABASE_URL = "postgresql+psycopg://followup:followup@localhost:5433/fo
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://localhost:5174"
 DEFAULT_LLM_TIMEOUT_SECONDS = 20.0
 DEFAULT_SIMULATOR_DAILY_LIMIT = 300
+AUTH_MODES = ("supabase", "dev")
 
 
 class ConfigurationError(RuntimeError):
@@ -25,6 +26,7 @@ class Settings:
     supabase_url: str
     supabase_jwt_secret: str
     supabase_jwks_url: str
+    auth_mode: str = "supabase"
     llm_model: str = ""
     llm_api_key: str = ""
     llm_base_url: str = ""
@@ -33,6 +35,9 @@ class Settings:
     langsmith_tracing: bool = False
     langsmith_api_key: str = ""
     langsmith_project: str = ""
+    # A LangSmith agent address (agent id + environment) replaces the project when set.
+    langsmith_agent_id: str = ""
+    langsmith_agent_environment: str = ""
     langsmith_endpoint: str = ""
     langsmith_redact_pii: bool = True
     langsmith_ui_url: str = ""
@@ -86,12 +91,23 @@ def _llm_settings(production: bool) -> tuple[str, str]:
     return model, api_key
 
 
+def _auth_mode(production: bool) -> str:
+    """AUTH_MODE: Supabase JWTs, or `dev:<email>` tokens for local development only."""
+    mode = os.getenv("AUTH_MODE", "").strip().lower() or ("supabase" if production else "dev")
+    if mode not in AUTH_MODES:
+        raise ConfigurationError("AUTH_MODE must be 'supabase' or 'dev'.")
+    if production and mode == "dev":
+        raise ConfigurationError("AUTH_MODE=dev is not allowed when APP_ENV=production.")
+    return mode
+
+
 @lru_cache
 def get_settings() -> Settings:
     app_env = os.getenv("APP_ENV", "development").strip().lower()
     if app_env not in {"development", "production"}:
         raise ConfigurationError("APP_ENV must be 'development' or 'production'.")
 
+    auth_mode = _auth_mode(app_env == "production")
     if app_env == "production":
         database_url = _required("DATABASE_URL")
         raw_origins = _required("CORS_ORIGINS")
@@ -108,6 +124,11 @@ def get_settings() -> Settings:
         supabase_url = os.getenv("SUPABASE_URL", "")
         supabase_jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "")
         supabase_jwks_url = os.getenv("SUPABASE_JWKS_URL", "")
+        if auth_mode == "supabase" and not supabase_jwt_secret and not supabase_jwks_url:
+            raise ConfigurationError(
+                "AUTH_MODE=supabase needs SUPABASE_JWT_SECRET or SUPABASE_JWKS_URL "
+                "(or use AUTH_MODE=dev locally)."
+            )
 
     llm_model, llm_api_key = _llm_settings(app_env == "production")
 
@@ -121,6 +142,7 @@ def get_settings() -> Settings:
         supabase_url=supabase_url,
         supabase_jwt_secret=supabase_jwt_secret,
         supabase_jwks_url=supabase_jwks_url,
+        auth_mode=auth_mode,
         llm_model=llm_model,
         llm_api_key=llm_api_key,
         llm_base_url=os.getenv("LLM_BASE_URL", "").strip(),
@@ -132,6 +154,8 @@ def get_settings() -> Settings:
         langsmith_tracing=_flag("LANGSMITH_TRACING", default=False),
         langsmith_api_key=os.getenv("LANGSMITH_API_KEY", "").strip(),
         langsmith_project=os.getenv("LANGSMITH_PROJECT", "").strip(),
+        langsmith_agent_id=os.getenv("LANGSMITH_AGENT_ID", "").strip(),
+        langsmith_agent_environment=os.getenv("LANGSMITH_AGENT_ENVIRONMENT", "").strip(),
         langsmith_endpoint=os.getenv("LANGSMITH_ENDPOINT", "").strip(),
         langsmith_redact_pii=_flag("LANGSMITH_REDACT_PII", default=True),
         langsmith_ui_url=os.getenv("LANGSMITH_UI_URL", "").strip().rstrip("/"),

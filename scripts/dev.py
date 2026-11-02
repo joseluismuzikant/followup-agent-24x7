@@ -1,28 +1,18 @@
 from __future__ import annotations
 
-import os
+import argparse
 import signal
 import time
-from pathlib import Path
 
-from _cli import PNPM, ROOT, exit_on_signal, run, spawn, stop
+from _cli import PNPM, ROOT, exit_on_signal, load_env_file, run, spawn, stop
 
 API_DIR = "apps/inmo24x7/api"
 
 
-def load_env_file(path: Path) -> None:
-    if not path.exists():
-        return
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
-
-
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run the API, the panel and the backoffice.")
+    parser.add_argument("--seed", action="store_true", help="seed the dev accounts after migrating")
+    args = parser.parse_args(argv)
     load_env_file(ROOT / ".env")
     signal.signal(signal.SIGTERM, exit_on_signal)
 
@@ -30,6 +20,8 @@ def main() -> int:
     run([*PNPM, "install", "--frozen-lockfile"])
     run(["docker", "compose", "up", "-d", "--wait", "db"])
     run(["uv", "run", "alembic", "upgrade", "head"])
+    if args.seed:
+        run(["uv", "run", "--all-packages", "python", "scripts/seed_dev.py"])
 
     processes = [
         spawn(

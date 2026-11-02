@@ -1,6 +1,7 @@
 """LangSmith tracing: PII redaction, run naming and metadata, and that tracing can never
 break a turn. Nothing here touches the network."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -14,7 +15,7 @@ from inmo24x7_api.config import Settings
 from inmo24x7_api.container import get_trace_ui_url, get_turn_tracing
 from inmo24x7_api.defaults import build_setup_defaults
 from inmo24x7_api.leads.graph import build_lead_graph
-from inmo24x7_api.leads.properties import SamplePropertySearch
+from inmo24x7_api.leads.tools import lead_tools
 from inmo24x7_api.main import app
 from inmo24x7_api.tracing import (
     anonymize,
@@ -24,6 +25,8 @@ from inmo24x7_api.tracing import (
     turn_tracing,
 )
 from langgraph.checkpoint.memory import InMemorySaver
+from langsmith.address import agent_address
+from lead_fakes import Chat, ListingSearch
 from sqlalchemy import text
 from test_setup_endpoints import Account
 from tracing_fakes import RecordingClient, recording_tracing
@@ -117,6 +120,63 @@ def test_tracing_client_redacts_pii_unless_disabled() -> None:
     assert on.project_name == "inmo24x7-dev"
 
 
+def test_agent_variables_send_turns_to_the_agent_instead_of_a_project() -> None:
+    tracing = build_tracing(
+        _settings(
+            langsmith_tracing=True,
+            langsmith_api_key="lsv2-test",
+            langsmith_project="ignored",
+            langsmith_agent_id="followup-agent-24x7",
+            langsmith_agent_environment="local",
+        )
+    )
+
+    assert tracing is not None
+    assert tracing.project_name is None
+    assert tracing.address == {"kind": "AGENT", "id": "followup-agent-24x7", "environment": "LOCAL"}
+    configured = turn_tracing(tracing, _settings())
+    assert configured is not None
+    assert (configured.address, configured.project_name) == (tracing.address, None)
+
+
+@pytest.mark.parametrize(
+    ("agent_id", "environment"),
+    [
+        ("followup-agent-24x7", ""),
+        ("", "local"),
+        ("Followup Agent", "local"),
+        ("followup-agent-24x7", "laptop"),
+    ],
+)
+def test_a_half_or_invalid_agent_address_leaves_tracing_off(
+    agent_id: str, environment: str
+) -> None:
+    settings = _settings(
+        langsmith_tracing=True,
+        langsmith_api_key="lsv2-test",
+        langsmith_agent_id=agent_id,
+        langsmith_agent_environment=environment,
+    )
+
+    assert build_tracing(settings) is None
+
+
+def test_a_traced_turn_goes_to_the_agent_address() -> None:
+    client = RecordingClient()
+    address = agent_address("followup-agent-24x7", "local")
+    tracing = replace(recording_tracing(client), project_name=None, address=address)
+    chat = Chat(tracing=tracing)
+
+    for message in ["Hola", "Quiero alquilar", "Palermo"]:
+        chat.say(message)
+
+    roots = client.named("inmo24x7.lead_turn")
+    assert len(roots) == 3
+    assert all((root["address"], root.get("session_name")) == (address, None) for root in roots)
+    # Child runs (model calls, tools) follow the turn to the same agent.
+    assert all(run["address"] == address for run in client.named("search_properties"))
+
+
 def test_project_name_per_environment() -> None:
     assert project_name(_settings(app_env="production")) == "inmo24x7-prod"
     assert project_name(_settings(langsmith_project="custom")) == "custom"
@@ -138,10 +198,11 @@ def test_trace_url_needs_the_ui_url_and_a_run_id() -> None:
 def _runtime(client: RecordingClient) -> tuple[LangGraphRuntime, Thread, TurnInput]:
     tenant_id = uuid4()
     runtime = LangGraphRuntime(
-        build_lead_graph(SamplePropertySearch()),
+        build_lead_graph(),
         InMemorySaver(),
         FakeLanguageModel(),
         recording_tracing(client),
+        lead_tools(ListingSearch()),
     )
     thread = Thread(
         uuid4(),
@@ -177,7 +238,8 @@ def test_a_turn_is_one_named_run_with_tags_metadata_and_child_runs() -> None:
     assert metadata["agent_config_version"] == 3
     assert metadata["prompt_versions"] == {"extract": "fake", "reply": "fake"}
     assert (metadata["app_version"], metadata["commit"]) == ("9.9.9", "abc123")
-    for name in ("llm.extract", "llm.compose_reply", "property_search"):
+    # Tools are child runs named after the tool.
+    for name in ("llm.extract", "llm.compose_reply", "search_properties"):
         children = client.named(name)
         assert children, name
         assert all(str(child["trace_id"]) == str(result.trace_run_id) for child in children)
@@ -196,7 +258,7 @@ def test_without_tracing_nothing_is_recorded_and_there_is_no_run_id() -> None:
     client = RecordingClient()
     runtime, thread, turn = _runtime(client)
     untraced = LangGraphRuntime(
-        build_lead_graph(SamplePropertySearch()), InMemorySaver(), FakeLanguageModel()
+        build_lead_graph(), InMemorySaver(), FakeLanguageModel(), None, lead_tools(ListingSearch())
     )
 
     result = untraced.handle(thread, turn)
@@ -266,3 +328,19 @@ def test_no_link_without_the_ui_url(client: TestClient, auth) -> None:
         app.dependency_overrides.pop(get_turn_tracing)
 
     assert reply["messages"][0]["trace_url"] is None
+
+
+def test_each_tool_call_is_a_child_run_named_after_the_tool() -> None:
+    client = RecordingClient()
+    chat = Chat(tracing=recording_tracing(client))
+    for message in ["Hola", "Quiero alquilar", "Palermo", "la primera"]:
+        chat.say(message)
+    (offer,) = chat.turns[-1]
+    chat.say(offer["slots"][0]["label"])
+    chat.say("me llamo Ana")
+    chat.say("11 5555-1234")
+
+    for name in ("search_properties", "propose_visit", "save_contact", "hand_off"):
+        runs = client.named(name)
+        assert runs, name
+        assert all(run["run_type"] == "tool" for run in runs if "run_type" in run)

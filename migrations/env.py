@@ -6,6 +6,8 @@ from followup_core.identity.infrastructure import models as identity_models  # n
 from followup_core.infrastructure.db import Base
 from followup_core.tenancy.infrastructure import models as tenancy_models  # noqa: F401
 from inmo24x7_api.config import get_settings
+from inmo24x7_api.leads.infrastructure import models as leads_models  # noqa: F401
+from inmo24x7_api.properties.infrastructure import models as properties_models  # noqa: F401
 from sqlalchemy import engine_from_config, pool
 
 config = context.config

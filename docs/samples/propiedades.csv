@@ -1,0 +1,21 @@
+titulo,direccion,operacion,zona,precio,moneda,ambientes,link,estado
+2 ambientes luminoso con balcón,Gorriti 4800,alquiler,Palermo,850.000,ARS,2,https://www.inmobiliariasur.example/propiedades/gorriti-4800,publicada
+2 ambientes reciclado,Thames 1500,alquiler,Palermo,900000,ARS,2,https://www.inmobiliariasur.example/propiedades/thames-1500,publicada
+3 ambientes con cochera,Guatemala 5200,alquiler,Palermo,$ 1.250.000,,3,https://www.inmobiliariasur.example/propiedades/guatemala-5200,publicada
+Monoambiente amoblado,Charcas 4100,alquiler,Palermo,620.000,ARS,1,https://www.inmobiliariasur.example/propiedades/charcas-4100,publicada
+3 ambientes frente al parque,Av. Santa Fe 3900,venta,Palermo,USD 245.000,USD,3,https://www.inmobiliariasur.example/propiedades/santa-fe-3900,publicada
+2 ambientes a estrenar,Soler 5600,venta,Palermo,USD 168.000,,2,https://www.inmobiliariasur.example/propiedades/soler-5600,publicada
+2 ambientes cerca del subte,Av. Cabildo 2200,alquiler,Belgrano,780.000,ARS,2,https://www.inmobiliariasur.example/propiedades/cabildo-2200,publicada
+4 ambientes con jardín,Echeverría 1900,venta,Belgrano,USD 320.000,USD,4,https://www.inmobiliariasur.example/propiedades/echeverria-1900,publicada
+3 ambientes luminoso,Juramento 2700,venta,Belgrano,185000,USD,3,https://www.inmobiliariasur.example/propiedades/juramento-2700,publicada
+2 ambientes con terraza,Arévalo 2100,alquiler,Colegiales,760.000,ARS,2,https://www.inmobiliariasur.example/propiedades/arevalo-2100,publicada
+3 ambientes en PH,Conde 900,venta,Colegiales,USD 210.000,USD,3,https://www.inmobiliariasur.example/propiedades/conde-900,publicada
+2 ambientes con vista al río,Av. del Libertador 7400,alquiler,Núñez,950.000,ARS,2,https://www.inmobiliariasur.example/propiedades/libertador-7400,publicada
+3 ambientes con amenities,Cuba 3900,venta,Núñez,USD 230.000,USD,3,https://www.inmobiliariasur.example/propiedades/cuba-3900,publicada
+2 ambientes al frente,Corrientes 5100,alquiler,Almagro,650.000,ARS,2,https://www.inmobiliariasur.example/propiedades/corrientes-5100,publicada
+3 ambientes reciclado a nuevo,Bulnes 800,venta,Almagro,USD 139.000,USD,3,https://www.inmobiliariasur.example/propiedades/bulnes-800,publicada
+Monoambiente para inversión,Av. Rivadavia 4600,venta,Caballito,USD 72.000,USD,1,https://www.inmobiliariasur.example/propiedades/rivadavia-4600,publicada
+3 ambientes con balcón aterrazado,Rosario 600,alquiler,Caballito,820.000,ARS,3,https://www.inmobiliariasur.example/propiedades/rosario-600,publicada
+2 ambientes histórico,Defensa 900,alquiler,San Telmo,700.000,ARS,2,https://www.inmobiliariasur.example/propiedades/defensa-900,publicada
+Loft con doble altura,Perú 1100,venta,San Telmo,USD 155.000,USD,2,https://www.inmobiliariasur.example/propiedades/peru-1100,publicada
+4 ambientes de categoría,Av. Alvear 1600,venta,Recoleta,USD 480.000,USD,4,https://www.inmobiliariasur.example/propiedades/alvear-1600,pausada

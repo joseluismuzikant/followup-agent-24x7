@@ -1,11 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? "http://localhost:54321";
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "local-anon-key";
+import { envValue } from "./auth-mode";
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+let client: SupabaseClient | null = null;
 
-export async function getAccessToken(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
+/** Built on first use, so dev auth mode never constructs it. */
+export function getSupabase(): SupabaseClient {
+  client ??= createClient(
+    envValue(import.meta.env.VITE_SUPABASE_URL) ?? "http://127.0.0.1:54321",
+    envValue(import.meta.env.VITE_SUPABASE_ANON_KEY) ?? "local-anon-key",
+  );
+  return client;
 }

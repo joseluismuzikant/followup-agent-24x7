@@ -23,14 +23,16 @@ In `packages/core`:
 
 In `apps/inmo24x7/api`:
 
-- **Leads**: qualification and property visit coordination.
-- **Properties**: property import and validation.
+- **Leads**: one lead per conversation, S5 statuses, visit proposals and hand-off, plus the
+  lead agent (graph, tools and prompts).
+- **Properties**: the agency's listings, spreadsheet import and validation, and the property
+  search the agent uses.
 
-Milestone 1 implements Tenancy, Identity, Conversation, their endpoints, and both panels.
+Both product contexts follow the same domain/application/infrastructure layout as core.
 
 ## Current boundaries
 
-- Authentication is provided by Supabase Auth behind a `TokenVerifier` port; profiles carry roles and the platform-admin flag.
+- Authentication is provided by Supabase Auth behind a `TokenVerifier` port; profiles carry roles and the platform-admin flag. See "Auth modes" for local development.
 - The agent runs on LangGraph behind the `AgentRuntime` port; the simulator is its only channel
   until WhatsApp arrives with the messaging and connection flows.
 - API integration tests run against a dedicated Postgres test database. Core unit tests use in-memory repositories.
@@ -69,10 +71,30 @@ There is one database, one root `alembic.ini`, and one Alembic version table.
 - Version locations include the core chain and every product chain.
 - Core revisions live in `packages/core/migrations/versions`.
 - Product revisions live in each product API's `migrations/versions`.
-- Product revision chains must set `down_revision` to the current core head, so every product chain depends on core.
+- Product revision chains must set `down_revision` to the current core head, so every product chain depends on core. The inmo24x7 chain starts at `inmo_0001` (properties and imports), whose `down_revision` is core `0006`, followed by `inmo_0002` (leads). Product revisions use their own ids (`inmo_NNNN`) so they never collide with core numbers.
+- A later core revision chains to the core head (`0006`), never to a product revision, so it creates a second head. Add a merge revision in the product chain (`alembic merge`) so `alembic upgrade head` keeps a single head; never rewrite a published revision.
 - Run `uv run alembic upgrade head` from the repository root to apply all locations.
 - API integration tests build their schema by running these migrations.
 - The API image contains the root configuration, so deployments run `alembic upgrade head` once in a one-off container before starting the new API version.
+
+## Auth modes
+
+`AUTH_MODE` (API) and `VITE_AUTH_MODE` (panels) choose how people sign in:
+
+- **`supabase`**: Supabase Auth (Google or magic link) in the panels; the API verifies the JWT
+  with the secret or the JWKS URL and checks the issuer `{SUPABASE_URL}/auth/v1`. This is the
+  only mode allowed in production.
+- **`dev`**: local development without any external service. The panels show a "Modo
+  desarrollo" box; the session is the token `dev:<email>` in localStorage. The API's
+  `DevTokenVerifier` accepts only that shape and maps the email to
+  `uuid5(fixed namespace, email)`, so the same email is always the same user (the seed relies
+  on it). `APP_ENV=production` with `AUTH_MODE=dev` stops the API at startup, and a
+  production `vite build` with `VITE_AUTH_MODE=dev` fails, so a dev build can never ship.
+
+Both panels hide the choice behind one `AuthProvider`/`useAuth`: an `AuthAdapter` with a
+Supabase and a dev implementation. Pages only see `{ accessToken, email }`. The Supabase
+client is created on first use, so dev mode never builds it, and empty `VITE_SUPABASE_*`
+values count as unset.
 
 ## Composition root
 
@@ -114,7 +136,11 @@ The **Conversation** context in `packages/core` is product-agnostic and channel-
   one as outdated).
 - **`HandleIncomingMessage`** is the single entry point for every channel: lock the thread,
   get or create it, run the agent, then store the inbound and outbound messages. Nothing is
-  written until the agent has replied.
+  written until the agent has replied. Then it calls the product's **turn observers**
+  (`TurnObserver.on_turn`) in the same transaction; inmo24x7 uses one to keep the lead in step.
+- **System messages.** A graph may emit `{"author": "system"}` items (for example "El agente
+  derivó la consulta a tu equipo"). They are stored in the transcript like any other message
+  and are never sent to the lead by a channel.
 - **Serialized turns.** A Postgres transaction-level advisory lock on the thread key makes two
   messages on the same thread run one after the other (WhatsApp delivers concurrently).
 - **One transaction per turn.** The checkpointer writes on the request's own connection, so
@@ -122,42 +148,97 @@ The **Conversation** context in `packages/core` is product-agnostic and channel-
   runs with `durability="exit"`. A model timeout leaves no thread, message or checkpoint.
 - **`AgentRuntime` port.** `LangGraphRuntime` runs any compiled graph the product supplies with
   `langgraph-checkpoint-postgres`; core contains no real estate logic. The graph contract is
-  small: input `{"inbound", "outbox"}`, `GraphContext` (agent config, business, recent
-  transcript, language model) as runtime context, and this turn's messages in `outbox`. Every
-  other state key is the conversation state the API exposes.
+  small: input `{"inbound", "outbox"}`, `GraphContext` (agent config, business with timezone
+  and team hours, recent transcript, the time the message arrived, the language model and the
+  product's tools) as runtime context, and this turn's messages in `outbox`. Every other state
+  key is the conversation state the API exposes.
+- **Tools are declared once in a `ToolRegistry`** (core, product-agnostic): a name, an input
+  schema (a frozen dataclass) and a handler. The graph calls `context.tools.call(name, input)`
+  when its code decides to; the model never picks a tool. The runtime wraps every handler so
+  each call is a child run of the traced turn named after the tool.
 - **Checkpointer tables** are created by Alembic migration `0005`, which ports the DDL of the
   pinned `langgraph-checkpoint-postgres` version and fills `checkpoint_migrations`; the API
   never calls `PostgresSaver.setup()`. Upgrading the checkpoint package needs a new migration
   with the new entries of its `MIGRATIONS` list.
 - **The LLM port has two operations, not free-form chat.** `extract` reads values for the
-  pending questions (plus name and contact) out of the latest message, and each value is
+  pending questions (plus name and contact) out of the latest message, which of the offered
+  choices the person picked (a property card or a visit slot, by position, address or label;
+  only ids that were offered are accepted), and whether they asked for a person. Each value is
   validated against its question's kind before it reaches the state. `compose_reply` words a
   message for an intent the graph already chose. The graph decides the flow in code, so the
   model cannot skip a step, ask two things at once or invent a property. `LLM_MODEL` selects
   the provider (Anthropic, OpenAI, DeepSeek, or Kimi and MiMo through their OpenAI-compatible
   APIs); a deterministic `FakeLanguageModel` serves tests and local development.
 
-The inmo24x7 **qualification graph** lives in the product (`apps/inmo24x7/api/.../leads`):
-`extract → respond`, with `plan_turn` choosing the intents (greet, one question per
-message in config order, sample property cards as soon as operation and zone are known and
-before asking for name or contact, then a closing message). Prompts are versioned files in
-`leads/prompts/` and the version is logged with every turn, along with tenant, thread key,
-latency, model, token usage and the trace run id, never the message text. Property search is a
-port; Day 3 uses sample CABA listings and Day 4 swaps in the tenant's own properties.
+The inmo24x7 **lead graph** lives in the product (`apps/inmo24x7/api/.../leads`):
+`extract → respond`, with `plan_turn` choosing the intents in code:
+
+1. Greet, then one question per message in config order.
+2. Property cards as soon as operation and zone are known, always before asking for name or
+   contact (`search_properties`).
+3. When the lead picks a card, offer the next two visit slots for it (`propose_visit`); when
+   they pick a slot, note it (status "Visita propuesta"), ask for name and contact if missing
+   (`save_contact` validates and normalizes them), then hand off (`hand_off`).
+4. A lead who did not pick anything is invited once to visit, then handed off.
+5. "Quiero hablar con una persona" at any step hands off immediately ("Pidió hablar con
+   alguien"). After a hand-off the agent answers politely and never proposes a visit again.
+
+Card links come only from the search results, so they are the property's own listing link
+(or a local sample page). Prompts are versioned files in `leads/prompts/` (`extract.v2`,
+`reply.v2`; v1 is kept), and the versions are logged with every turn, along with tenant, thread
+key, latency, model, token usage and the trace run id, never the message text.
+
+### Leads
+
+- **One lead per thread**, created by `RecordLeadTurn` (a turn observer) on the first inbound
+  message and updated after every turn from the graph state: answers, name, contact, the
+  visit picked, the hand-off and the own properties shown (`lead_property_matches`). Writing
+  from the state keeps it idempotent. Simulator threads create test leads (`is_test`), hidden
+  from Consultas unless asked for.
+- **Statuses and transitions** are enforced by the `Lead` aggregate: qualifying → visit
+  proposed or human requested; visit proposed → human requested or visit confirmed; human
+  requested → visit confirmed. Visit confirmed is set by the team (Day 6). Every change is
+  kept in `lead_status_changes`.
+- **Slots** come from a pure domain function: the next two 30-minute slots at least two hours
+  ahead that fit inside the team's hours, in the tenant's timezone. Out of hours the agent still
+  proposes them and says the team confirms. A visit for a sample listing has no property id,
+  only its label.
+
+### Properties
+
+- `properties` are unique per `(tenant_id, link)`: re-importing a link updates that property,
+  and unchanged rows are not written. There is no delete: pausing hides a property from the
+  agent. Search runs on a stored lowercase, accent-free copy of address and zone, so it needs
+  no database extension.
+- **Import** reads CSV (UTF-8 or Latin-1, comma or semicolon) and XLSX, up to 5 MB and 2,000
+  rows, with the Spanish template headers. Each row is validated on its own, valid rows are
+  saved even when others fail, and the failed rows are kept on the import record so the error
+  CSV (original columns plus `error`) can be downloaded later. Row errors are written in
+  Spanish on the server because they end up in that file.
+- **Agent search** (`TenantPropertySearch`) uses the tenant's published properties with the
+  same matching rules as before (operation, zone, rooms, budget in the same currency with a 25%
+  over-budget allowance, no conversion). While the tenant has no published property it uses
+  the sample fixture and the simulator shows the sample banner; once one is published the
+  fixture is never used for that tenant.
+- **Inquiries per property** count distinct non-test leads the agent showed it to.
 
 ### Tracing (LangSmith)
 
 Tracing is observability only: the agent behaves the same with it off, which is the default.
 
-- **Turning it on.** `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY`, with one project per
-  environment (`inmo24x7-dev`, `inmo24x7-prod`, or `LANGSMITH_PROJECT`) and optionally
-  `LANGSMITH_TRACING_SAMPLING_RATE`. The client is built once in `container.py`; a missing key
+- **Turning it on.** `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY`, and optionally
+  `LANGSMITH_TRACING_SAMPLING_RATE`. Turns go to the LangSmith agent named by
+  `LANGSMITH_AGENT_ID` and `LANGSMITH_AGENT_ENVIRONMENT` (an agent address); without them, to
+  one project per environment (`inmo24x7-dev`, `inmo24x7-prod`, or `LANGSMITH_PROJECT`). The
+  runtime always names the destination in code, so the SDK's own reading of those variables
+  never competes with it. The client is built once in `container.py`; a missing key
   or invalid setting logs a warning and leaves tracing off.
 - **What is traced.** Each turn is one root run, `inmo24x7.lead_turn`, tagged with the product,
   `APP_ENV` and channel, with metadata `tenant_id`, `thread_key`, `channel`,
   `agent_config_version`, prompt versions, app version and commit. The LLM port calls are child
   runs `llm.extract` and `llm.compose_reply` (with the provider's own chat model runs under
-  them), and the property search is a `property_search` child run.
+  them), and each tool call is a child run named after the tool (`search_properties`,
+  `save_contact`, `propose_visit`, `hand_off`).
 - **From a message to its trace.** The runtime picks the root run id up front and stores it on
   the turn's outbound messages (`conversation_messages.trace_run_id`); the per-turn log line
   carries it too. With `LANGSMITH_UI_URL` set, backoffice simulator messages link to the run

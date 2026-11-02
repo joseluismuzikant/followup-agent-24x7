@@ -9,7 +9,14 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from ..domain.errors import LlmUnavailableError
-from ..domain.llm import Extraction, ExtractionRequest, Reply, ReplyRequest, TokenUsage
+from ..domain.llm import (
+    Extraction,
+    ExtractionRequest,
+    Reply,
+    ReplyIntent,
+    ReplyRequest,
+    TokenUsage,
+)
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -44,6 +51,23 @@ def _parse_json(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def strip_introduction(text: str, agent_name: str) -> str:
+    """Drops an opening self-introduction ("¡Hola! Soy Sofía, de Inmobiliaria Sur.") and keeps
+    the rest. A plain greeting without the agent's name is left alone, so nothing else is
+    lost; text that is only the introduction is returned unchanged."""
+    if not agent_name.strip():
+        return text
+    pattern = re.compile(
+        r"^\s*(?:¡?\s*hola\s*!?[,.]?\s*)?"
+        rf"(?:soy|te habla|mi nombre es)\s+{re.escape(agent_name.strip())}\b[^.!?¿]*[.!]\s*",
+        re.IGNORECASE,
+    )
+    rest = pattern.sub("", text, count=1)
+    if not rest or rest == text:
+        return text
+    return rest[0].upper() + rest[1:]
 
 
 class LangChainLanguageModel:
@@ -95,20 +119,31 @@ class LangChainLanguageModel:
             asked_key=request.asked_key or "",
             wants_name="sí" if request.wants_name else "no",
             wants_contact="sí" if request.wants_contact else "no",
+            choices=json.dumps(
+                [{"id": choice.id, "label": choice.label} for choice in request.choices],
+                ensure_ascii=False,
+            ),
         )
         result = self._invoke([SystemMessage(system), HumanMessage(request.latest)])
         parsed = _parse_json(_content(result))
         values = parsed.get("answers")
         name = parsed.get("visitor_name")
         contact = parsed.get("contact")
+        choice_id = parsed.get("choice_id")
+        offered = {choice.id for choice in request.choices}
         return Extraction(
             values=values if isinstance(values, dict) else {},
             visitor_name=name if isinstance(name, str) and name.strip() else None,
             contact=contact if isinstance(contact, str) and contact.strip() else None,
+            # Only an id the agent actually offered; anything else is ignored.
+            choice_id=choice_id if isinstance(choice_id, str) and choice_id in offered else None,
+            wants_human=parsed.get("wants_human") is True,
             usage=_usage(result),
         )
 
     def compose_reply(self, request: ReplyRequest) -> Reply:
+        """Words the reply. Only GREET may introduce the agent: if the model opens any other
+        message with "(¡Hola!) Soy <agent>…", that sentence is dropped."""
         question = request.question
         system = Template(self._reply.template).safe_substitute(
             intent=request.intent.value,
@@ -121,6 +156,8 @@ class LangChainLanguageModel:
         )
         result = self._invoke([SystemMessage(system), HumanMessage("Escribí el mensaje.")])
         text = _content(result).strip()
+        if request.intent is not ReplyIntent.GREET:
+            text = strip_introduction(text, request.agent_name)
         if not text:
             raise LlmUnavailableError("The model returned an empty reply.")
         return Reply(text=text, usage=_usage(result))

@@ -1,8 +1,10 @@
-import { Button, Card, CardContent, CardHeader, CardTitle } from "@followup/ui";
+import { Button, Card, CardContent, CardHeader, CardTitle, DevSignIn } from "@followup/ui";
 import { useState } from "react";
 import type { FormEvent } from "react";
 
-import { supabase } from "../lib/supabase";
+import { authMode } from "../lib/auth-mode";
+import { signInDev } from "../lib/dev-session";
+import { getSupabase } from "../lib/supabase";
 
 export function IngresoPage() {
   const [email, setEmail] = useState("");
@@ -12,7 +14,7 @@ export function IngresoPage() {
 
   async function signInWithGoogle() {
     setError(null);
-    const { error: signInError } = await supabase.auth.signInWithOAuth({
+    const { error: signInError } = await getSupabase().auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
     });
@@ -29,7 +31,7 @@ export function IngresoPage() {
     }
     setLoading(true);
     setError(null);
-    const { error: signInError } = await supabase.auth.signInWithOtp({
+    const { error: signInError } = await getSupabase().auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo: window.location.origin },
     });
@@ -48,37 +50,41 @@ export function IngresoPage() {
           <CardTitle className="text-xl">Entrá a inmo24x7</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Button type="button" onClick={() => void signInWithGoogle()}>
-            Continuar con Google
-          </Button>
-
-          {sent ? (
-            <p className="text-sm text-muted-foreground" aria-live="polite">
-              Te enviamos un link a {email}. Revisá tu casilla.
-            </p>
-          ) : (
-            <form onSubmit={(event) => void sendMagicLink(event)} className="flex flex-col gap-2">
-              <label htmlFor="email" className="text-sm font-medium">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="tu@email.com"
-                className="h-10 rounded-md border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-              <Button type="submit" variant="outline" disabled={loading}>
-                {loading ? "Enviando..." : "Enviarme un link para entrar"}
+          {authMode === "supabase" ? (
+            <>
+              <Button type="button" onClick={() => void signInWithGoogle()}>
+                Continuar con Google
               </Button>
-            </form>
-          )}
 
-          {error ? (
-            <p className="text-sm text-destructive" aria-live="polite">
-              {error}
-            </p>
+              {sent ? (
+                <p className="text-sm text-muted-foreground" aria-live="polite">
+                  Te enviamos un link a {email}. Revisá tu casilla.
+                </p>
+              ) : (
+                <form onSubmit={(event) => void sendMagicLink(event)} className="flex flex-col gap-2">
+                  <label htmlFor="email" className="text-sm font-medium">
+                    Email
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="tu@email.com"
+                    className="h-10 rounded-md border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <Button type="submit" variant="outline" disabled={loading}>
+                    {loading ? "Enviando..." : "Enviarme un link para entrar"}
+                  </Button>
+                </form>
+              )}
+
+              {error ? (
+                <p className="text-sm text-destructive" aria-live="polite">
+                  {error}
+                </p>
+              ) : null}
+            </>
           ) : null}
 
           <p className="text-xs text-muted-foreground">
@@ -90,6 +96,8 @@ export function IngresoPage() {
               Política de privacidad
             </a>
           </p>
+
+          {authMode === "dev" ? <DevSignIn onSignIn={signInDev} /> : null}
         </CardContent>
       </Card>
     </div>

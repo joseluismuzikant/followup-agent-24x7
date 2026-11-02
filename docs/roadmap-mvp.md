@@ -149,6 +149,18 @@ backoffice simulator (S8) shipped with this day, and so did LangSmith tracing of
 **Done when:** in the simulator a lead gets matching properties, leaves contact details,
 and is handed off, and the lead appears in the panel with its status.
 
+**Status: done**, together with a Part 0 for local development without external services:
+dev sign-in (`AUTH_MODE=dev`, refused in production), `scripts/seed_dev.py` with three dev
+accounts, sample files in `docs/samples/`, a local Supabase CLI configuration and the README
+"Local development" section.
+
+**Moved or changed:** visit slots and the hand-off landed here: the agent offers two slots
+inside team hours for the property the lead picks, and the hand-off writes the system event
+"El agente derivó la consulta a tu equipo" to the transcript (listed under Day 6). Consultas
+got a minimal list with S5 status badges, a "Prueba" badge for simulator leads and a read-only
+detail; tabs, search, takeover, visit confirmation and export stay on Day 6. Inquiries per
+property count real leads only, not simulator tests.
+
 ### Day 5: WhatsApp messaging and notifications
 
 - **Messaging** context: webhook verification, HMAC signature check, fast 200 with background

@@ -30,6 +30,12 @@ class ReplyIntent(StrEnum):
     ASK_CONTACT = "ask_contact"
     CLOSE = "close"  # thank them; someone from the team follows up
     AFTER_CLOSE = "after_close"  # anything after closing
+    INVALID_CONTACT = "invalid_contact"  # the contact given is not a phone or email; ask again
+    OFFER_VISIT = "offer_visit"  # ask once whether they want to visit one of the options
+    OFFER_SLOTS = "offer_slots"  # propose facts["slots"] for facts["option"]
+    SLOT_CHOSEN = "slot_chosen"  # note facts["slot"]; the team confirms it
+    HAND_OFF = "hand_off"  # a person from the team takes it from here
+    AFTER_HAND_OFF = "after_hand_off"  # anything after the hand-off: polite, no new proposals
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +56,15 @@ class TranscriptLine:
 
 
 @dataclass(frozen=True, slots=True)
+class Choice:
+    """Something the agent offered (a property card, a visit slot) that the lead can pick by
+    position ("la segunda"), by its label or by part of it (an address)."""
+
+    id: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
 class ExtractionRequest:
     questions: Sequence[QualificationQuestion]
     transcript: Sequence[TranscriptLine]
@@ -57,6 +72,7 @@ class ExtractionRequest:
     asked_key: str | None = None
     wants_name: bool = False
     wants_contact: bool = False
+    choices: Sequence[Choice] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +82,10 @@ class Extraction:
     values: Mapping[str, Any] = field(default_factory=dict)
     visitor_name: str | None = None
     contact: str | None = None
+    # The id of the picked choice, only if it is one of the request's choices.
+    choice_id: str | None = None
+    # The lead asked to talk to a person.
+    wants_human: bool = False
     usage: TokenUsage = TokenUsage()
 
 

@@ -10,8 +10,10 @@ dependencies = [
     "langchain-anthropic==1.7.7",
     "langchain-deepseek==1.1.1",
     "langchain-openai==1.7.3",
+    "openpyxl==3.1.5",
     "psycopg[binary]>=3.2.4",
     "pyjwt[crypto]>=2.10.0",
+    "python-multipart==0.0.33",
     "sqlalchemy>=2.0.38",
     "uvicorn[standard]>=0.34.0",
 ]

@@ -11,6 +11,18 @@ ROOT = Path(__file__).resolve().parents[1]
 PNPM = ["corepack", "pnpm"]
 
 
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
 def run(command: Sequence[str]) -> None:
     command = list(command)
     print(f"$ {' '.join(command)}", flush=True)

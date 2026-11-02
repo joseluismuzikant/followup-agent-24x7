@@ -19,6 +19,7 @@ def _production_env(monkeypatch, *, database_url: str | None = None, cors: str |
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "jwt-secret")
     monkeypatch.setenv("LLM_MODEL", "anthropic:claude-sonnet-5-5")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.delenv("AUTH_MODE", raising=False)
     if database_url is None:
         monkeypatch.delenv("DATABASE_URL", raising=False)
     else:
@@ -181,3 +182,43 @@ def test_startup_fails_fast_without_production_database() -> None:
 
     assert result.returncode != 0
     assert "DATABASE_URL must be set when APP_ENV=production." in result.stderr
+
+
+def test_development_defaults_to_dev_auth(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("AUTH_MODE", raising=False)
+
+    assert get_settings().auth_mode == "dev"
+
+
+def test_production_defaults_to_supabase_auth(monkeypatch) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.delenv("AUTH_MODE", raising=False)
+
+    assert get_settings().auth_mode == "supabase"
+
+
+def test_production_rejects_dev_auth(monkeypatch) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.setenv("AUTH_MODE", "dev")
+
+    with pytest.raises(ConfigurationError, match="AUTH_MODE=dev is not allowed"):
+        get_settings()
+
+
+def test_unknown_auth_mode_is_rejected(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("AUTH_MODE", "anything")
+
+    with pytest.raises(ConfigurationError, match="AUTH_MODE must be"):
+        get_settings()
+
+
+def test_supabase_auth_in_development_needs_a_verification_method(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("AUTH_MODE", "supabase")
+    monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
+
+    with pytest.raises(ConfigurationError, match="AUTH_MODE=supabase needs"):
+        get_settings()

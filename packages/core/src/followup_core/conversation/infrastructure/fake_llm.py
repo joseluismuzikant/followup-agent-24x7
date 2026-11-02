@@ -5,7 +5,7 @@ Extraction uses simple keyword and regex rules; replies come from templates per 
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from followup_core.tenancy.domain.agent_config import QualificationQuestion, QuestionKind, Tone
@@ -15,6 +15,7 @@ from ..domain.errors import LlmUnavailableError
 from ..domain.llm import (
     CONTACT_KEY,
     NAME_KEY,
+    Choice,
     Extraction,
     ExtractionRequest,
     Reply,
@@ -25,13 +26,46 @@ from ..domain.llm import (
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 _PHONE = re.compile(r"\+?\d[\d\s-]{6,}\d")
 _WORD = r"[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+"
-_NAME = re.compile(rf"\b(?:me llamo|mi nombre es|soy)\s+({_WORD}(?: {_WORD})?)")
+_NAME = re.compile(rf"\b(?i:me llamo|mi nombre es|soy)\s+({_WORD}(?: {_WORD})?)")
 _PLACE = re.compile(rf"\ben\s+({_WORD}(?: {_WORD})*)")
 _ROOMS = re.compile(r"(\d+)\s*amb")
 _AMOUNT = re.compile(r"(\d[\d.,]*)\s*(mil|k)?\b", re.IGNORECASE)
 _USD = re.compile(r"\b(usd|u\$s|d[oó]lares?)\b|us\$", re.IGNORECASE)
 _ARS = re.compile(r"\$|\bpesos\b|\bars\b", re.IGNORECASE)
 _YES = ("si", "claro", "tengo", "obvio", "dale")
+_HUMAN = re.compile(
+    r"\b(?:hablar|comunicarme|contactarme|atender(?:me)?)\s+(?:con\s+)?"
+    r"(?:alguien|una persona|un humano|un asesor|una asesora|un vendedor|el equipo)\b"
+    r"|\bpersona real\b|\bun humano\b"
+)
+_ORDINALS = (
+    re.compile(r"\b(?:primer[ao]?|(?:la|el|opcion|numero)\s*1)\b"),
+    re.compile(r"\b(?:segund[ao]|(?:la|el|opcion|numero)\s*2)\b"),
+    re.compile(r"\b(?:tercer[ao]?|(?:la|el|opcion|numero)\s*3)\b"),
+)
+# Words too common in listing labels to identify one of them.
+_COMMON = frozenset({"ambientes", "ambiente", "con", "del", "luminoso", "reciclado", "frente"})
+
+
+def _choice_id(choices: Sequence[Choice], text: str) -> str | None:
+    """Exact label, then ordinal ("la segunda"), then a distinctive word of one label
+    (a street name). None when nothing or more than one choice matches."""
+    if not choices:
+        return None
+    said = normalize(text)
+    exact = [choice for choice in choices if normalize(choice.label) == said]
+    if len(exact) == 1:
+        return exact[0].id
+    for index, pattern in enumerate(_ORDINALS[: len(choices)]):
+        if pattern.search(said):
+            return choices[index].id
+    words = set(re.findall(r"[a-z]{4,}", said))
+    matches = [
+        choice
+        for choice in choices
+        if words & (set(re.findall(r"[a-z]{4,}", normalize(choice.label))) - _COMMON)
+    ]
+    return matches[0].id if len(matches) == 1 else None
 
 
 def _money(text: str, asked: bool) -> dict[str, Any] | None:
@@ -128,6 +162,51 @@ _TEMPLATES: dict[ReplyIntent, dict[Tone, str]] = {
         Tone.PROFESSIONAL: "Ya le pasé tus datos al equipo.",
         Tone.FORMAL: "Sus datos ya fueron enviados al equipo.",
     },
+    ReplyIntent.INVALID_CONTACT: {
+        Tone.WARM: "Mmm, no me quedó claro. ¿Me pasás un teléfono con código de área o un email?",
+        Tone.PROFESSIONAL: (
+            "No pude tomar ese dato. ¿Me pasás un teléfono con código de área o un email?"
+        ),
+        Tone.FORMAL: (
+            "No pude registrar ese dato. "
+            "¿Me podría indicar un teléfono con código de área o un email?"
+        ),
+    },
+    ReplyIntent.OFFER_VISIT: {
+        Tone.WARM: "¿Te gustaría visitar alguna? Decime cuál y te propongo horarios.",
+        Tone.PROFESSIONAL: "¿Querés visitar alguna? Decime cuál y te propongo horarios.",
+        Tone.FORMAL: "¿Desea visitar alguna? Indíqueme cuál y le propongo horarios.",
+    },
+    ReplyIntent.OFFER_SLOTS: {
+        Tone.WARM: "¡Buenísimo! Para ver {option} te propongo {slots}. ¿Cuál te queda mejor?",
+        Tone.PROFESSIONAL: "Para visitar {option} tengo {slots}. ¿Cuál preferís?",
+        Tone.FORMAL: "Para visitar {option} le propongo {slots}. ¿Cuál prefiere?",
+    },
+    ReplyIntent.SLOT_CHOSEN: {
+        Tone.WARM: "¡Listo! Te anoté para el {slot}. El equipo te lo confirma.",
+        Tone.PROFESSIONAL: "Anotado para el {slot}. El equipo te lo confirma.",
+        Tone.FORMAL: "Queda registrado para el {slot}. El equipo se lo confirmará.",
+    },
+    ReplyIntent.HAND_OFF: {
+        Tone.WARM: (
+            "¡Gracias{name}! Le paso tu consulta a una persona del equipo, "
+            "que te va a escribir muy pronto."
+        ),
+        Tone.PROFESSIONAL: "Gracias{name}. Una persona del equipo sigue con tu consulta.",
+        Tone.FORMAL: "Muchas gracias{name}. Una persona del equipo continuará con su consulta.",
+    },
+    ReplyIntent.AFTER_HAND_OFF: {
+        Tone.WARM: (
+            "Ya le pasé tu consulta al equipo, te escriben muy pronto. ¡Gracias por la paciencia!"
+        ),
+        Tone.PROFESSIONAL: "Ya le pasé tu consulta al equipo; te van a escribir pronto.",
+        Tone.FORMAL: "Su consulta ya fue derivada al equipo, que se comunicará a la brevedad.",
+    },
+}
+_AFTER_HOURS = {
+    Tone.WARM: " Ahora el equipo no está, así que te lo confirman apenas vuelvan.",
+    Tone.PROFESSIONAL: " El equipo lo confirma cuando vuelva a estar disponible.",
+    Tone.FORMAL: " El equipo se lo confirmará en su próximo horario de atención.",
 }
 
 
@@ -168,7 +247,13 @@ class FakeLanguageModel:
         if request.wants_contact or request.asked_key == CONTACT_KEY:
             match = _EMAIL.search(text) or _PHONE.search(text)
             contact = match.group(0).strip() if match else None
-        return Extraction(values=values, visitor_name=name, contact=contact)
+        return Extraction(
+            values=values,
+            visitor_name=name,
+            contact=contact,
+            choice_id=_choice_id(request.choices, text),
+            wants_human=bool(_HUMAN.search(normalize(text))),
+        )
 
     def compose_reply(self, request: ReplyRequest) -> Reply:
         self._call()
@@ -187,5 +272,14 @@ class FakeLanguageModel:
             return Reply(f"{greeting} {asked}".strip())
         if request.intent is ReplyIntent.ASK:
             return Reply(asked)
-        name = request.facts.get("visitor_name")
-        return Reply(_TEMPLATES[request.intent][tone].format(name=f", {name}" if name else ""))
+        facts = dict(request.facts)
+        name = facts.get("visitor_name")
+        text = _TEMPLATES[request.intent][tone].format(
+            name=f", {name}" if name else "",
+            option=facts.get("option", "esa propiedad"),
+            slots=facts.get("slots", ""),
+            slot=facts.get("slot", ""),
+        )
+        if request.intent is ReplyIntent.OFFER_SLOTS and facts.get("after_hours"):
+            text += _AFTER_HOURS[tone]
+        return Reply(text)

@@ -1,5 +1,6 @@
 """In-memory repositories and builders shared by the tenancy unit tests."""
 
+from dataclasses import replace
 from datetime import time
 from uuid import UUID
 
@@ -59,8 +60,15 @@ class InMemoryProfileRepository:
     def get_by_id(self, user_id: UUID) -> Profile | None:
         return self.profiles.get(user_id)
 
+    def get_by_email(self, email: str) -> Profile | None:
+        wanted = email.strip().lower()
+        return next((p for p in self.profiles.values() if p.email == wanted), None)
+
     def add(self, profile: Profile) -> None:
         self.profiles[profile.id] = profile
+
+    def set_platform_admin(self, user_id: UUID, value: bool) -> None:
+        self.profiles[user_id] = replace(self.profiles[user_id], is_platform_admin=value)
 
 
 class InMemoryOnboardingRepository:

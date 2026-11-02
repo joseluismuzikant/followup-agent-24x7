@@ -1,1 +1,1 @@
-"""Leads: the inmo24x7 qualification graph, sample properties and prompts."""
+"""Leads: qualification, visits and hand-off, plus the lead agent (graph, tools, prompts)."""

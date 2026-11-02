@@ -42,6 +42,9 @@ class InMemoryThreadRepository:
     def get_by_key(self, key: ThreadKey) -> Thread | None:
         return self.threads.get(str(key))
 
+    def get_by_id(self, thread_id: UUID) -> Thread | None:
+        return next((t for t in self.threads.values() if t.id == thread_id), None)
+
     def _started_by(self, tenant_id: UUID, channel: Channel, profile_id: UUID) -> list[Thread]:
         return [
             thread

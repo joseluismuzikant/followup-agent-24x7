@@ -3,8 +3,8 @@
 Graph contract:
 - Input is {"inbound": <text>, "outbox": []}.
 - Nodes read `GraphContext` through `runtime.context` (agent config, business, transcript,
-  and the language model) and write this turn's messages to `outbox` as
-  {"text": str, "payload": dict | None}.
+  the language model and the product's tools) and write this turn's messages to `outbox` as
+  {"text": str, "payload": dict | None, "author": "agent" | "system" (optional)}.
 - Every other state key is the conversation state, persisted by the checkpointer and
   exposed as the state snapshot.
 
@@ -21,10 +21,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import StateGraph
 from langsmith import Client, traceable, tracing_context
+from langsmith.address import AgentAddress
 
 from ..domain.llm import Extraction, ExtractionRequest, LanguageModel, Reply, ReplyRequest
 from ..domain.runtime import AgentTurn, OutboundMessage, TurnInput, TurnMetrics
-from ..domain.thread import Thread, ThreadKey
+from ..domain.thread import Author, Thread, ThreadKey
+from ..domain.tools import Tool, ToolRegistry
 
 TRANSIENT_KEYS = frozenset({"inbound", "outbox"})
 
@@ -34,16 +36,24 @@ class TurnTracing:
     """How turns are traced. The runtime adds the per-turn tags and metadata."""
 
     client: Client
-    project_name: str
+    # Where runs go: a LangSmith agent address, or a tracing project when there is none.
+    project_name: str | None
     run_name: str
     tags: Sequence[str] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    address: AgentAddress | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class GraphContext:
     turn: TurnInput
     llm: LanguageModel
+    tools: ToolRegistry = field(default_factory=ToolRegistry)
+
+
+def _traced_tool(tool: Tool) -> Any:
+    """Each tool call is a child run of the turn named after the tool (no-op untraced)."""
+    return traceable(name=tool.name, run_type="tool")(tool.handler)
 
 
 def _without_self(inputs: dict[str, Any]) -> dict[str, Any]:
@@ -97,10 +107,12 @@ class LangGraphRuntime:
         checkpointer: BaseCheckpointSaver[Any],
         llm: LanguageModel,
         tracing: TurnTracing | None = None,
+        tools: ToolRegistry | None = None,
     ) -> None:
         self._graph = graph.compile(checkpointer=checkpointer)
         self._llm = llm
         self._tracing = tracing
+        self._tools = (tools or ToolRegistry()).wrapped(_traced_tool)
 
     def _traced_config(
         self, thread: Thread, turn: TurnInput, metrics: TurnMetrics
@@ -127,15 +139,19 @@ class LangGraphRuntime:
         metrics = TurnMetrics(
             model=self._llm.model_name, prompt_versions=dict(self._llm.prompt_versions)
         )
-        context = GraphContext(turn=turn, llm=MeteredLanguageModel(self._llm, metrics))
+        context = GraphContext(
+            turn=turn, llm=MeteredLanguageModel(self._llm, metrics), tools=self._tools
+        )
         config, run_id = self._traced_config(thread, turn, metrics)
         tracing = self._tracing
-        # tracing_context pins the client (with its anonymizer) and project, and turns
-        # tracing off entirely when it is not configured.
+        # tracing_context pins the client (with its anonymizer) and the destination (agent
+        # address or project, never both), and turns tracing off entirely when it is not
+        # configured.
         with tracing_context(
             enabled=tracing is not None,
             client=tracing.client if tracing else None,
-            project_name=tracing.project_name if tracing else None,
+            address=tracing.address if tracing else None,
+            project_name=tracing.project_name if tracing and not tracing.address else None,
         ):
             # durability="exit": the checkpoint is written once, when the turn completes,
             # so a failure in a later node never leaves a half-done state behind.
@@ -146,7 +162,11 @@ class LangGraphRuntime:
                 durability="exit",
             )
         outbound = [
-            OutboundMessage(text=item["text"], payload=item.get("payload"))
+            OutboundMessage(
+                text=item["text"],
+                payload=item.get("payload"),
+                author=Author(item.get("author") or Author.AGENT),
+            )
             for item in result.get("outbox", [])
         ]
         return AgentTurn(

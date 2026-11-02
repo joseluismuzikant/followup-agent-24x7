@@ -1,0 +1,6 @@
+titulo,direccion,operacion,zona,precio,moneda,ambientes,link,estado
+2 ambientes con patio,Honduras 5500,alquiler,Palermo,880.000,ARS,2,https://www.inmobiliariasur.example/propiedades/honduras-5500,publicada
+3 ambientes sin precio,Malabia 1800,alquiler,Palermo,,ARS,3,https://www.inmobiliariasur.example/propiedades/malabia-1800,publicada
+2 ambientes con cochera,Mendoza 2400,venta,Belgrano,USD 175.000,USD,2,https://www.inmobiliariasur.example/propiedades/mendoza-2400,publicada
+Monoambiente con link roto,Billinghurst 1200,alquiler,Palermo,600.000,ARS,1,ver en la web,publicada
+3 ambientes en permuta,Amenábar 2000,permuta,Belgrano,USD 190.000,USD,3,https://www.inmobiliariasur.example/propiedades/amenabar-2000,publicada

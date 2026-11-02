@@ -36,7 +36,7 @@ GetSimulatorFactory = Callable[..., GetSimulator]
 SendMessageFactory = Callable[..., SendSimulatorMessage]
 ResetSimulatorFactory = Callable[..., ResetSimulator]
 GetTenantFactory = Callable[..., GetTenant]
-OwnPropertiesFactory = Callable[..., Callable[[UUID], bool]]
+PublishedPropertiesFactory = Callable[..., Callable[[UUID], bool]]
 
 logger = logging.getLogger("inmo24x7.simulator")
 
@@ -60,12 +60,19 @@ class PropertyCardRead(BaseModel):
     is_sample: bool
 
 
+class SlotRead(BaseModel):
+    id: str
+    label: str
+
+
 class MessageRead(BaseModel):
     id: UUID
     direction: Literal["inbound", "outbound"]
     author: Literal["visitor", "agent", "human", "system"]
     text: str
     cards: list[PropertyCardRead] | None
+    # Visit slots offered as buttons; choosing one sends its label as the visitor's message.
+    slots: list[SlotRead] | None = None
     created_at: datetime
     # Only on admin endpoints, and only when the turn was traced and LANGSMITH_UI_URL is set.
     trace_url: str | None = None
@@ -96,15 +103,17 @@ class SimulatorReplyRead(BaseModel):
     known: list[KnownFactRead]
 
 
-def _message_read(message: Message, trace_base: str = "") -> MessageRead:
+def message_read(message: Message, trace_base: str = "") -> MessageRead:
     payload: dict[str, Any] = message.payload or {}
     cards = payload.get("cards")
+    slots = payload.get("slots")
     return MessageRead(
         id=message.id,
         direction=message.direction.value,  # type: ignore[arg-type]
         author=message.author.value,  # type: ignore[arg-type]
         text=message.text,
         cards=[PropertyCardRead(**card) for card in cards] if cards else None,
+        slots=[SlotRead(**slot) for slot in slots] if slots else None,
         created_at=message.created_at,
         trace_url=trace_url(trace_base, message.trace_run_id),
     )
@@ -118,7 +127,7 @@ def _known(config: AgentConfig, state: dict[str, Any] | Any) -> list[KnownFactRe
 
 
 def _messages(messages: Sequence[Message], trace_base: str = "") -> list[MessageRead]:
-    return [_message_read(message, trace_base) for message in messages]
+    return [message_read(message, trace_base) for message in messages]
 
 
 def build_simulator_router(
@@ -126,7 +135,7 @@ def build_simulator_router(
     send_factory: SendMessageFactory,
     reset_factory: ResetSimulatorFactory,
     get_tenant_factory: GetTenantFactory,
-    own_properties_factory: OwnPropertiesFactory,
+    published_properties_factory: PublishedPropertiesFactory,
     trace_ui_url_factory: Callable[[], str],
 ) -> APIRouter:
     router = APIRouter(tags=["simulator"])
@@ -135,7 +144,7 @@ def build_simulator_router(
         view: ThreadView,
         tenant_id: UUID,
         get_tenant: GetTenant,
-        own_properties: Callable[[UUID], bool],
+        has_published: Callable[[UUID], bool],
         trace_base: str = "",
     ) -> SimulatorRead:
         thread = view.thread
@@ -149,7 +158,7 @@ def build_simulator_router(
             else None,
             messages=_messages(view.messages, trace_base),
             known=_known(view.agent_config, view.state),
-            uses_sample_properties=not own_properties(tenant_id),
+            uses_sample_properties=not has_published(tenant_id),
             config_outdated=view.config_outdated,
             agent_name=view.agent_config.agent_name,
             business_name=get_tenant.execute(tenant_id).name,
@@ -212,10 +221,10 @@ def build_simulator_router(
         profile: Annotated[Profile, Depends(current_profile)],
         use_case: Annotated[GetSimulator, Depends(get_factory)],
         get_tenant: Annotated[GetTenant, Depends(get_tenant_factory)],
-        own_properties: Annotated[Callable[[UUID], bool], Depends(own_properties_factory)],
+        has_published: Annotated[Callable[[UUID], bool], Depends(published_properties_factory)],
     ) -> SimulatorRead:
         view = use_case.execute(profile.tenant_id, profile.id)
-        return simulator_read(view, profile.tenant_id, get_tenant, own_properties)
+        return simulator_read(view, profile.tenant_id, get_tenant, has_published)
 
     @router.post("/simulator/messages", response_model=SimulatorReplyRead)
     def send_message(
@@ -230,10 +239,10 @@ def build_simulator_router(
         profile: Annotated[Profile, Depends(current_profile)],
         use_case: Annotated[ResetSimulator, Depends(reset_factory)],
         get_tenant: Annotated[GetTenant, Depends(get_tenant_factory)],
-        own_properties: Annotated[Callable[[UUID], bool], Depends(own_properties_factory)],
+        has_published: Annotated[Callable[[UUID], bool], Depends(published_properties_factory)],
     ) -> SimulatorRead:
         view = use_case.execute(profile.tenant_id, profile.id)
-        return simulator_read(view, profile.tenant_id, get_tenant, own_properties)
+        return simulator_read(view, profile.tenant_id, get_tenant, has_published)
 
     @router.get("/admin/tenants/{tenant_id}/simulator", response_model=SimulatorRead)
     def admin_get_simulator(
@@ -241,12 +250,12 @@ def build_simulator_router(
         admin: Annotated[Profile, Depends(require_platform_admin)],
         use_case: Annotated[GetSimulator, Depends(get_factory)],
         get_tenant: Annotated[GetTenant, Depends(get_tenant_factory)],
-        own_properties: Annotated[Callable[[UUID], bool], Depends(own_properties_factory)],
+        has_published: Annotated[Callable[[UUID], bool], Depends(published_properties_factory)],
         trace_base: Annotated[str, Depends(trace_ui_url_factory)],
     ) -> SimulatorRead:
         require_tenant(tenant_id, get_tenant)
         view = use_case.execute(tenant_id, admin.id)
-        return simulator_read(view, tenant_id, get_tenant, own_properties, trace_base)
+        return simulator_read(view, tenant_id, get_tenant, has_published, trace_base)
 
     @router.post("/admin/tenants/{tenant_id}/simulator/messages", response_model=SimulatorReplyRead)
     def admin_send_message(
@@ -266,11 +275,11 @@ def build_simulator_router(
         admin: Annotated[Profile, Depends(require_platform_admin)],
         use_case: Annotated[ResetSimulator, Depends(reset_factory)],
         get_tenant: Annotated[GetTenant, Depends(get_tenant_factory)],
-        own_properties: Annotated[Callable[[UUID], bool], Depends(own_properties_factory)],
+        has_published: Annotated[Callable[[UUID], bool], Depends(published_properties_factory)],
         trace_base: Annotated[str, Depends(trace_ui_url_factory)],
     ) -> SimulatorRead:
         require_tenant(tenant_id, get_tenant)
         view = use_case.execute(tenant_id, admin.id)
-        return simulator_read(view, tenant_id, get_tenant, own_properties, trace_base)
+        return simulator_read(view, tenant_id, get_tenant, has_published, trace_base)
 
     return router

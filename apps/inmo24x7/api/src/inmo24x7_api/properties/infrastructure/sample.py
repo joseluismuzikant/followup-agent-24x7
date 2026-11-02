@@ -1,81 +1,37 @@
-"""Property search behind a port. Day 3 ships a fixture of sample CABA listings; Day 4 swaps
-in the tenant's own properties from the database."""
+"""Sample CABA listings, shown while a tenant has no published property of its own.
 
-from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Literal, Protocol
+Their links are local pages of the panel (`/ejemplo/<slug>`), never invented external URLs.
+"""
 
-from followup_core.conversation.domain.answers import normalize
-
-Operation = Literal["sale", "rent"]
-Currency = Literal["ARS", "USD"]
-MAX_RESULTS = 3
-# How far over budget a listing may be and still be shown with the over-budget note.
-OVER_BUDGET_TOLERANCE = 1.25
-
-
-@dataclass(frozen=True, slots=True)
-class Property:
-    id: str
-    title: str
-    address: str
-    operation: Operation
-    zone: str
-    price: int
-    currency: Currency
-    rooms: int
-    link: str
-    is_sample: bool
-
-
-@dataclass(frozen=True, slots=True)
-class PropertyQuery:
-    operation: Operation | None = None
-    zone: str | None = None
-    max_budget: int | None = None
-    budget_currency: Currency | None = None
-    rooms: int | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PropertyMatch:
-    property: Property
-    over_budget: bool
-
-
-class PropertySearch(Protocol):
-    def search(self, query: PropertyQuery) -> Sequence[PropertyMatch]: ...
-
-
-def _zone_matches(wanted: str, zone: str) -> bool:
-    wanted, zone = normalize(wanted), normalize(zone)
-    return wanted in zone or zone in wanted
+from ..domain.property import Operation, default_currency
+from ..domain.search import Listing
 
 
 def _sample(
     slug: str,
     title: str,
     address: str,
-    operation: Operation,
+    operation: str,
     zone: str,
     price: int,
     rooms: int,
-) -> Property:
-    return Property(
+) -> Listing:
+    kind = Operation(operation)
+    return Listing(
         id=slug,
         title=title,
         address=address,
-        operation=operation,
+        operation=kind,
         zone=zone,
         price=price,
-        currency="USD" if operation == "sale" else "ARS",
+        currency=default_currency(kind),
         rooms=rooms,
         link=f"/ejemplo/{slug}",
         is_sample=True,
     )
 
 
-SAMPLE_PROPERTIES: tuple[Property, ...] = (
+SAMPLE_LISTINGS: tuple[Listing, ...] = (
     _sample(
         "palermo-gorriti-2amb",
         "2 ambientes con balcón",
@@ -194,30 +150,3 @@ SAMPLE_PROPERTIES: tuple[Property, ...] = (
         3,
     ),
 )
-
-
-class SamplePropertySearch:
-    def __init__(self, properties: Sequence[Property] = SAMPLE_PROPERTIES) -> None:
-        self._properties = properties
-
-    def search(self, query: PropertyQuery) -> Sequence[PropertyMatch]:
-        candidates = [
-            item
-            for item in self._properties
-            if (query.operation is None or item.operation == query.operation)
-            and (query.zone is None or _zone_matches(query.zone, item.zone))
-            and (query.rooms is None or item.rooms >= query.rooms)
-        ]
-        budget = query.max_budget
-        if budget is None or query.budget_currency is None:
-            ranked = sorted(candidates, key=lambda item: item.price)
-            return [PropertyMatch(item, False) for item in ranked[:MAX_RESULTS]]
-
-        comparable = [item for item in candidates if item.currency == query.budget_currency]
-        within = sorted((i for i in comparable if i.price <= budget), key=lambda i: i.price)
-        over = sorted(
-            (i for i in comparable if budget < i.price <= budget * OVER_BUDGET_TOLERANCE),
-            key=lambda i: i.price,
-        )
-        matches = [PropertyMatch(i, False) for i in within] + [PropertyMatch(i, True) for i in over]
-        return matches[:MAX_RESULTS]

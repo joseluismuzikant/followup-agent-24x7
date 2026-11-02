@@ -6,7 +6,7 @@ from typing import Any
 
 from followup_core.tenancy.domain.agent_config import AgentConfig, QuestionKind
 
-from .properties import Property
+from ..properties.domain.search import Listing
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +24,7 @@ def money(amount: int, currency: str) -> str:
     return f"USD {thousands(amount)}" if currency == "USD" else f"${thousands(amount)}"
 
 
-def price_label(item: Property) -> str:
+def price_label(item: Listing) -> str:
     label = money(item.price, item.currency)
     return f"{label} por mes" if item.operation == "rent" else label
 
@@ -59,3 +59,21 @@ def known_rows(config: AgentConfig, state: Mapping[str, Any]) -> list[KnownRow]:
     rows.append(KnownRow("visitor_name", "Nombre", state.get("visitor_name")))
     rows.append(KnownRow("contact", "Contacto", state.get("contact")))
     return rows
+
+
+def looking_for(answers: Mapping[str, Any]) -> str:
+    """One line for the leads list: "Alquiler · 2 amb. · Palermo · hasta $900.000"."""
+    parts: list[str] = []
+    operation = answers.get("operation")
+    if operation:
+        parts.append(str(operation)[:1].upper() + str(operation)[1:])
+    rooms = answers.get("rooms")
+    if isinstance(rooms, int):
+        parts.append(f"{rooms} amb.")
+    zone = answers.get("zone")
+    if zone:
+        parts.append(str(zone))
+    budget = answers.get("budget")
+    if isinstance(budget, Mapping) and "amount" in budget and "currency" in budget:
+        parts.append(f"hasta {money(budget['amount'], budget['currency'])}")
+    return " · ".join(parts)

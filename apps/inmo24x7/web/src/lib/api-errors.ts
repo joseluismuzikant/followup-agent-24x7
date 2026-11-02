@@ -8,10 +8,18 @@ const messages: Record<string, string> = {
   database_unavailable: "El servicio no está disponible. Probá en unos minutos.",
   internal_error: "Ocurrió un error inesperado. Probá de nuevo.",
   forbidden: "No tenés permisos para hacer este cambio.",
+  import_file_invalid:
+    "No pudimos leer el archivo. Subí un CSV o Excel con las columnas de la plantilla.",
+  import_not_found: "Ese informe de importación ya no está disponible.",
+  import_too_large: "El archivo es muy grande: hasta 5 MB y 2.000 propiedades por vez.",
+  lead_not_found: "No encontramos esa consulta.",
   not_found: "No encontramos lo que buscabas.",
   notification_email_invalid: "Revisá los emails de aviso: ingresá entre 1 y 5 direcciones válidas.",
   onboarding_step_invalid: "Ese paso todavía no está disponible.",
   profile_not_found: "Tu cuenta todavía no tiene un negocio. Completá el alta.",
+  property_invalid: "Revisá los datos de la propiedad.",
+  property_link_taken: "Ya tenés otra propiedad con ese link.",
+  property_not_found: "No encontramos esa propiedad.",
   questions_invalid:
     "Revisá las preguntas: cada una necesita un texto, y podés tener hasta 10.",
   simulator_limit_reached:

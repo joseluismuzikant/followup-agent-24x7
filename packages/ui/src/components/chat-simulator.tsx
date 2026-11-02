@@ -7,11 +7,18 @@ import { PropertyCard, type PropertyCardData } from "./property-card";
 
 type ChatAuthor = "visitor" | "agent" | "human" | "system";
 
+interface ChatChoice {
+  id: string;
+  label: string;
+}
+
 interface ChatMessage {
   id: string;
   author: ChatAuthor;
   text: string;
   cards?: readonly PropertyCardData[] | null;
+  /** Quick replies (visit slots). Choosing one sends its label as the visitor's message. */
+  slots?: readonly ChatChoice[] | null;
   /** A visitor message that has not been answered yet, or failed to send. */
   status?: "sending" | "failed";
   /** Link to the turn's trace (backoffice only). */
@@ -37,8 +44,22 @@ const bubbleStyles: Record<ChatAuthor, string> = {
   visitor: "self-end bg-primary text-primary-foreground",
   agent: "self-start bg-muted text-foreground",
   human: "self-start bg-muted text-foreground",
-  system: "self-center bg-transparent text-xs text-muted-foreground",
+  system: "self-center rounded-full border bg-background px-3 py-1 text-center text-xs text-muted-foreground",
 };
+
+/** Only the latest offer is answerable: once the visitor wrote again, old buttons go away. */
+function answerableSlots(messages: readonly ChatMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.author === "visitor") {
+      return null;
+    }
+    if (message.slots && message.slots.length > 0) {
+      return message.id;
+    }
+  }
+  return null;
+}
 
 function ChatSimulator({
   agentName,
@@ -54,6 +75,7 @@ function ChatSimulator({
 }: ChatSimulatorProps) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const slotsMessageId = answerableSlots(messages);
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "end" });
@@ -115,6 +137,22 @@ function ChatSimulator({
                 Ver traza
               </a>
             ) : null}
+            {message.id === slotsMessageId && message.slots ? (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Horarios propuestos">
+                {message.slots.map((slot) => (
+                  <Button
+                    key={slot.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={typing}
+                    onClick={() => onSend(slot.label)}
+                  >
+                    {slot.label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
             {message.cards && message.cards.length > 0 ? (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {message.cards.map((card) => (
@@ -167,4 +205,4 @@ function ChatSimulator({
   );
 }
 
-export { ChatSimulator, type ChatAuthor, type ChatMessage };
+export { ChatSimulator, type ChatAuthor, type ChatChoice, type ChatMessage };

@@ -1,0 +1,45 @@
+# Local Supabase for development with real sign-in (README, "Local Supabase").
+# Only Supabase Auth is used: the app keeps its own Postgres on port 5433.
+# Settings not listed here use the Supabase CLI defaults.
+project_id = "followup-agent-24x7"
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+# Local mail UI where magic-link emails arrive (http://127.0.0.1:54324).
+[inbucket]
+enabled = true
+port = 54324
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+# The panel and the backoffice.
+additional_redirect_urls = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
+]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+# Magic links work without confirming the address first.
+enable_confirmations = false
+
+# Optional: needs a Google OAuth client (README). Set enabled = true and the two variables.
+[auth.external.google]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false

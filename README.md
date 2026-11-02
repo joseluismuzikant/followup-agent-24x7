@@ -89,6 +89,11 @@ flowchart TB
         CC_API["Cuentas Claras API<br/>(planned)"]
     end
 
+    subgraph Product["inmo24x7 contexts"]
+        PROPERTIES["Properties<br/>import · search"]
+        LEADS["Leads<br/>statuses · visits · agent tools"]
+    end
+
     subgraph Core["packages/core"]
         TENANCY["Tenancy"]
         IDENTITY["Identity"]
@@ -104,7 +109,7 @@ flowchart TB
     subgraph Data["Data and identity"]
         POSTGRES["Postgres<br/>local development"]
         SUPABASE["Postgres on Supabase<br/>(planned)"]
-        AUTH["Supabase Auth"]
+        AUTH["Supabase Auth<br/>(or dev sign-in locally)"]
     end
 
     ARCA["ARCA<br/>(planned)"]
@@ -132,6 +137,12 @@ flowchart TB
     API --> IDENTITY
     API -.-> MESSAGING
     API --> CONVERSATION
+    API --> PROPERTIES
+    API --> LEADS
+    LEADS --> CONVERSATION
+    LEADS --> PROPERTIES
+    PROPERTIES --> POSTGRES
+    LEADS --> POSTGRES
     CC_API -.-> TENANCY
     CC_API -.-> IDENTITY
     CC_API -.-> MESSAGING
@@ -173,21 +184,110 @@ flowchart LR
 - [uv](https://docs.astral.sh/uv/).
 - Node.js 22.13 or newer. Corepack, included with Node, provides `pnpm`.
 
-## Start
+## Local development
+
+There are three ways to run it locally. Start with the first one: it needs only Docker.
+
+### a) Zero external services (default)
+
+No Supabase project, no LLM key and no LangSmith: dev sign-in, the fake model and Postgres in
+Docker.
 
 ```bash
-uv run --all-packages python scripts/dev.py
+cp .env.example .env
+uv run --all-packages python scripts/dev.py --seed
 ```
 
-The command installs dependencies, starts Postgres, applies migrations, and starts the API and both panels. Press `Ctrl+C` to stop everything.
+`dev.py` installs dependencies, starts Postgres, applies migrations, seeds the dev accounts
+(`--seed`, safe to repeat) and starts the API and both panels. Press `Ctrl+C` to stop everything.
 
 - Panel: http://localhost:5173
 - Backoffice: http://localhost:5174
-- API: http://localhost:8001
-- API documentation: http://localhost:8001/docs
-- Readiness: http://localhost:8001/health/ready
+- API: http://localhost:8001 (documentation at `/docs`, readiness at `/health/ready`)
+
+`.env.example` sets `AUTH_MODE=dev` and `VITE_AUTH_MODE=dev`. The sign-in screens then show a
+**Modo desarrollo** box: type an email and press **Entrar**, no password. The session is the
+token `dev:<email>`, and the API maps each email to a fixed user id. Seeded accounts:
+
+| Email | What you get |
+| --- | --- |
+| `dueno@inmobiliariasur.test` | Owner of "Inmobiliaria Sur": agent configured, onboarding finished, the 20 properties of `docs/samples/propiedades.csv`. |
+| `admin@local.test` | Platform admin (its own business "Plataforma"): use it in the backoffice. |
+| `nuevo@local.test` | No account yet: try sign-up and the wizard from scratch. Any other email works the same way. |
+
+Dev sign-in is refused when `APP_ENV=production` (the API does not start), and the panels'
+production builds fail with `VITE_AUTH_MODE=dev`, so it can never ship. Without `LLM_MODEL`
+the agent replies from templates (`FakeLanguageModel`); the flow is the real one.
 
 Local Postgres uses port 5433 to avoid conflicts with other databases.
+
+### b) Local Supabase (Supabase CLI)
+
+To test the real sign-in (magic link, optionally Google) without a cloud project. Install the
+[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started); the
+repository already has a `supabase/config.toml` for this (only Supabase Auth is used, the app
+keeps its own Postgres). With Docker running:
+
+```bash
+supabase start      # first run downloads the images
+supabase status     # prints the local URLs and keys
+```
+
+Copy the values from `supabase status` into `.env`:
+
+| From `supabase status` | Variable |
+| --- | --- |
+| API URL (`http://127.0.0.1:54321`) | `SUPABASE_URL` and `VITE_SUPABASE_URL` |
+| anon key (or "Publishable key") | `VITE_SUPABASE_ANON_KEY` |
+| JWT secret | `SUPABASE_JWT_SECRET` (HS256 tokens) |
+| — | or `SUPABASE_JWKS_URL=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json` when the CLI signs with asymmetric keys |
+
+Then set `AUTH_MODE=supabase` and `VITE_AUTH_MODE=supabase` and restart `dev.py`.
+
+- `SUPABASE_URL` must match the token issuer exactly: tokens say `http://127.0.0.1:54321/auth/v1`,
+  so `http://localhost:54321` is rejected with 401. Use the same host the CLI prints.
+- `supabase/config.toml` already lists `http://localhost:5173` and `http://localhost:5174` as
+  redirect URLs. If you edit it, run `supabase stop && supabase start`.
+- Magic-link emails are not sent: open the local mail UI the CLI prints
+  (http://127.0.0.1:54324) and click the link there.
+- Google sign-in is optional and needs a Google OAuth client: set
+  `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`, and turn
+  on `[auth.external.google]` in `supabase/config.toml`.
+- The seed's accounts use dev user ids, so with Supabase sign up through the panel instead and
+  grant the backoffice with `uv run --all-packages python scripts/make_admin.py <email>`.
+
+### c) A Supabase cloud project
+
+What production uses. In the project's dashboard: Authentication → URL Configuration, add
+`http://localhost:5173` and `http://localhost:5174` as redirect URLs; Project Settings → API
+gives the URL and anon key (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_URL`) and
+the JWT secret or JWKS URL (`SUPABASE_JWT_SECRET` or `SUPABASE_JWKS_URL`). Set both auth modes
+to `supabase`, then `make_admin.py <email>` for your own user once you signed up.
+
+### A real model and LangSmith
+
+- Real LLM: set `LLM_MODEL=provider:model` and only that provider's key, for example
+  `LLM_MODEL=anthropic:claude-sonnet-5-5` with `ANTHROPIC_API_KEY`. See the environment table.
+- LangSmith: `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY`; traces go to the agent in
+  `LANGSMITH_AGENT_ID` / `LANGSMITH_AGENT_ENVIRONMENT` (`followup-agent-24x7`, `local` in
+  `.env.example`), or to the `inmo24x7-dev` project when those are empty. Personal data is
+  masked before it is sent.
+
+### Sample files
+
+`docs/samples/` has `propiedades.csv` (20 valid CABA listings), the same rows as
+`propiedades.xlsx`, and `propiedades-con-errores.csv` (5 rows, 3 with the S7 errors: missing
+price, invalid link, invalid operation). The seed and the tests use them; import them from
+Propiedades to see the report.
+
+### Reset the dev database
+
+```bash
+uv run --all-packages python scripts/seed_dev.py --reset
+```
+
+Drops and recreates the local database (only `localhost` or `127.0.0.1`; it asks first unless
+`--yes`), applies every migration and seeds again. It refuses to run with `APP_ENV=production`.
 
 ### Manual start
 
@@ -239,11 +339,13 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `TEST_DATABASE_URL` | `postgresql+psycopg://followup:followup@localhost:5433/followup_test` | API tests | Dedicated test database. Tests create it when necessary and never modify the development database. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` | API | Allowed origins, separated by commas. Required in production. |
 | `VITE_API_URL` | `http://localhost:8001` | Web, backoffice | Public API URL. It is embedded in the panel builds. |
+| `AUTH_MODE` | `dev` (`.env.example`); unset: `dev` in development, `supabase` in production | API | `supabase` verifies Supabase JWTs; `dev` accepts only `dev:<email>` tokens (local development). `AUTH_MODE=dev` with `APP_ENV=production` stops the API at startup. |
+| `VITE_AUTH_MODE` | `dev` (`.env.example`); unset: `supabase` | Web, backoffice | `dev` shows the "Modo desarrollo" sign-in instead of Google and the magic link. A production build (`vite build`) fails with `dev`. |
 | `SUPABASE_URL` | *(empty)* | API | Supabase project URL. Required in production; tokens must be issued by `{SUPABASE_URL}/auth/v1`. |
-| `SUPABASE_JWT_SECRET` | *(empty)* | API | Supabase JWT secret (HS256). Production requires this or `SUPABASE_JWKS_URL`. |
-| `SUPABASE_JWKS_URL` | *(empty)* | API | JWKS URL for tokens signed with ES256 or RS256. Production requires this or `SUPABASE_JWT_SECRET`. |
-| `VITE_SUPABASE_URL` | *(empty)* | Web, backoffice | Supabase URL for the auth client in the panels. |
-| `VITE_SUPABASE_ANON_KEY` | *(empty)* | Web, backoffice | Supabase anon key for the auth client in the panels. |
+| `SUPABASE_JWT_SECRET` | *(empty)* | API | Supabase JWT secret (HS256). `AUTH_MODE=supabase` requires this or `SUPABASE_JWKS_URL`. |
+| `SUPABASE_JWKS_URL` | *(empty)* | API | JWKS URL for tokens signed with ES256 or RS256. `AUTH_MODE=supabase` requires this or `SUPABASE_JWT_SECRET`. |
+| `VITE_SUPABASE_URL` | *(empty)* | Web, backoffice | Supabase URL for the auth client in the panels (`VITE_AUTH_MODE=supabase`). Empty counts as unset. |
+| `VITE_SUPABASE_ANON_KEY` | *(empty)* | Web, backoffice | Supabase anon key for the auth client in the panels. Empty counts as unset. |
 | `LLM_MODEL` | *(empty)* | API | Agent model as `provider:model`, with provider `anthropic`, `openai`, `deepseek`, `kimi` or `mimo` (for example `anthropic:claude-sonnet-5-5`). Empty in development uses a template-based fake model and logs a warning. Required in production. |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`, `MIMO_API_KEY` | *(empty)* | API | API key of the provider named in `LLM_MODEL` (Kimi uses `MOONSHOT_API_KEY`). Only that one is read, and it is required whenever `LLM_MODEL` is set. |
 | `LLM_BASE_URL` | *(empty)* | API | Optional endpoint override, e.g. Moonshot's China endpoint or MiMo's Token Plan URL. Kimi and MiMo default to their global OpenAI-compatible URLs. |
@@ -251,8 +353,9 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `SIMULATOR_DAILY_LIMIT` | `300` | API | Simulator messages per business per day (in the business's timezone). Over it the API returns `429 simulator_limit_reached`. |
 | `LANGSMITH_TRACING` | `false` | API | `true` sends a trace of every agent turn to LangSmith. Optional in every environment; tests and CI force it off. |
 | `LANGSMITH_API_KEY` | *(empty)* | API | LangSmith key. Without it tracing stays off (with a warning), it never fails startup. |
-| `LANGSMITH_PROJECT` | `inmo24x7-dev` / `inmo24x7-prod` | API | Project for the traces; the default follows `APP_ENV`. |
-| `LANGSMITH_ENDPOINT` | *(LangSmith default)* | API | Only for the EU region or a self-hosted LangSmith. |
+| `LANGSMITH_AGENT_ID`, `LANGSMITH_AGENT_ENVIRONMENT` | `followup-agent-24x7`, `local` (`.env.example`) | API | LangSmith agent the turns are sent to. Set both: the id is a lowercase DNS label, the environment is `local`, `development`, `staging` or `production`. Only one of them, or an invalid value, leaves tracing off with a warning. |
+| `LANGSMITH_PROJECT` | `inmo24x7-dev` / `inmo24x7-prod` | API | Project for the traces when no agent is set; the default follows `APP_ENV`. Ignored when the agent variables are set. |
+| `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` | API | Change it only for the EU region or a self-hosted LangSmith. |
 | `LANGSMITH_TRACING_SAMPLING_RATE` | *(all turns)* | API | Fraction of turns traced, from 0 to 1. |
 | `LANGSMITH_REDACT_PII` | `true` | API | Masks emails, Argentine phone numbers and DNIs in every traced input and output before it is sent. |
 | `LANGSMITH_UI_URL` | *(empty)* | API | The project's page in the LangSmith UI (`…/o/<org>/projects/p/<project-id>`). When set, backoffice simulator messages get a "Ver traza" link. |
@@ -275,7 +378,7 @@ docker compose up -d --wait db
 uv run --all-packages pytest
 ```
 
-Fast unit tests use in-memory repositories. CI runs the API tests against a Postgres service container.
+Fast unit tests use in-memory repositories. CI runs the API tests against a Postgres service container. The seed tests (`test_seed_dev.py`) run the seed twice against the test database, never the development one.
 
 ```bash
 uv run pyright
@@ -313,7 +416,7 @@ curl -X POST http://localhost:8001/tenants \
 }
 ```
 
-All routes below need a Supabase access token and are scoped to the caller's business. Writes need the owner or manager role (otherwise `403 {"code": "forbidden"}`).
+All routes below need an access token (Supabase, or `dev:<email>` with `AUTH_MODE=dev`) and are scoped to the caller's business. Writes need the owner or manager role (otherwise `403 {"code": "forbidden"}`).
 
 | Route | Purpose |
 | --- | --- |
@@ -326,6 +429,13 @@ All routes below need a Supabase access token and are scoped to the caller's bus
 | `POST /simulator/messages` | Send `{text}` (1–1000 characters); returns the agent's new messages and the state panel. `503 agent_unavailable` if the model fails (nothing is stored), `429 simulator_limit_reached` over the daily limit. |
 | `POST /simulator/reset` | Reiniciar: start a new thread pinned to the current agent configuration. |
 | `GET /admin/tenants/{tenant_id}/simulator`, `.../messages`, `.../reset` | Platform admins only: the same simulator against any business, in the admin's own thread. |
+| `GET /properties?search=&operation=&status=&page=` | S7 list, 20 per page, with inquiries per property. Search covers address and zone, without accents or case. |
+| `POST /properties`, `PATCH /properties/{id}` | Manual create and edit. `422 property_invalid`, `409 property_link_taken`, `404 property_not_found`. |
+| `POST /properties/{id}/publish`, `POST /properties/{id}/pause` | Publish or pause (there is no delete). |
+| `POST /properties/import` | Multipart `file` (CSV or XLSX, up to 5 MB and 2,000 rows): report with `imported`, `total`, `failed` and the row errors. `413 import_too_large`, `422 import_file_invalid`. |
+| `GET /properties/import/{id}/errors.csv`, `GET /properties/import-template.csv` | The failed rows plus an `error` column, and the template with the Spanish headers. |
+| `GET /leads?status=&include_test=&page=` | Leads, newest activity first: name or contact, what they look for, status, test flag. Simulator leads only with `include_test=true`. |
+| `GET /leads/{id}` | The same plus answers, status history, visits and the transcript (with system events). `404 lead_not_found`. |
 
 Errors return stable codes instead of user-facing text:
 
@@ -347,7 +457,9 @@ packages/ui                        shared React components (@followup/ui)
 packages/api-client-inmo24x7       generated OpenAPI types and typed client
 alembic.ini                        single migration configuration
 migrations                         root Alembic environment
-scripts                            local startup and type generation
+scripts                            local startup, dev seed, make_admin and type generation
+docs/samples                       sample property files (CSV, XLSX, CSV with errors)
+supabase                           local Supabase CLI configuration (auth only)
 ```
 
 ## Images

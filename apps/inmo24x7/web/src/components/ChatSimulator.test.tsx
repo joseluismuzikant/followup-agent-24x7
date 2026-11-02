@@ -116,3 +116,48 @@ describe("KnownFactsPanel", () => {
     expect(screen.getByText("Pendiente")).toBeTruthy();
   });
 });
+
+describe("ChatSimulator visit slots and system events", () => {
+  const offer: ChatMessage[] = [
+    { id: "1", author: "visitor", text: "Me interesa la primera" },
+    {
+      id: "2",
+      author: "agent",
+      text: "Te propongo martes 3/11, 13:00 o martes 3/11, 13:30.",
+      slots: [
+        { id: "slot-1", label: "martes 3/11, 13:00" },
+        { id: "slot-2", label: "martes 3/11, 13:30" },
+      ],
+    },
+  ];
+
+  it("renders the slots as buttons that send the label", async () => {
+    const { onSend, user } = renderChat({ messages: offer });
+
+    await user.click(screen.getByRole("button", { name: "martes 3/11, 13:30" }));
+
+    expect(onSend).toHaveBeenCalledWith("martes 3/11, 13:30");
+  });
+
+  it("hides old slot buttons once the visitor answered, and shows system events", () => {
+    renderChat({
+      messages: [
+        ...offer,
+        { id: "3", author: "visitor", text: "martes 3/11, 13:00" },
+        { id: "4", author: "agent", text: "¡Listo!" },
+        { id: "5", author: "system", text: "El agente derivó la consulta a tu equipo" },
+      ],
+    });
+
+    expect(screen.queryByRole("group", { name: "Horarios propuestos" })).toBeNull();
+    expect(screen.getByText("El agente derivó la consulta a tu equipo")).toBeTruthy();
+  });
+
+  it("disables the slots while the agent is typing", () => {
+    renderChat({ messages: offer, typing: true });
+
+    expect(
+      (screen.getByRole("button", { name: "martes 3/11, 13:00" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+});

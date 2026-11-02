@@ -45,6 +45,10 @@ class SqlAlchemyThreadRepository:
         ).first()
         return _thread_to_domain(model) if model else None
 
+    def get_by_id(self, thread_id: UUID) -> Thread | None:
+        model = self._session.get(ThreadModel, thread_id)
+        return _thread_to_domain(model) if model else None
+
     def count_started_by(self, tenant_id: UUID, channel: Channel, profile_id: UUID) -> int:
         statement = self._started_by(tenant_id, channel, profile_id).subquery()
         return self._session.scalar(select(func.count()).select_from(statement)) or 0

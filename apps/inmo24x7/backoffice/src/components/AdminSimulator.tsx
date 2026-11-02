@@ -95,6 +95,7 @@ export function AdminSimulator({ tenantId }: { tenantId: string }) {
     author: message.author,
     text: message.text,
     cards: message.cards,
+    slots: message.slots,
     traceUrl: message.trace_url,
   }));
   if (pending) {

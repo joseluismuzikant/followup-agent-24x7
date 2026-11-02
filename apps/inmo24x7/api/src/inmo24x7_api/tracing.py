@@ -2,7 +2,9 @@
 off, and a LangSmith error, timeout or missing key never fails or slows down a turn
 (runs are posted from a background thread).
 
-Turned on by LANGSMITH_TRACING=true plus LANGSMITH_API_KEY. Lead messages carry names,
+Turned on by LANGSMITH_TRACING=true plus LANGSMITH_API_KEY. Turns go to the LangSmith agent
+named by LANGSMITH_AGENT_ID and LANGSMITH_AGENT_ENVIRONMENT when both are set, otherwise to a
+project (LANGSMITH_PROJECT, or inmo24x7-dev / inmo24x7-prod). Lead messages carry names,
 phone numbers, emails and DNIs, so unless LANGSMITH_REDACT_PII=false every input and
 output is masked by `anonymize` before it leaves the process.
 """
@@ -14,6 +16,7 @@ from uuid import UUID
 
 from followup_core.conversation.infrastructure.langgraph_runtime import TurnTracing
 from langsmith import Client
+from langsmith.address import AgentAddress, agent_address
 from langsmith.anonymizer import create_anonymizer
 
 from .config import Settings
@@ -48,14 +51,36 @@ anonymize = create_anonymizer(
 @dataclass(frozen=True, slots=True)
 class Tracing:
     client: Client
-    project_name: str
+    # Exactly one of the two is set.
+    project_name: str | None
+    address: AgentAddress | None
     ui_url: str
+
+
+class TracingConfigError(ValueError):
+    pass
 
 
 def project_name(settings: Settings) -> str:
     return settings.langsmith_project or (
         f"{PRODUCT_TAG}-{_PROJECT_SUFFIX.get(settings.app_env, settings.app_env)}"
     )
+
+
+def agent(settings: Settings) -> AgentAddress | None:
+    """The agent address from LANGSMITH_AGENT_ID and LANGSMITH_AGENT_ENVIRONMENT, if set."""
+    agent_id = settings.langsmith_agent_id
+    environment = settings.langsmith_agent_environment
+    if not agent_id and not environment:
+        return None
+    if not agent_id or not environment:
+        raise TracingConfigError(
+            "LANGSMITH_AGENT_ID and LANGSMITH_AGENT_ENVIRONMENT must be set together."
+        )
+    try:
+        return agent_address(agent_id, environment)
+    except Exception as error:  # invalid id or environment
+        raise TracingConfigError(str(error)) from error
 
 
 def build_tracing(settings: Settings) -> Tracing | None:
@@ -69,21 +94,28 @@ def build_tracing(settings: Settings) -> Tracing | None:
         )
         return None
     try:
+        address = agent(settings)
         client = Client(
             api_url=settings.langsmith_endpoint or None,
             api_key=settings.langsmith_api_key,
             anonymizer=anonymize if settings.langsmith_redact_pii else None,
             timeout_ms=CLIENT_TIMEOUT_MS,
         )
-    except Exception as error:  # e.g. an invalid LANGSMITH_TRACING_SAMPLING_RATE
+    except Exception as error:  # e.g. an invalid agent address or sampling rate
         logger.warning("langsmith_disabled", extra={"detail": str(error)})
         return None
-    project = project_name(settings)
+    project = None if address else project_name(settings)
     logger.info(
         "langsmith_tracing_active",
-        extra={"project": project, "redact_pii": settings.langsmith_redact_pii},
+        extra={
+            "agent": f"{address['id']}/{address['environment']}" if address else None,
+            "project": project,
+            "redact_pii": settings.langsmith_redact_pii,
+        },
     )
-    return Tracing(client=client, project_name=project, ui_url=settings.langsmith_ui_url)
+    return Tracing(
+        client=client, project_name=project, address=address, ui_url=settings.langsmith_ui_url
+    )
 
 
 def turn_tracing(tracing: Tracing | None, settings: Settings) -> TurnTracing | None:
@@ -92,6 +124,7 @@ def turn_tracing(tracing: Tracing | None, settings: Settings) -> TurnTracing | N
     return TurnTracing(
         client=tracing.client,
         project_name=tracing.project_name,
+        address=tracing.address,
         run_name=RUN_NAME,
         tags=(PRODUCT_TAG, settings.app_env),
         metadata={"app_version": settings.version, "commit": settings.commit},

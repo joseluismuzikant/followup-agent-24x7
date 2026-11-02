@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..domain.profile import Profile, Role
@@ -25,6 +26,18 @@ class SqlAlchemyProfileRepository:
     def get_by_id(self, user_id: UUID) -> Profile | None:
         model = self._session.get(ProfileModel, user_id)
         return _to_domain(model) if model is not None else None
+
+    def get_by_email(self, email: str) -> Profile | None:
+        model = self._session.scalar(
+            select(ProfileModel).where(ProfileModel.email == email.strip().lower())
+        )
+        return _to_domain(model) if model is not None else None
+
+    def set_platform_admin(self, user_id: UUID, value: bool) -> None:
+        self._session.execute(
+            update(ProfileModel).where(ProfileModel.id == user_id).values(is_platform_admin=value)
+        )
+        self._session.flush()
 
     def add(self, profile: Profile) -> None:
         self._session.add(
