@@ -16,7 +16,12 @@ from followup_core.messaging.domain.connection import (
     SenderKind,
     WhatsAppConnection,
 )
-from followup_core.messaging.domain.outbound import DeliveryStatus, OutboundPart, SendError
+from followup_core.messaging.domain.outbound import (
+    DeliveryStatus,
+    OutboundPart,
+    SendError,
+    template_body,
+)
 from followup_core.messaging.infrastructure.log_sender import RecordingWhatsAppSender
 from followup_core.scheduling.domain.jobs import Job, JobStatus, NewJob, RetryLater
 
@@ -170,6 +175,17 @@ def test_outside_the_24_hour_window_nothing_is_sent() -> None:
     assert sender.sent == []
     (part,) = outbound.parts.values()
     assert (part.status, part.error_code) == (DeliveryStatus.FAILED, "outside_service_window")
+
+
+def test_a_template_part_goes_out_even_outside_the_window() -> None:
+    sender = RecordingWhatsAppSender()
+    (part,) = parts(1)
+    template = template_body("confirmacion_visita", "es_AR", ["Ana", "Gorriti 4800", "sáb"])
+    outbound = Outbound([replace(part, body=template)], NOW - timedelta(days=3))
+
+    run(outbound, sender)
+
+    assert sender.sent == [("5491155550188", template)]
 
 
 def test_a_disconnected_number_fails_the_parts() -> None:

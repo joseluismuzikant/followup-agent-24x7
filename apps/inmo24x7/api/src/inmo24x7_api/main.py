@@ -14,7 +14,9 @@ from .container import (
     create_property_use_case,
     create_tenant_use_case,
     delivery_statuses,
+    export_leads_use_case,
     get_agent_setup_use_case,
+    get_dashboard_use_case,
     get_language_model,
     get_lead_use_case,
     get_onboarding_use_case,
@@ -29,6 +31,7 @@ from .container import (
     import_errors_use_case,
     import_properties_use_case,
     ingest_webhook_use_case,
+    lead_actions,
     list_agent_versions_use_case,
     list_leads_use_case,
     list_properties_use_case,
@@ -43,6 +46,7 @@ from .container import (
     update_property_use_case,
     update_tenant_settings_use_case,
 )
+from .dashboard.router import build_dashboard_router
 from .database import get_session
 from .health import build_health_router
 from .http_errors import register_error_handlers
@@ -134,8 +138,15 @@ def create_app() -> FastAPI:
         )
     )
     application.include_router(
-        build_leads_router(list_leads_use_case, get_lead_use_case, delivery_statuses)
+        build_leads_router(
+            list_leads_use_case,
+            get_lead_use_case,
+            delivery_statuses,
+            export_leads_use_case,
+            lead_actions,
+        )
     )
+    application.include_router(build_dashboard_router(get_dashboard_use_case))
     application.include_router(build_webhook_router(ingest_webhook_use_case, get_webhook_secrets))
     application.include_router(
         build_whatsapp_router(

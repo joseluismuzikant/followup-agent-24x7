@@ -64,3 +64,8 @@ def slot_label(start: datetime) -> str:
 def short_slot_label(start: datetime) -> str:
     """ "jue 6/11 10:30": fits a WhatsApp reply button (20 characters at most)."""
     return f"{_SHORT_WEEKDAYS[start.weekday()]} {start.day}/{start.month} {start:%H:%M}"
+
+
+def day_label(start: datetime) -> str:
+    """ "sábado 7/11" in the slot's own timezone."""
+    return f"{_WEEKDAYS[start.weekday()]} {start.day}/{start.month}"

@@ -4,10 +4,10 @@ import { Button, ChatSimulator, KnownFactsPanel } from "@followup/ui";
 import type { ChatMessage } from "@followup/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router";
 
 import { fetchSimulator, resetSimulator, sendSimulatorMessage } from "../api/simulator";
 import { apiErrorMessage } from "../lib/api-errors";
+import { ImportDialog } from "./properties/ImportDialog";
 
 const SIMULATOR_KEY = ["simulator"];
 
@@ -35,9 +35,18 @@ function toChatMessage(message: SimulatorMessage): ChatMessage {
 /** The Probalo chat: used by wizard step 3 and the /probar page. */
 export function SimulatorView() {
   const queryClient = useQueryClient();
-  const simulatorQuery = useQuery({ queryKey: SIMULATOR_KEY, queryFn: fetchSimulator });
+  const simulatorQuery = useQuery({
+    queryKey: SIMULATOR_KEY,
+    queryFn: fetchSimulator,
+    // While someone from the team has the conversation (Consultas), their replies arrive
+    // here without a turn: poll for them.
+    refetchInterval: (query) => (query.state.data?.control === "human" ? 5000 : false),
+  });
   const [pending, setPending] = useState<PendingMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Kept here, not in the banner: a successful import hides the banner, and the dialog must
+  // stay open to show the report (including rows with errors).
+  const [importing, setImporting] = useState(false);
 
   const send = useMutation({
     mutationFn: ({ text, choiceId }: Outgoing) => sendSimulatorMessage(text, choiceId),
@@ -127,7 +136,14 @@ export function SimulatorView() {
           Cambiaste tu agente. Reiniciá la conversación para probar los cambios.
         </p>
       ) : null}
-      {state.uses_sample_properties ? <SampleBanner /> : null}
+      {state.uses_sample_properties ? <SampleBanner onImport={() => setImporting(true)} /> : null}
+      <ImportDialog open={importing} onClose={() => setImporting(false)} />
+      {state.control === "human" ? (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm" role="status">
+          Alguien del equipo tomó esta conversación desde Consultas: el agente no responde y los
+          mensajes del equipo aparecen acá.
+        </p>
+      ) : null}
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_16rem]">
         <ChatSimulator
           agentName={state.agent_name}
@@ -158,7 +174,8 @@ export function SimulatorView() {
   );
 }
 
-function SampleBanner() {
+/** Imports in place: inside the unfinished wizard, /propiedades would bounce back to it. */
+function SampleBanner({ onImport }: { onImport: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted px-4 py-3">
       <div>
@@ -167,8 +184,8 @@ function SampleBanner() {
           Subí tu listado en CSV o Excel y el agente va a mostrar solo tus propiedades.
         </p>
       </div>
-      <Button asChild variant="outline" size="sm">
-        <Link to="/propiedades">Subir mis propiedades</Link>
+      <Button variant="outline" size="sm" onClick={onImport}>
+        Subir mis propiedades
       </Button>
     </div>
   );

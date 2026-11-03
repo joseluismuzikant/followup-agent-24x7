@@ -107,9 +107,11 @@ def test_asking_for_a_person_sets_human_requested(owner: Account) -> None:
     reply = _say(owner, "Quiero hablar con una persona")
 
     assert reply["messages"][-1]["author"] == "system"
-    (lead,) = owner.get("/leads?include_test=true&status=human_requested").json()["items"]
+    page = owner.get("/leads?include_test=true&tab=attention").json()
+    (lead,) = page["items"]
     assert lead["status"] == "human_requested"
-    assert owner.get("/leads?include_test=true&status=visit_proposed").json()["total"] == 0
+    assert lead["needs_attention"] is True
+    assert page["counts"] == {"attention": 1, "visits": 0, "all": 1}
 
 
 def test_real_leads_are_listed_without_the_test_flag(owner: Account, db_session) -> None:

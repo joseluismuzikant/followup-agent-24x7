@@ -14,6 +14,7 @@ from ..domain.phones import to_e164
 from ..domain.repositories import ConnectionRepository
 
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_TEMPLATE = re.compile(r"^[a-z0-9_]{1,100}$")
 MAX_TOKEN_LENGTH = 4096
 
 
@@ -61,6 +62,9 @@ class ConnectionDraft:
     # None keeps the stored token (it is never sent back to the form).
     access_token: str | None = None
     sender: SenderKind | None = None
+    # None keeps the stored value; "" removes the visit confirmation template.
+    visit_template_name: str | None = None
+    visit_template_language: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +94,7 @@ class SaveConnection:
         token = (draft.access_token or "").strip()
         if len(token) > MAX_TOKEN_LENGTH or (draft.access_token is not None and not token):
             raise ConnectionInvalidError("Invalid access token.")
+        visit_template = _template_name(draft.visit_template_name)
         other = self._connections.get_by_phone_number_id(phone_number_id)
         if other is not None and other.tenant_id != tenant_id:
             raise PhoneNumberTakenError(phone_number_id)
@@ -112,6 +117,8 @@ class SaveConnection:
                 updated_at=now,
                 display_phone_number=draft.display_phone_number,
                 connected_at=now,
+                visit_template_name=visit_template or None,
+                visit_template_language=draft.visit_template_language or "es_AR",
             )
         else:
             connection = replace(
@@ -127,9 +134,27 @@ class SaveConnection:
                 last_error_code=None,
                 connected_at=current.connected_at or now,
                 updated_at=now,
+                visit_template_name=(
+                    current.visit_template_name
+                    if visit_template is None
+                    else visit_template or None
+                ),
+                visit_template_language=(
+                    draft.visit_template_language or current.visit_template_language
+                ),
             )
         self._connections.save(connection)
         return connection
+
+
+def _template_name(value: str | None) -> str | None:
+    """Meta template names are lowercase letters, digits and underscores."""
+    if value is None:
+        return None
+    name = value.strip()
+    if name and not _TEMPLATE.fullmatch(name):
+        raise ConnectionInvalidError("Invalid template name.")
+    return name
 
 
 class ManageConnection:

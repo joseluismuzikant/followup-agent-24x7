@@ -35,6 +35,10 @@ class WhatsAppConnection:
     last_error_code: str | None = None
     last_inbound_at: datetime | None = None
     connected_at: datetime | None = None
+    # The approved template that confirms a visit outside the 24-hour window (README:
+    # "confirmacion_visita"). None until the agency has one.
+    visit_template_name: str | None = None
+    visit_template_language: str = "es_AR"
 
     @property
     def is_connected(self) -> bool:

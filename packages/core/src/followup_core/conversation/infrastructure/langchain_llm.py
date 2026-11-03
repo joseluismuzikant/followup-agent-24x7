@@ -17,8 +17,18 @@ from ..domain.llm import (
     ReplyRequest,
     TokenUsage,
 )
+from ..domain.thread import Author
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
+
+# How the model reads who said what. "equipo" lines were written by a person from the
+# business while the conversation was taken over.
+TRANSCRIPT_LABELS: Mapping[Author, str] = {
+    Author.VISITOR: "cliente",
+    Author.AGENT: "agente",
+    Author.HUMAN: "equipo",
+    Author.SYSTEM: "evento",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +123,9 @@ class LangChainLanguageModel:
             }
             for question in request.questions
         ]
-        transcript = "\n".join(f"{line.author.value}: {line.text}" for line in request.transcript)
+        transcript = "\n".join(
+            f"{TRANSCRIPT_LABELS[line.author]}: {line.text}" for line in request.transcript
+        )
         system = Template(self._extract.template).safe_substitute(
             questions=json.dumps(questions, ensure_ascii=False),
             transcript=transcript or "(sin mensajes previos)",

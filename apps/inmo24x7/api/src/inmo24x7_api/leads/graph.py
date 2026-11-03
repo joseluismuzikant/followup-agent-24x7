@@ -48,6 +48,8 @@ from .tools import (
 
 # Questions whose answers must be known before showing properties, when enabled.
 REQUIRED_FILTERS = ("operation", "zone")
+# Questions that only make sense when buying: never asked once the lead said they rent.
+SALE_ONLY_QUESTIONS = frozenset({"mortgage_approved"})
 MAX_CONTACT_LENGTH = 120
 MAX_NAME_LENGTH = 80
 
@@ -85,6 +87,14 @@ class Step:
 
 def enabled_questions(context: GraphContext) -> list[QualificationQuestion]:
     return [q for q in context.turn.agent_config.qualification_questions if q.enabled]
+
+
+def applicable_questions(
+    questions: Sequence[QualificationQuestion], answers: dict[str, Any]
+) -> list[QualificationQuestion]:
+    if _operation(answers.get("operation")) is not Operation.RENT:
+        return list(questions)
+    return [q for q in questions if q.key not in SALE_ONLY_QUESTIONS]
 
 
 def _slot(state: LeadState, choice_id: str | None) -> dict[str, Any] | None:
@@ -166,7 +176,9 @@ def plan_turn(state: LeadState, questions: Sequence[QualificationQuestion]) -> l
         return [Step(ReplyIntent.OFFER_SLOTS)]
 
     answers = state.get("answers") or {}
-    pending = next((q for q in questions if q.key not in answers), None)
+    pending = next(
+        (q for q in applicable_questions(questions, answers) if q.key not in answers), None
+    )
     enabled_keys = {q.key for q in questions}
     required = [key for key in REQUIRED_FILTERS if key in enabled_keys]
     filters_ready = all(key in answers for key in required) if required else pending is None
@@ -214,7 +226,8 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         return {}
     answers = dict(state.get("answers") or {})
     handed_off = bool(state.get("hand_off_reason"))
-    pending = [] if handed_off else [q for q in enabled_questions(context) if q.key not in answers]
+    questions = applicable_questions(enabled_questions(context), answers)
+    pending = [] if handed_off else [q for q in questions if q.key not in answers]
     update: dict[str, Any] = {}
     # The channel may already know how to reach the visitor (WhatsApp: their own number),
     # so the agent never asks for it.

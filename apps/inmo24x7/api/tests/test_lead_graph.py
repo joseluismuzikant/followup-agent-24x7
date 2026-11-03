@@ -33,7 +33,6 @@ SCRIPT = [
     "Quiero alquilar",
     "Palermo",
     "hasta 800 mil pesos",
-    "no",
     "2",
     "me llamo Ana Pérez",
     "ana@example.com",
@@ -54,13 +53,23 @@ def test_one_question_per_message_in_config_order() -> None:
     for text in SCRIPT:
         chat.say(text)
 
-    assert chat.asked() == ["operation", "zone", "budget", "mortgage_approved", "rooms"]
+    # Renting: the mortgage question is skipped.
+    assert chat.asked() == ["operation", "zone", "budget", "rooms"]
     for request in chat.llm.replies:
         if request.question is not None:
             assert request.intent in (ReplyIntent.GREET, ReplyIntent.ASK)
     # Only one message per turn carries a question.
     for messages in chat.turns:
         assert sum(text.count("?") for text in (m["text"] for m in messages)) <= 1
+
+
+def test_the_mortgage_question_is_only_asked_when_buying() -> None:
+    chat = Chat()
+    for text in ["Hola", "Quiero comprar", "Palermo", "hasta 150 mil dólares", "no", "2"]:
+        chat.say(text)
+
+    assert chat.asked() == ["operation", "zone", "budget", "mortgage_approved", "rooms"]
+    assert chat.state()["answers"]["mortgage_approved"] is False
 
 
 def test_order_follows_the_config_and_disabled_questions_are_skipped() -> None:

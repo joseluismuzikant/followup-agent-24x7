@@ -12,3 +12,11 @@ class LlmUnavailableError(ConversationError):
 
 class SimulatorLimitReachedError(ConversationError):
     """Raised when a tenant used up its daily simulator messages."""
+
+
+class ThreadNotFoundError(ConversationError):
+    """Raised when a thread does not exist."""
+
+
+class ConversationNotTakenError(ConversationError):
+    """Raised when the team writes in a conversation it has not taken over."""

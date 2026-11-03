@@ -6,10 +6,16 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { importProperties } from "../api/properties";
 import { fetchSimulator, resetSimulator, sendSimulatorMessage } from "../api/simulator";
 import { simulatorState } from "../test-fixtures";
 import { SimulatorView } from "./SimulatorView";
 
+vi.mock("../api/properties", () => ({
+  importProperties: vi.fn(),
+  downloadImportErrors: vi.fn(),
+  downloadImportTemplate: vi.fn(),
+}));
 vi.mock("../api/simulator", () => ({
   fetchSimulator: vi.fn(),
   sendSimulatorMessage: vi.fn(),
@@ -136,9 +142,41 @@ describe("SimulatorView", () => {
     renderView();
 
     expect(await screen.findByText("Está usando propiedades de ejemplo")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Subir mis propiedades" }).getAttribute("href")).toBe(
-      "/propiedades",
+  });
+
+  it("opens the import dialog in place from the banner", async () => {
+    const user = renderView();
+
+    await user.click(await screen.findByRole("button", { name: "Subir mis propiedades" }));
+    expect(await screen.findByText("Importar propiedades")).toBeTruthy();
+  });
+
+  it("keeps the import report open after the banner goes away", async () => {
+    vi.mocked(importProperties).mockImplementation(async () => {
+      vi.mocked(fetchSimulator).mockResolvedValue(
+        simulatorState({ uses_sample_properties: false }),
+      );
+      return {
+        id: "imp-1",
+        file_name: "propiedades-con-errores.csv",
+        total: 5,
+        imported: 2,
+        created: 2,
+        updated: 0,
+        failed: 3,
+        errors: ["Fila 3: falta el precio."],
+      };
+    });
+    const user = renderView();
+
+    await user.click(await screen.findByRole("button", { name: "Subir mis propiedades" }));
+    await user.upload(screen.getByLabelText(/Arrastrá tu archivo/), new File(["x"], "x.csv"));
+
+    expect(await screen.findByText("Fila 3: falta el precio.")).toBeTruthy();
+    await vi.waitFor(() =>
+      expect(screen.queryByText("Está usando propiedades de ejemplo")).toBeNull(),
     );
+    expect(screen.getByText("Fila 3: falta el precio.")).toBeTruthy();
   });
 
   it("hides the banner when the tenant has its own properties", async () => {

@@ -133,3 +133,16 @@ class WhatsAppSender(Protocol):
 
 def within_service_window(last_inbound_at: datetime | None, now: datetime) -> bool:
     return last_inbound_at is not None and now - last_inbound_at < SERVICE_WINDOW
+
+
+def template_body(name: str, language: str, parameters: Sequence[str]) -> dict[str, Any]:
+    """A Cloud API template message body: the only kind allowed outside the 24-hour window."""
+    template: dict[str, Any] = {"name": name, "language": {"code": language}}
+    if parameters:
+        template["components"] = [
+            {
+                "type": "body",
+                "parameters": [{"type": "text", "text": value} for value in parameters],
+            }
+        ]
+    return {"type": "template", "template": template}

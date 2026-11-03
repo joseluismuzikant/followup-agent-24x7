@@ -17,6 +17,10 @@ class ThreadRepository(Protocol):
 
     def touch(self, thread_id: UUID, last_message_at: datetime) -> None: ...
 
+    def set_control(self, thread: Thread) -> None:
+        """Stores `control`, `controlled_by_profile_id` and `control_changed_at`."""
+        ...
+
 
 class MessageRepository(Protocol):
     def append(self, message: Message) -> None: ...

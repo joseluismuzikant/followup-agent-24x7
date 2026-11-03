@@ -22,6 +22,8 @@ class LeadMessageRenderer:
     - property cards → the intro text, then one message per card with the title in bold,
       address, price, the over-budget note and the listing link (with its preview);
     - visit slots → reply buttons (ids are the slot ids, titles "jue 6/11 10:30");
+    - a template the team sends outside the 24-hour window (the visit confirmation) → that
+      template, as stored in the payload;
     - system messages (the hand-off event) → nothing: they are never sent to the lead.
     """
 
@@ -33,6 +35,8 @@ class LeadMessageRenderer:
         if message.author is Author.SYSTEM:
             return []
         payload = message.payload or {}
+        if payload.get("template"):
+            return [dict(payload["template"])]
         slots = payload.get("slots")
         if slots:
             return [

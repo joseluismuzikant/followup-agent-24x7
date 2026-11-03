@@ -332,6 +332,54 @@ Entregado → Leído under each reply, and the new-lead email is in Mailpit
 Meta only accepts free-form messages within 24 hours of the person's last message; outside it
 the sender refuses with `outside_service_window` and only templates can be sent.
 
+### Testing the inbox: takeover and visit confirmation
+
+`dev.py --seed` already leaves about eight WhatsApp leads for Inmobiliaria Sur (this week and
+last, some out of hours, two proposed visits, one confirmed, two asking for a person), created
+through the real pipeline, so Inicio and Consultas have data right away.
+
+**A) No Meta account.** Use a new number so the conversation starts fresh:
+
+```bash
+alias wa='uv run --all-packages python scripts/simulate_whatsapp.py --from 5491166660001'
+wa "Hola" && wa "Quiero alquilar" && wa "Palermo" && wa "Me interesa la primera"
+# the slot ids are in the lead's transcript in Consultas (or the worker log); tap one:
+wa --slot slot-202611071030 "sáb 7/11 10:30"
+wa "Me llamo Ana"
+```
+
+1. Consultas → **Para atender**: the lead is there with "Visita propuesta".
+2. **Tomar la conversación**: a system event appears; write a reply and **Enviar**. The log
+   sender marks it Enviado → Entregado → Leído.
+3. `wa "¿Me confirman?"`: the message shows up in the panel within 5 seconds and the agent
+   does not answer.
+4. **Confirmar visita** (change day and time if you agreed another): the lead receives
+   "¡Listo, Ana! Te confirmamos la visita…", the status turns **Visita confirmada**, the
+   system event "… confirmó la visita" appears, and the lead leaves **Para atender**.
+5. **Devolver al agente** gives the conversation back; the agent reads what the lead told
+   the team. Inicio shows the week's KPIs and **Para atender hoy**.
+
+The same works with a simulator conversation (Probar el agente → it shows up in Consultas as
+"Prueba"): take it over from Consultas and the team's replies appear in the Probalo chat.
+
+**B) Your phone and the Meta test number.** Same steps after setting up path B above, from
+your phone. Within 24 hours of the lead's last message the confirmation is free text; after
+that WhatsApp only allows an approved template, so create this one in *WhatsApp Manager →
+Message templates* and wait for its approval:
+
+| Field | Value |
+| --- | --- |
+| Name | `confirmacion_visita` |
+| Category | Utility |
+| Language | Spanish (ARG), `es_AR` |
+| Body | `¡Hola {{1}}! Te confirmamos la visita a {{2}} el {{3}}. Si necesitás cambiar algo, respondé este mensaje.` |
+| Examples | `{{1}}` Ana · `{{2}}` Gorriti 4800, Palermo · `{{3}}` sábado 7/11 a las 10:30 |
+
+Then put its name in Backoffice → Negocios → WhatsApp → **Plantilla de confirmación de
+visita** and Guardar. Without it, confirming after 24 hours answers
+`template_not_configured` and changes nothing. (Meta's test number can only send templates
+approved for your app; `hello_world` cannot confirm a visit.)
+
 ### Sample files
 
 `docs/samples/` has `propiedades.csv` (20 valid CABA listings), the same rows as
@@ -512,11 +560,17 @@ All routes below need an access token (Supabase, or `dev:<email>` with `AUTH_MOD
 | `POST /properties/{id}/publish`, `POST /properties/{id}/pause` | Publish or pause (there is no delete). |
 | `POST /properties/import` | Multipart `file` (CSV or XLSX, up to 5 MB and 2,000 rows): report with `imported`, `total`, `failed` and the row errors. `413 import_too_large`, `422 import_file_invalid`. |
 | `GET /properties/import/{id}/errors.csv`, `GET /properties/import-template.csv` | The failed rows plus an `error` column, and the template with the Spanish headers. |
-| `GET /leads?status=&include_test=&page=` | Leads, newest activity first: name or contact, what they look for, status, test flag. Simulator leads only with `include_test=true`. |
+| `GET /leads?tab=attention\|visits\|all&q=&include_test=&page=` | The inbox: 25 per page, with `counts` per tab. `attention` = needs the team (most urgent first), `visits` = proposed or confirmed visit (by visit time), `all` = by last activity. `q` matches name, zone/answers or a phone in any format, accent-insensitive. Simulator leads only with `include_test=true`. |
+| `GET /leads/export.csv?tab=&q=&include_test=` | The same leads as CSV (UTF-8 with BOM, `;`), one column per configured question, at most 5,000 rows. |
+| `POST /leads/{id}/takeover`, `POST /leads/{id}/release` | Take the conversation from the agent (also from a teammate) or give it back. Owner, manager, agent; `403 forbidden` for viewers. |
+| `POST /leads/{id}/messages` `{text}` | A team reply, sent on WhatsApp by the send job. `409 conversation_not_taken`, `409 outside_service_window`. |
+| `POST /leads/{id}/visits/{visit_id}/confirm` `{starts_at?}` | Confirms (optionally at another future time) and tells the lead: text, or the visit template after 24 hours. `409 template_not_configured`, `409 visit_cancelled`, `422 visit_time_in_past`. |
+| `POST /leads/{id}/visits/{visit_id}/cancel` `{message?}` | Cancels the visit; the lead goes back to "Pidió hablar con alguien". |
+| `GET /dashboard` | Inicio: this week's KPIs (received and out of hours, qualified, visits, average response) and "Para atender hoy". Real leads only. |
 | `GET /whatsapp` | The business's WhatsApp status for the panel (badge, wizard step 4). Any role. |
 | `GET /webhooks/whatsapp`, `POST /webhooks/whatsapp` | Meta's webhook: verification, and messages/statuses (signed with `X-Hub-Signature-256`; no access token). |
 | `GET/PUT /admin/tenants/{id}/whatsapp`, `POST .../test`, `.../subscribe`, `.../test-message`, `.../disconnect` | Platform admins: manual connection. The token is never returned. `whatsapp_api_error` includes `meta_code`. |
-| `GET /leads/{id}` | The same plus answers, status history, visits and the transcript (with system events). `404 lead_not_found`. |
+| `GET /leads/{id}` | The same plus answers (the configured questions, in order), status history, visits, the transcript (system events, team authors, delivery), who controls the conversation and the WhatsApp 24-hour window. `404 lead_not_found`. |
 
 Errors return stable codes instead of user-facing text:
 

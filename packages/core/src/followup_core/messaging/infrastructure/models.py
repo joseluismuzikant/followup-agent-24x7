@@ -24,6 +24,10 @@ class WhatsAppConnectionModel(Base):
     sender: Mapped[str] = mapped_column(String(10), nullable=False)
     template_name: Mapped[str] = mapped_column(String(100), nullable=False)
     template_language: Mapped[str] = mapped_column(String(20), nullable=False)
+    visit_template_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    visit_template_language: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="es_AR"
+    )
     status: Mapped[str] = mapped_column(String(15), nullable=False)
     last_error_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -62,4 +66,6 @@ class WhatsAppOutboundModel(Base):
     wamid: Mapped[str | None] = mapped_column(String(200), nullable=True, unique=True)
     status: Mapped[str] = mapped_column(String(10), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # When Meta accepted it (statuses later overwrite `updated_at`).
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

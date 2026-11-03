@@ -64,6 +64,10 @@ describe("WhatsAppConnectionPanel", () => {
     expect(saveConnection).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText("Token de acceso"), "EAAG-token");
+    await user.type(
+      screen.getByLabelText("Plantilla de confirmación de visita"),
+      "confirmacion_visita",
+    );
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     expect(saveConnection).toHaveBeenCalledWith("t1", {
@@ -72,6 +76,7 @@ describe("WhatsAppConnectionPanel", () => {
       display_phone_number: null,
       access_token: "EAAG-token",
       sender: "cloud",
+      visit_template_name: "confirmacion_visita",
     });
     expect(await screen.findByText("Conectado")).toBeTruthy();
   });

@@ -415,6 +415,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/export.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Leads */
+        get: operations["export_leads_leads_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/leads/{lead_id}": {
         parameters: {
             query?: never;
@@ -424,6 +441,108 @@ export interface paths {
         };
         /** Get Lead */
         get: operations["get_lead_leads__lead_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/takeover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take Over */
+        post: operations["take_over_leads__lead_id__takeover_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Release */
+        post: operations["release_leads__lead_id__release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reply */
+        post: operations["reply_leads__lead_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/visits/{visit_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Visit */
+        post: operations["confirm_visit_leads__lead_id__visits__visit_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/visits/{visit_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Visit */
+        post: operations["cancel_visit_leads__lead_id__visits__visit_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dashboard */
+        get: operations["get_dashboard_dashboard_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -652,6 +771,11 @@ export interface components {
             /** File */
             file: string;
         };
+        /** CancelVisitWrite */
+        CancelVisitWrite: {
+            /** Message */
+            message?: string | null;
+        };
         /** ChecklistItemRead */
         ChecklistItemRead: {
             /** Key */
@@ -678,6 +802,40 @@ export interface components {
              * Format: date-time
              */
             completed_at: string;
+        };
+        /** ConfirmVisitWrite */
+        ConfirmVisitWrite: {
+            /** Starts At */
+            starts_at?: string | null;
+        };
+        /** ControlRead */
+        ControlRead: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "agent" | "human";
+            by: components["schemas"]["PersonRead"] | null;
+            /** Changed At */
+            changed_at: string | null;
+        };
+        /** DashboardRead */
+        DashboardRead: {
+            /** Business Name */
+            business_name: string;
+            /**
+             * Week Start
+             * Format: date-time
+             */
+            week_start: string;
+            received: components["schemas"]["ReceivedRead"];
+            /** Qualified */
+            qualified: number;
+            visits: components["schemas"]["VisitsKpiRead"];
+            /** Response Time Seconds */
+            response_time_seconds: number | null;
+            /** Attention Today */
+            attention_today: components["schemas"]["TodayLeadRead"][];
         };
         /** ErrorResponse */
         ErrorResponse: {
@@ -756,6 +914,13 @@ export interface components {
              * Format: date-time
              */
             last_activity_at: string;
+            /**
+             * Needs Attention
+             * @default false
+             */
+            needs_attention: boolean;
+            /** Next Visit At */
+            next_visit_at?: string | null;
             /** Answers */
             answers: components["schemas"]["KnownFactRead"][];
             /** Status History */
@@ -764,6 +929,8 @@ export interface components {
             visits: components["schemas"]["VisitRead"][];
             /** Transcript */
             transcript: components["schemas"]["MessageRead"][];
+            control: components["schemas"]["ControlRead"];
+            service_window: components["schemas"]["ServiceWindowRead"] | null;
         };
         /** LeadListRead */
         LeadListRead: {
@@ -775,6 +942,7 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+            counts: components["schemas"]["TabCountsRead"];
         };
         /** LeadRead */
         LeadRead: {
@@ -812,6 +980,13 @@ export interface components {
              * Format: date-time
              */
             last_activity_at: string;
+            /**
+             * Needs Attention
+             * @default false
+             */
+            needs_attention: boolean;
+            /** Next Visit At */
+            next_visit_at?: string | null;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -863,6 +1038,8 @@ export interface components {
             created_at: string;
             /** Trace Url */
             trace_url?: string | null;
+            /** Author Name */
+            author_name?: string | null;
         };
         /** OnboardingRead */
         OnboardingRead: {
@@ -873,6 +1050,16 @@ export interface components {
             /** Finished */
             finished: boolean;
             checklist: components["schemas"]["ChecklistRead"];
+        };
+        /** PersonRead */
+        PersonRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** ProfileRead */
         ProfileRead: {
@@ -1096,6 +1283,13 @@ export interface components {
             /** Build Date */
             build_date: string;
         };
+        /** ReceivedRead */
+        ReceivedRead: {
+            /** Total */
+            total: number;
+            /** Out Of Hours */
+            out_of_hours: number;
+        };
         /** ScheduleBlockModel */
         ScheduleBlockModel: {
             /** Weekday */
@@ -1104,6 +1298,16 @@ export interface components {
             opens: string;
             /** Closes */
             closes: string;
+        };
+        /**
+         * ServiceWindowRead
+         * @description WhatsApp's 24 hours to write freely after the lead's last message.
+         */
+        ServiceWindowRead: {
+            /** Open */
+            open: boolean;
+            /** Expires At */
+            expires_at: string | null;
         };
         /** SetupFactsRead */
         SetupFactsRead: {
@@ -1154,6 +1358,12 @@ export interface components {
             agent_name: string;
             /** Business Name */
             business_name: string;
+            /**
+             * Control
+             * @default agent
+             * @enum {string}
+             */
+            control: "agent" | "human";
         };
         /** SimulatorReplyRead */
         SimulatorReplyRead: {
@@ -1181,6 +1391,20 @@ export interface components {
              * Format: date-time
              */
             changed_at: string;
+        };
+        /** TabCountsRead */
+        TabCountsRead: {
+            /** Attention */
+            attention: number;
+            /** Visits */
+            visits: number;
+            /** All */
+            all: number;
+        };
+        /** TeamMessageWrite */
+        TeamMessageWrite: {
+            /** Text */
+            text: string;
         };
         /** TenantCreate */
         TenantCreate: {
@@ -1294,6 +1518,33 @@ export interface components {
              */
             created_at: string;
         };
+        /** TodayLeadRead */
+        TodayLeadRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string | null;
+            /** Looking For */
+            looking_for: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "qualifying" | "visit_proposed" | "human_requested" | "visit_confirmed";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Last Activity At
+             * Format: date-time
+             */
+            last_activity_at: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1329,6 +1580,13 @@ export interface components {
              */
             status: "proposed" | "confirmed" | "cancelled";
         };
+        /** VisitsKpiRead */
+        VisitsKpiRead: {
+            /** Total */
+            total: number;
+            /** Confirmed */
+            confirmed: number;
+        };
         /**
          * WhatsAppConnectionRead
          * @description What admins see. Never the token.
@@ -1357,6 +1615,10 @@ export interface components {
             template_name?: string | null;
             /** Template Language */
             template_language?: string | null;
+            /** Visit Template Name */
+            visit_template_name?: string | null;
+            /** Visit Template Language */
+            visit_template_language?: string | null;
             /** Last Error Code */
             last_error_code?: string | null;
             /** Updated At */
@@ -1379,6 +1641,10 @@ export interface components {
             access_token?: string | null;
             /** Sender */
             sender?: ("cloud" | "log") | null;
+            /** Visit Template Name */
+            visit_template_name?: string | null;
+            /** Visit Template Language */
+            visit_template_language?: string | null;
         };
         /**
          * WhatsAppStatusRead
@@ -2130,7 +2396,8 @@ export interface operations {
     list_leads_leads_get: {
         parameters: {
             query?: {
-                status?: ("qualifying" | "visit_proposed" | "human_requested" | "visit_confirmed") | null;
+                tab?: "attention" | "visits" | "all";
+                q?: string | null;
                 include_test?: boolean;
                 page?: number;
             };
@@ -2147,6 +2414,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadListRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_leads_leads_export_csv_get: {
+        parameters: {
+            query?: {
+                tab?: "attention" | "visits" | "all";
+                q?: string | null;
+                include_test?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
                 };
             };
             /** @description Validation Error */
@@ -2187,6 +2487,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    take_over_leads__lead_id__takeover_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDetailRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    release_leads__lead_id__release_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDetailRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reply_leads__lead_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMessageWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_visit_leads__lead_id__visits__visit_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+                visit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmVisitWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDetailRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_visit_leads__lead_id__visits__visit_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+                visit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelVisitWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDetailRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dashboard_dashboard_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardRead"];
                 };
             };
         };

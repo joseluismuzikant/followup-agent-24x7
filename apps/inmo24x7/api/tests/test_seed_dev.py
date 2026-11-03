@@ -20,6 +20,10 @@ TABLES = (
     "properties",
     "property_imports",
     "whatsapp_connections",
+    "leads",
+    "visits",
+    "conversation_messages",
+    "whatsapp_outbound",
 )
 
 
@@ -61,6 +65,54 @@ def test_seed_creates_the_dev_accounts_and_running_it_twice_changes_nothing(db_s
         ).scalar()
         == 0
     )
+
+
+def test_the_seed_fills_the_inbox_through_the_pipeline(db_session) -> None:
+    seed_dev.seed(db_session)
+
+    statuses = dict(
+        db_session.execute(
+            text("SELECT status, count(*) FROM leads WHERE NOT is_test GROUP BY status")
+        ).all()
+    )
+    assert statuses == {
+        "visit_proposed": 2,
+        "visit_confirmed": 1,
+        "human_requested": 2,
+        "qualifying": 3,
+    }
+    # Contacts come from the WhatsApp number; replies went through the log sender.
+    assert (
+        db_session.execute(text("SELECT count(*) FROM leads WHERE contact IS NULL")).scalar() == 0
+    )
+    assert db_session.execute(
+        text("SELECT DISTINCT status FROM whatsapp_outbound")
+    ).scalars().all() == ["read"]
+    confirmations = db_session.execute(
+        text("SELECT count(*) FROM conversation_messages WHERE text LIKE '%confirmó la visita'")
+    ).scalar()
+    assert confirmations == 1
+    # Two leads wrote at 23:10 (out of hours) and two are older than 24 hours.
+    out_of_hours = db_session.execute(
+        text(
+            "SELECT count(*) FROM leads WHERE "
+            "to_char(created_at AT TIME ZONE 'America/Argentina/Buenos_Aires', 'HH24:MI') "
+            "BETWEEN '23:10' AND '23:20'"
+        )
+    ).scalar()
+    assert out_of_hours == 2
+    stale = db_session.execute(
+        text("SELECT count(*) FROM leads WHERE last_activity_at < now() - interval '24 hours'")
+    ).scalar()
+    assert stale >= 2
+    named = db_session.execute(
+        text("SELECT count(*) FROM leads WHERE status = 'human_requested' AND visitor_name IS NULL")
+    ).scalar()
+    assert named == 0
+    qualified = db_session.execute(
+        text("SELECT count(*) FROM leads WHERE answers ?& array['operation', 'zone', 'budget']")
+    ).scalar()
+    assert qualified >= 2
 
 
 @pytest.mark.parametrize(
