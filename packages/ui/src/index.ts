@@ -14,6 +14,11 @@ export {
   type ChatChoice,
   type ChatMessage,
 } from "./components/chat-simulator";
+export {
+  ChatTranscript,
+  type TranscriptAuthor,
+  type TranscriptMessage,
+} from "./components/chat-transcript";
 export { DevSignIn } from "./components/dev-sign-in";
 export { Dialog } from "./components/dialog";
 export { FileDropzone } from "./components/file-dropzone";
@@ -21,6 +26,7 @@ export { ChecklistCard, type ChecklistItem } from "./components/checklist-card";
 export { FormField } from "./components/form-field";
 export { Input } from "./components/input";
 export { KnownFactsPanel, type KnownFact } from "./components/known-facts-panel";
+export { KpiCard } from "./components/kpi-card";
 export { PropertyCard, type PropertyCardData } from "./components/property-card";
 export { SegmentedControl, type SegmentedOption } from "./components/segmented-control";
 export { WizardStepper, type WizardStep } from "./components/wizard-stepper";

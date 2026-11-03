@@ -32,6 +32,8 @@ def _connection(model: WhatsAppConnectionModel) -> WhatsAppConnection:
         last_error_code=model.last_error_code,
         last_inbound_at=model.last_inbound_at,
         connected_at=model.connected_at,
+        visit_template_name=model.visit_template_name,
+        visit_template_language=model.visit_template_language,
     )
 
 
@@ -66,6 +68,8 @@ class SqlAlchemyConnectionRepository:
         model.sender = connection.sender.value
         model.template_name = connection.template_name
         model.template_language = connection.template_language
+        model.visit_template_name = connection.visit_template_name
+        model.visit_template_language = connection.visit_template_language
         model.status = connection.status.value
         model.last_error_code = connection.last_error_code
         model.last_inbound_at = connection.last_inbound_at
@@ -213,7 +217,7 @@ class SqlAlchemyOutboundRepository:
         self._session.execute(
             update(WhatsAppOutboundModel)
             .where(WhatsAppOutboundModel.id == part_id)
-            .values(wamid=wamid, updated_at=at)
+            .values(wamid=wamid, sent_at=at, updated_at=at)
         )
 
     def mark_failed(self, part_id: UUID, code: str, at: datetime) -> None:

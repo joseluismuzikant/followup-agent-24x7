@@ -98,6 +98,7 @@ export function WhatsAppConnectionPanel({ tenantId }: { tenantId: string }) {
         display_phone_number: form.displayPhoneNumber || null,
         access_token: form.accessToken || null,
         sender: form.sender,
+        visit_template_name: form.visitTemplateName.trim(),
       }),
     onSuccess: (connection) => done("Guardamos la conexión.", connection),
     onError: failed,
@@ -196,6 +197,7 @@ interface ConnectionForm {
   displayPhoneNumber: string;
   accessToken: string;
   sender: "cloud" | "log";
+  visitTemplateName: string;
 }
 
 function ConnectionFormFields({
@@ -207,13 +209,21 @@ function ConnectionFormFields({
   saving: boolean;
   onSubmit: (form: ConnectionForm) => void;
 }) {
-  const ids = { phone: useId(), waba: useId(), display: useId(), token: useId(), sender: useId() };
+  const ids = {
+    phone: useId(),
+    waba: useId(),
+    display: useId(),
+    token: useId(),
+    sender: useId(),
+    template: useId(),
+  };
   const [form, setForm] = useState<ConnectionForm>({
     phoneNumberId: connection.phone_number_id ?? "",
     wabaId: connection.waba_id ?? "",
     displayPhoneNumber: connection.display_phone_number ?? "",
     accessToken: "",
     sender: connection.sender ?? "cloud",
+    visitTemplateName: connection.visit_template_name ?? "",
   });
   const [error, setError] = useState<string | null>(null);
   const update = (changes: Partial<ConnectionForm>) => setForm({ ...form, ...changes });
@@ -284,6 +294,18 @@ function ConnectionFormFields({
           <option value="cloud">Cloud API (real)</option>
           <option value="log">Solo log (desarrollo, no llega a Meta)</option>
         </select>
+      </FormField>
+      <FormField
+        label="Plantilla de confirmación de visita"
+        htmlFor={ids.template}
+        hint="Nombre de la plantilla aprobada en Meta (es_AR, 3 parámetros). Sin ella, las visitas solo se confirman dentro de las 24 horas del último mensaje."
+      >
+        <Input
+          id={ids.template}
+          value={form.visitTemplateName}
+          placeholder="confirmacion_visita"
+          onChange={(event) => update({ visitTemplateName: event.target.value })}
+        />
       </FormField>
       {error ? (
         <p className="text-sm text-destructive" role="alert">

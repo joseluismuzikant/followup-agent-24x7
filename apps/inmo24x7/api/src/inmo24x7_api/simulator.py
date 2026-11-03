@@ -81,6 +81,8 @@ class MessageRead(BaseModel):
     created_at: datetime
     # Only on admin endpoints, and only when the turn was traced and LANGSMITH_UI_URL is set.
     trace_url: str | None = None
+    # Team messages: who wrote it ("Ana").
+    author_name: str | None = None
 
 
 class KnownFactRead(BaseModel):
@@ -97,6 +99,9 @@ class SimulatorRead(BaseModel):
     config_outdated: bool
     agent_name: str
     business_name: str
+    # "human" while someone from the team has the conversation (Consultas → Tomar la
+    # conversación): the agent does not answer and the team's replies show up here.
+    control: Literal["agent", "human"] = "agent"
 
 
 class SimulatorMessageWrite(BaseModel):
@@ -111,7 +116,10 @@ class SimulatorReplyRead(BaseModel):
 
 
 def message_read(
-    message: Message, trace_base: str = "", delivery: DeliveryStatus | None = None
+    message: Message,
+    trace_base: str = "",
+    delivery: DeliveryStatus | None = None,
+    author_name: str | None = None,
 ) -> MessageRead:
     payload: dict[str, Any] = message.payload or {}
     cards = payload.get("cards")
@@ -127,6 +135,7 @@ def message_read(
         delivery_status=delivery.value if delivery else None,  # type: ignore[arg-type]
         created_at=message.created_at,
         trace_url=trace_url(trace_base, message.trace_run_id),
+        author_name=author_name,
     )
 
 
@@ -173,6 +182,7 @@ def build_simulator_router(
             config_outdated=view.config_outdated,
             agent_name=view.agent_config.agent_name,
             business_name=get_tenant.execute(tenant_id).name,
+            control=thread.control.value if thread else "agent",  # type: ignore[arg-type]
         )
 
     def send(

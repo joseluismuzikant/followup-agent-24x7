@@ -184,11 +184,11 @@ the email.
 **Moved or changed:** the Postgres job queue and the worker (the first piece of Day 9's
 Scheduling context) moved forward to this day, because the webhook must answer Meta at once and
 processing, sending and emails must survive restarts. The number is connected by hand in the
-backoffice (Day 7 adds Embedded Signup). The visit-confirmation template is stored per connection
-and only the backoffice test message uses it today (Day 6 confirms visits with it). WhatsApp
+backoffice (Day 7 adds Embedded Signup). The connection's template is used by the backoffice test
+message; Day 6 added a separate visit-confirmation template per connection. WhatsApp
 notifications to the agency remain a stretch goal.
 
-### Day 6: the inbox and dashboard KPIs
+### Day 6: the inbox and dashboard KPIs (done)
 
 - S6 inbox: full transcript, human takeover (pause the agent per thread and reply through
   WhatsApp), confirm visit, tabs, search, and CSV export.
@@ -199,6 +199,13 @@ notifications to the agency remain a stretch goal.
 
 **Done when:** a lead handed off on Day 4 is visible in the inbox, a human takes over the
 conversation, and confirming a visit updates the status and notifies the lead.
+
+Done, plus a migrations guard: a test asserts a single Alembic head, and every core revision
+gets a product merge revision (`inmo_0004` merges core `0009`). Takeover is a control flag on
+the thread checked under the per-thread lock; team replies, confirmations and cancellations
+go through the same send job as the agent, with a visit-confirmation template per connection
+for messages after 24 hours. The seed creates the week's WhatsApp leads through the real
+pipeline. Lead assignment, websockets and transcript export stay out of the MVP.
 
 ### Day 7: WhatsApp connection, backoffice parity, deploy and demo
 

@@ -20,6 +20,11 @@ class ThreadModel(Base):
     agent_config_version: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     started_by_profile_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    control: Mapped[str] = mapped_column(String(10), nullable=False, default="agent")
+    controlled_by_profile_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    control_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -38,4 +43,5 @@ class MessageModel(Base):
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     trace_run_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     content_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")
+    author_profile_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

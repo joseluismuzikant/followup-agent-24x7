@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
 )
@@ -25,6 +26,8 @@ class LeadModel(Base):
     __table_args__ = (
         CheckConstraint(f"status IN ({LEAD_STATUSES})", name="ck_leads_status"),
         Index("ix_leads_tenant_last_activity", "tenant_id", "last_activity_at"),
+        Index("ix_leads_tenant_created", "tenant_id", "created_at"),
+        Index("ix_leads_tenant_status", "tenant_id", "status"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -44,6 +47,11 @@ class LeadModel(Base):
     hand_off_reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_human_reply_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Lowercase, accent-free name, contact, contact digits and answers (Lead.search_text).
+    search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
 class LeadStatusChangeModel(Base):
@@ -79,6 +87,7 @@ class VisitModel(Base):
             "status IN ('proposed', 'confirmed', 'cancelled')", name="ck_visits_status"
         ),
         Index("ix_visits_lead", "lead_id"),
+        Index("ix_visits_created", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)

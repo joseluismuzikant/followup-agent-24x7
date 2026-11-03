@@ -38,13 +38,20 @@ class RecordLeadTurn:
         thread = turn.thread
         at = turn.inbound.created_at
         existing = self._leads.get_by_thread(thread.id)
+        if turn.agent_paused:
+            # Taken over: the agent did not run, so there is no state to project.
+            if existing is not None:
+                self._leads.save(existing.touched(at))
+            return
+        # A lead starts when the visitor's first message arrived (the first of a burst).
+        first = turn.inbound_messages[0].created_at if turn.inbound_messages else at
         lead = existing or Lead.start(
             tenant_id=thread.tenant_id,
             thread_id=thread.id,
             thread_key=str(thread.key),
             channel=thread.channel.value,
             is_test=thread.channel is Channel.SIMULATOR,
-            now=at,
+            now=first,
         )
         state = turn.state
         lead = lead.with_details(
@@ -91,7 +98,7 @@ class RecordLeadTurn:
                 wanted.property_label,
             ):
                 return
-            self._leads.set_visit_status(current.id, VisitStatus.CANCELLED)
+            self._leads.save_visit(current.cancel())
         self._leads.add_visit(wanted)
 
 

@@ -44,6 +44,9 @@ class HandledTurn:
     started_thread: bool = False
     trace_run_id: UUID | None = None
     inbound_messages: Sequence[Message] = ()
+    # True when a person from the team controls the thread: the inbound messages were
+    # stored, the agent did not run and `state` is empty.
+    agent_paused: bool = False
 
 
 class TurnObserver(Protocol):
@@ -132,6 +135,8 @@ class HandleIncomingMessage:
         ]
         if not texts:
             raise ValueError("A turn needs at least one text message.")
+        # Under the thread lock: a takeover committed while this turn waited is seen below,
+        # and a takeover waits for a running turn to finish.
         self._lock.acquire(key)
 
         thread = self._threads.get_by_key(key)
@@ -141,11 +146,13 @@ class HandleIncomingMessage:
             thread = _new_thread(key, version, started_by_profile_id, self._clock())
         history = [] if is_new else self._messages.list_for_thread(thread.id)
         config = self._configs.at_version(key.tenant_id, thread.agent_config_version)
+        received_at = self._clock()
+        if thread.is_taken_over:
+            return self._store_only(thread, parts, stored, received_at, config)
 
         # Run the agent before writing anything: if it fails, no thread, inbound message or
         # partial reply is stored.
-        received_at = self._clock()
-        text = "\n".join(texts)
+        text = "\n".join([*_unanswered_after_release(thread, history), *texts])
         turn = self._runtime.handle(
             thread,
             TurnInput(
@@ -164,20 +171,7 @@ class HandleIncomingMessage:
 
         if is_new:
             self._threads.add(thread)
-        inbound_messages = [
-            Message(
-                uuid4(),
-                thread.id,
-                Direction.INBOUND,
-                Author.VISITOR,
-                part_text,
-                part.received_at or received_at,
-                content_type=part.content_type,
-            )
-            for part, part_text in zip(parts, stored, strict=True)
-        ]
-        for message in inbound_messages:
-            self._messages.append(message)
+        inbound_messages = self._append_inbound(thread, parts, stored, received_at)
         inbound = inbound_messages[-1]
         outbound: list[Message] = []
         for item in turn.outbound:
@@ -210,12 +204,76 @@ class HandleIncomingMessage:
             observer.on_turn(handled)
         return handled
 
+    def _append_inbound(
+        self,
+        thread: Thread,
+        parts: Sequence[InboundPart],
+        stored: Sequence[str],
+        received_at: datetime,
+    ) -> list[Message]:
+        messages = [
+            Message(
+                uuid4(),
+                thread.id,
+                Direction.INBOUND,
+                Author.VISITOR,
+                part_text,
+                part.received_at or received_at,
+                content_type=part.content_type,
+            )
+            for part, part_text in zip(parts, stored, strict=True)
+        ]
+        for message in messages:
+            self._messages.append(message)
+        return messages
+
+    def _store_only(
+        self,
+        thread: Thread,
+        parts: Sequence[InboundPart],
+        stored: Sequence[str],
+        received_at: datetime,
+        config: AgentConfig,
+    ) -> HandledTurn:
+        """Taken over: the team answers. Store what the visitor sent; no agent, no reply."""
+        inbound_messages = self._append_inbound(thread, parts, stored, received_at)
+        self._threads.touch(thread.id, self._clock())
+        handled = HandledTurn(
+            thread=thread,
+            inbound=inbound_messages[-1],
+            outbound=(),
+            state={},
+            agent_config=config,
+            metrics=TurnMetrics(),
+            inbound_messages=inbound_messages,
+            agent_paused=True,
+        )
+        for observer in self._observers:
+            observer.on_turn(handled)
+        return handled
+
+
+def _unanswered_after_release(thread: Thread, history: Sequence[Message]) -> list[str]:
+    """What the visitor wrote while the team had the conversation. The agent never read it,
+    so the first turn after a release reads it together with the new message (the team's
+    own lines are in the transcript), and does not ask again what the lead already said."""
+    if thread.control_changed_at is None:
+        return []
+    unread: list[str] = []
+    for message in reversed(history):
+        if message.author is Author.AGENT:
+            break
+        if message.author is Author.VISITOR and message.content_type == "text":
+            unread.append(message.text)
+    return unread[::-1]
+
 
 @dataclass(frozen=True, slots=True)
 class FixedReply:
     thread: Thread
     inbound_messages: Sequence[Message]
-    outbound: Message
+    # None when the thread is taken over.
+    outbound: Message | None
 
 
 class ReplyWithoutAgent:
@@ -258,9 +316,12 @@ class ReplyWithoutAgent:
         ]
         for message in inbound:
             self._messages.append(message)
+        self._threads.touch(thread.id, now)
+        if thread.is_taken_over:
+            # The team answers; no fixed reply.
+            return FixedReply(thread, inbound, None)
         outbound = Message(uuid4(), thread.id, Direction.OUTBOUND, Author.AGENT, reply, now)
         self._messages.append(outbound)
-        self._threads.touch(thread.id, now)
         return FixedReply(thread, inbound, outbound)
 
 

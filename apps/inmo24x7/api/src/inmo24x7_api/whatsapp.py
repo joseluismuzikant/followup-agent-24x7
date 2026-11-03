@@ -48,6 +48,9 @@ class WhatsAppConnectionRead(WhatsAppStatusRead):
     sender: Literal["cloud", "log"] | None = None
     template_name: str | None = None
     template_language: str | None = None
+    # The approved template that confirms a visit outside the 24-hour window.
+    visit_template_name: str | None = None
+    visit_template_language: str | None = None
     last_error_code: str | None = None
     updated_at: datetime | None = None
     has_access_token: bool = False
@@ -60,6 +63,9 @@ class WhatsAppConnectionWrite(BaseModel):
     # Empty or missing keeps the stored token.
     access_token: str | None = Field(default=None, max_length=4096)
     sender: Literal["cloud", "log"] | None = None
+    # Missing keeps the stored template; "" removes it.
+    visit_template_name: str | None = Field(default=None, max_length=100)
+    visit_template_language: str | None = Field(default=None, max_length=20)
 
 
 class TestMessageWrite(BaseModel):
@@ -93,6 +99,8 @@ def connection_read(connection: WhatsAppConnection | None) -> WhatsAppConnection
         sender=connection.sender.value,
         template_name=connection.template_name,
         template_language=connection.template_language,
+        visit_template_name=connection.visit_template_name,
+        visit_template_language=connection.visit_template_language,
         last_error_code=connection.last_error_code,
         updated_at=connection.updated_at,
         has_access_token=bool(connection.access_token_encrypted),
@@ -159,6 +167,8 @@ def build_whatsapp_router(
             display_phone_number=(payload.display_phone_number or "").strip() or None,
             access_token=(payload.access_token or "").strip() or None,
             sender=SenderKind(payload.sender) if payload.sender else None,
+            visit_template_name=payload.visit_template_name,
+            visit_template_language=(payload.visit_template_language or "").strip() or None,
         )
         try:
             return connection_read(save.execute(tenant_id, draft))

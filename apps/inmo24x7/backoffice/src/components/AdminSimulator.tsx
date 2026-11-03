@@ -31,6 +31,8 @@ export function AdminSimulator({ tenantId }: { tenantId: string }) {
   const simulatorQuery = useQuery({
     queryKey,
     queryFn: () => fetchTenantSimulator(tenantId),
+    // Taken over from the business's Consultas: the team's replies arrive without a turn.
+    refetchInterval: (query) => (query.state.data?.control === "human" ? 5000 : false),
   });
   const [pending, setPending] = useState<PendingMessage | null>(null);
   const [error, setError] = useState<string | null>(null);

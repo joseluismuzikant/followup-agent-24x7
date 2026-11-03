@@ -66,6 +66,17 @@ class InMemoryThreadRepository:
 
                 self.threads[key] = replace(thread, last_message_at=last_message_at)
 
+    def set_control(self, thread: Thread) -> None:
+        from dataclasses import replace
+
+        stored = self.threads[str(thread.key)]
+        self.threads[str(thread.key)] = replace(
+            stored,
+            control=thread.control,
+            controlled_by_profile_id=thread.controlled_by_profile_id,
+            control_changed_at=thread.control_changed_at,
+        )
+
 
 class InMemoryMessageRepository:
     def __init__(self, threads: InMemoryThreadRepository) -> None:

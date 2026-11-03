@@ -75,7 +75,8 @@ There is one database, one root `alembic.ini`, and one Alembic version table.
 - Core revisions live in `packages/core/migrations/versions`.
 - Product revisions live in each product API's `migrations/versions`.
 - Product revision chains must set `down_revision` to the current core head, so every product chain depends on core. The inmo24x7 chain starts at `inmo_0001` (properties and imports), whose `down_revision` is core `0006`, followed by `inmo_0002` (leads). Product revisions use their own ids (`inmo_NNNN`) so they never collide with core numbers.
-- A later core revision chains to the core head (`0006`), never to a product revision, so it creates a second head. Add a merge revision in the product chain (`alembic merge`) so `alembic upgrade head` keeps a single head; never rewrite a published revision.
+- Core revisions always chain to the core head, never to a product revision, so every new core revision creates a second head. Right after adding one, add a product merge revision with an empty upgrade whose `down_revision` is (current product head, new core head), as `inmo_0003` (core `0008`) and `inmo_0004` (core `0009`) do. Never rewrite a published revision.
+- `tests/test_migrations.py` asserts that the graph has exactly one head, so a forgotten merge fails CI.
 - Run `uv run alembic upgrade head` from the repository root to apply all locations.
 - API integration tests build their schema by running these migrations.
 - The API image contains the root configuration, so deployments run `alembic upgrade head` once in a one-off container before starting the new API version.
@@ -200,8 +201,9 @@ key, latency, model, token usage and the trace run id, never the message text.
   from Consultas unless asked for.
 - **Statuses and transitions** are enforced by the `Lead` aggregate: qualifying → visit
   proposed or human requested; visit proposed → human requested or visit confirmed; human
-  requested → visit confirmed. Visit confirmed is set by the team (Day 6). Every change is
-  kept in `lead_status_changes`.
+  requested → visit confirmed; visit confirmed → human requested (the team cancelled the
+  visit). Visit confirmed is set only by the team. Every change is kept in
+  `lead_status_changes`.
 - **Slots** come from a pure domain function: the next two 30-minute slots at least two hours
   ahead that fit inside the team's hours, in the tenant's timezone. Out of hours the agent still
   proposes them and says the team confirms. A visit for a sample listing has no property id,
@@ -280,6 +282,68 @@ Work that must survive a restart and must not run inside a request is a **job** 
   own sessions; SIGTERM lets running jobs finish. `dev.py` starts it; production runs the API
   image with that command.
 
+### The inbox (S6): takeover, team replies and visits
+
+- **Control flag.** A thread has `control` (`agent` | `human`), `controlled_by_profile_id`
+  and `control_changed_at` (Conversation context). `take_over` and `release` are domain
+  functions that also return a system message for the transcript ("Ana tomó la
+  conversación", "Ana devolvió la conversación al agente", with the profile's display name,
+  else the email). Taking over a conversation someone else has moves control to the caller
+  (the panel asks first).
+- **Where it is checked.** `HandleIncomingMessage` reads the thread after taking the
+  per-thread advisory lock, the same lock `TakeOverThread`, `ReleaseThread` and
+  `AddTeamMessage` take. A takeover that races a running turn waits for it to commit; any turn
+  after it sees `human`, stores the visitor's messages and returns without running the agent
+  (`HandledTurn.agent_paused`). This holds for the simulator, the WhatsApp debounced job (also
+  one queued before the takeover, since the check runs when the job does) and media, which get
+  no fixed reply. `RecordLeadTurn` only touches the lead's activity on a paused turn.
+- **Team replies** are `human` messages with `author_profile_id`. On WhatsApp they go through
+  the same `QueueOutbound` and `whatsapp.send` job as the agent's; outside the 24-hour window
+  they are refused (`outside_service_window`) before anything is stored. In the simulator they
+  are only stored, and the Probalo chat polls while the thread is taken over. Only the person
+  in control can reply (`conversation_not_taken`); owner, manager and agent can act, viewers
+  only read.
+- **Back to the agent.** The model reads recent transcript lines labelled `cliente`,
+  `agente`, `equipo` and `evento` (prompt `extract.v3`), and the first turn after a release
+  also reads the visitor's messages the agent never saw (sent while the team had it), so it
+  does not ask again what the lead already told the team.
+- **Confirm and cancel.** Confirming (optionally at another future time) sets the visit and
+  the lead to confirmed, writes "Ana confirmó la visita" and tells the lead, all in one
+  transaction plus the send job: free text inside the window, the connection's
+  visit-confirmation template (name, address, day and time) outside it, or nothing to send in
+  the simulator. Without a template outside the window it fails with
+  `template_not_configured` before writing anything. Confirming twice is a no-op. Cancelling
+  moves the lead back to human requested; its optional message is free text, so only inside
+  the window.
+- **Needs attention** ("Para atender") is defined once, on the `Lead`: status visit proposed
+  or human requested, and no team reply since the hand-off (`last_human_reply_at`). A
+  confirmed visit never needs attention. The repository mirrors it as one SQL expression and a
+  test checks they agree. The tab is ordered by urgency: human requested first, then the
+  soonest proposed visit, then the oldest hand-off. "Visitas" orders by visit time; "Todas" by
+  last activity.
+- **Search and export.** `leads.search_text` holds name, contact (also as bare digits) and
+  answers, lowercase and without accents, so the search is a `LIKE` on one column; a query
+  that looks like a phone is normalized to E.164 digits first. The CSV export uses the list's
+  filters and order, `;` and a UTF-8 BOM (Excel in es-AR), one column per configured question,
+  at most 5,000 rows; only the row count is logged.
+
+### Dashboard KPIs (S5)
+
+`dashboard/domain/kpis.py` defines them; the queries only fetch rows. All of them count real
+leads only (never simulator tests) from Monday 00:00 in the business's timezone until now.
+
+- **Consultas recibidas**: leads created this week (a lead starts at the visitor's first
+  message); **fuera de horario**: those whose first message came outside the team's hours.
+- **Calificadas**: leads this week with every enabled one of operation, zone and budget
+  answered.
+- **Visitas agendadas**: visits created this week that are proposed or confirmed (cancelled
+  ones do not count), with how many are confirmed.
+- **Respuesta promedio**: the average, over inbound bursts this week, of the time from the
+  burst's first message to the agent's first reply (when WhatsApp accepted it, else when it
+  was stored). Bursts the agent never answered (taken over) are left out; null without data.
+- **Para atender hoy**: up to five leads in the attention order, topped up with the newest
+  ones still qualifying.
+
 ## Messaging (WhatsApp)
 
 ### The pipeline
@@ -317,9 +381,10 @@ worker: whatsapp.send ─▶ Cloud API, in order ─▶ wamid ─▶ statuses fr
   slots as reply buttons (at most 3, titles of 20 characters, ids = slot ids). System messages
   such as the hand-off event are never sent.
 - **The 24-hour window.** Free-form messages go only if the visitor wrote in the last 24 hours;
-  otherwise the part fails with `outside_service_window`. `send_template` (the connection's
-  template, `hello_world` on Meta test numbers) is the way to write outside it (Day 6 confirms
-  visits with it).
+  otherwise the part fails with `outside_service_window`. Templates are the way to write
+  outside it: the connection's test template (`hello_world` on Meta test numbers) and its
+  visit-confirmation template (`visit_template_name`, see the README), which the send job lets
+  through after 24 hours.
 - **Senders** sit behind `WhatsAppSender`: `CloudApiSender` (httpx, `META_GRAPH_API_VERSION`,
   v26.0 by default), `LogSender` for local development (fake wamids; simulated sent → delivered
   → read go through the same status code as Meta's), and a recording fake in tests (the Graph API

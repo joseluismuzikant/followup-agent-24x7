@@ -10,6 +10,7 @@ from followup_core.identity.infrastructure.models import ProfileModel
 from ..domain.thread import (
     Author,
     Channel,
+    Control,
     Direction,
     Message,
     Thread,
@@ -32,6 +33,9 @@ def _thread_to_domain(model: ThreadModel) -> Thread:
         created_at=_aware(model.created_at),
         last_message_at=_aware(model.last_message_at) if model.last_message_at else None,
         started_by_profile_id=model.started_by_profile_id,
+        control=Control(model.control),
+        controlled_by_profile_id=model.controlled_by_profile_id,
+        control_changed_at=_aware(model.control_changed_at) if model.control_changed_at else None,
     )
 
 
@@ -40,8 +44,12 @@ class SqlAlchemyThreadRepository:
         self._session = session
 
     def get_by_key(self, key: ThreadKey) -> Thread | None:
+        # Fresh from the database: read after the thread lock, the control flag must reflect
+        # a takeover committed while this transaction waited.
         model = self._session.scalars(
-            select(ThreadModel).where(ThreadModel.key == str(key))
+            select(ThreadModel)
+            .where(ThreadModel.key == str(key))
+            .execution_options(populate_existing=True)
         ).first()
         return _thread_to_domain(model) if model else None
 
@@ -64,6 +72,9 @@ class SqlAlchemyThreadRepository:
                 agent_config_version=thread.agent_config_version,
                 status=thread.status.value,
                 started_by_profile_id=thread.started_by_profile_id,
+                control=thread.control.value,
+                controlled_by_profile_id=thread.controlled_by_profile_id,
+                control_changed_at=thread.control_changed_at,
                 created_at=thread.created_at,
                 last_message_at=thread.last_message_at,
             )
@@ -75,6 +86,17 @@ class SqlAlchemyThreadRepository:
             update(ThreadModel)
             .where(ThreadModel.id == thread_id)
             .values(last_message_at=last_message_at)
+        )
+
+    def set_control(self, thread: Thread) -> None:
+        self._session.execute(
+            update(ThreadModel)
+            .where(ThreadModel.id == thread.id)
+            .values(
+                control=thread.control.value,
+                controlled_by_profile_id=thread.controlled_by_profile_id,
+                control_changed_at=thread.control_changed_at,
+            )
         )
 
     @staticmethod
@@ -101,6 +123,7 @@ class SqlAlchemyMessageRepository:
                 payload=message.payload,
                 trace_run_id=message.trace_run_id,
                 content_type=message.content_type,
+                author_profile_id=message.author_profile_id,
                 created_at=message.created_at,
             )
         )
@@ -123,6 +146,7 @@ class SqlAlchemyMessageRepository:
                 payload=model.payload,
                 trace_run_id=model.trace_run_id,
                 content_type=model.content_type,
+                author_profile_id=model.author_profile_id,
             )
             for model in models
         ]

@@ -149,6 +149,41 @@ def channel_contact(wa_id: str) -> str | None:
     return display(e164) if e164 else None
 
 
+class QueueOutbound:
+    """Stores every part of the given messages as queued and enqueues ONE send job for them,
+    in order. Used for an agent turn and for a message written by the team. System messages
+    (the hand-off event) are never sent to the lead."""
+
+    def __init__(self, outbound: OutboundRepository, render: MessageRenderer, queue: JobQueue):
+        self._outbound = outbound
+        self._render = render
+        self._queue = queue
+
+    def __call__(self, messages: Sequence[Message], wa_id: str) -> None:
+        parts: list[OutboundPart] = []
+        sendable: list[UUID] = []
+        for message in messages:
+            if message.author is Author.SYSTEM:
+                continue
+            bodies = self._render(message)
+            for index, body in enumerate(bodies):
+                parts.append(
+                    OutboundPart(uuid4(), message.id, index, wa_id, body, DeliveryStatus.QUEUED)
+                )
+            if bodies:
+                sendable.append(message.id)
+        if not parts:
+            return
+        self._outbound.add(parts)
+        self._queue.enqueue(
+            NewJob(
+                SEND_JOB,
+                {"message_ids": [str(item) for item in sendable]},
+                dedupe_key=f"wa-send:{sendable[0]}",
+            )
+        )
+
+
 class ProcessInbound:
     """One job per inbound message; the first one that runs after the burst settles takes
     every pending message of the conversation, in order, and answers them with one turn."""
@@ -168,11 +203,10 @@ class ProcessInbound:
     ) -> None:
         self._events = events
         self._connections = connections
-        self._outbound = outbound
         self._lock = lock
         self._handle = handle
         self._reply_without_agent = reply_without_agent
-        self._render = render
+        self._queue_outbound = QueueOutbound(outbound, render, queue)
         self._queue = queue
         self._debounce = debounce
         self._clock = clock
@@ -210,10 +244,12 @@ class ProcessInbound:
             )
             replies = list(turn.outbound)
         else:
-            replies = [self._reply_without_agent.execute(key, parts, UNREADABLE_REPLY).outbound]
+            fixed = self._reply_without_agent.execute(key, parts, UNREADABLE_REPLY).outbound
+            replies = [fixed] if fixed else []
         self._events.mark([item.id for item in pending], EventStatus.PROCESSED)
 
-        self._queue_sending(replies, event.wa_id)
+        # Nothing to send while the team has the conversation (the turn stored only).
+        self._queue_outbound(replies, event.wa_id)
         last = pending[-1]
         self._queue.enqueue(
             NewJob(
@@ -227,32 +263,6 @@ class ProcessInbound:
         if connection is not None:
             self._connections.mark_inbound(connection.id, last.sent_at)
         return None
-
-    def _queue_sending(self, replies: Sequence[Message], wa_id: str) -> None:
-        """Stores every part as queued and enqueues ONE send job for the turn, in order.
-        System messages (the hand-off event) are never sent to the lead."""
-        parts: list[OutboundPart] = []
-        sendable: list[UUID] = []
-        for message in replies:
-            if message.author is Author.SYSTEM:
-                continue
-            bodies = self._render(message)
-            for index, body in enumerate(bodies):
-                parts.append(
-                    OutboundPart(uuid4(), message.id, index, wa_id, body, DeliveryStatus.QUEUED)
-                )
-            if bodies:
-                sendable.append(message.id)
-        if not parts:
-            return
-        self._outbound.add(parts)
-        self._queue.enqueue(
-            NewJob(
-                SEND_JOB,
-                {"message_ids": [str(item) for item in sendable]},
-                dedupe_key=f"wa-send:{sendable[0]}",
-            )
-        )
 
 
 SenderFor = Callable[[WhatsAppConnection], WhatsAppSender]
@@ -291,7 +301,10 @@ class SendQueued:
         for part in parts:
             if part.status is not DeliveryStatus.QUEUED:
                 continue
-            if not within_service_window(self._outbound.last_inbound_at(part.message_id), now):
+            # Templates are the one kind of message allowed outside the 24-hour window.
+            is_template = part.body.get("type") == "template"
+            last_inbound = self._outbound.last_inbound_at(part.message_id)
+            if not is_template and not within_service_window(last_inbound, now):
                 self._outbound.mark_failed(part.id, OUTSIDE_SERVICE_WINDOW, now)
                 continue
             try:

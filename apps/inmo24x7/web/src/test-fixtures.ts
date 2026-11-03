@@ -104,6 +104,7 @@ export function simulatorState(overrides: Partial<SimulatorState> = {}): Simulat
     config_outdated: false,
     agent_name: "Sofía",
     business_name: "Inmobiliaria Sur",
+    control: "agent",
     ...overrides,
   };
 }

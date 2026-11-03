@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -10,6 +10,12 @@ import psycopg
 from fastapi import Depends
 from followup_core.conversation.application.agent_config_source import (
     VersionedAgentConfigSource,
+)
+from followup_core.conversation.application.control import (
+    AddSystemEvent,
+    AddTeamMessage,
+    ReleaseThread,
+    TakeOverThread,
 )
 from followup_core.conversation.application.ports import BusinessContextSource
 from followup_core.conversation.application.simulator import (
@@ -26,6 +32,7 @@ from followup_core.conversation.application.threads import (
 )
 from followup_core.conversation.domain.llm import LanguageModel
 from followup_core.conversation.domain.runtime import BusinessContext
+from followup_core.conversation.domain.thread import Channel, Message, Thread
 from followup_core.conversation.infrastructure.langgraph_runtime import (
     LangGraphRuntime,
     TurnTracing,
@@ -38,6 +45,7 @@ from followup_core.conversation.infrastructure.repositories import (
 )
 from followup_core.identity.domain.token_verifier import TokenVerifier
 from followup_core.identity.infrastructure.dev_verifier import DevTokenVerifier
+from followup_core.identity.infrastructure.models import ProfileModel
 from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
 from followup_core.identity.infrastructure.supabase_verifier import SupabaseJwtVerifier
 from followup_core.messaging.application.connections import (
@@ -56,6 +64,7 @@ from followup_core.messaging.application.pipeline import (
     MarkRead,
     ProcessInbound,
     PurgePayloads,
+    QueueOutbound,
     SenderFor,
     SendQueued,
 )
@@ -104,17 +113,28 @@ from followup_core.tenancy.infrastructure.setup_repositories import (
 )
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import StateGraph
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
+from .dashboard.application.get_dashboard import GetDashboard
+from .dashboard.infrastructure.queries import SqlAlchemyDashboardQueries
 from .database import get_session
 from .defaults import build_setup_defaults
+from .leads.application.inbox import (
+    CancelVisit,
+    ConfirmVisit,
+    LeadActions,
+    ReleaseLead,
+    ReplyToLead,
+    TakeOverLead,
+)
 from .leads.application.notify import (
     HANDOFF_EMAIL_JOB,
     IN_PROGRESS_EMAIL_JOB,
     SendLeadEmail,
 )
-from .leads.application.queries import GetLead, ListLeads
+from .leads.application.queries import ExportLeads, GetLead, ListLeads, ProfileNames
 from .leads.application.record_turn import RecordLeadTurn
 from .leads.graph import build_lead_graph
 from .leads.infrastructure.repositories import SqlAlchemyLeadRepository
@@ -402,12 +422,40 @@ def list_leads_use_case(session: SessionDep) -> ListLeads:
     return ListLeads(SqlAlchemyLeadRepository(session))
 
 
+def _profile_names(session: Session) -> ProfileNames:
+    def names(profile_ids: Sequence[UUID]) -> Mapping[UUID, str]:
+        rows = session.execute(
+            select(ProfileModel.id, ProfileModel.display_name, ProfileModel.email).where(
+                ProfileModel.id.in_(profile_ids)
+            )
+        )
+        return {row.id: (row.display_name or "").strip() or row.email for row in rows}
+
+    return names
+
+
 def get_lead_use_case(session: SessionDep) -> GetLead:
     return GetLead(
         SqlAlchemyLeadRepository(session),
         SqlAlchemyThreadRepository(session),
         SqlAlchemyMessageRepository(session),
         _agent_configs(session),
+        _profile_names(session),
+    )
+
+
+def get_dashboard_use_case(session: SessionDep) -> GetDashboard:
+    return GetDashboard(
+        SqlAlchemyDashboardQueries(session),
+        SqlAlchemyLeadRepository(session),
+        _business_context(session),
+        _agent_configs(session),
+    )
+
+
+def export_leads_use_case(session: SessionDep) -> ExportLeads:
+    return ExportLeads(
+        SqlAlchemyLeadRepository(session), _agent_configs(session), _business_context(session)
     )
 
 
@@ -538,6 +586,7 @@ def job_handlers(
             agent_runtime(session, llm, tracing),
             _agent_configs(session),
             _business_context(session),
+            clock=clock,
             observers=[RecordLeadTurn(SqlAlchemyLeadRepository(session), queue)],
         )
         return ProcessInbound(
@@ -546,7 +595,7 @@ def job_handlers(
             outbound,
             lock,
             handle,
-            ReplyWithoutAgent(threads, messages, lock, _agent_configs(session)),
+            ReplyWithoutAgent(threads, messages, lock, _agent_configs(session), clock),
             LeadMessageRenderer(settings.panel_url),
             queue,
             debounce,
@@ -576,6 +625,69 @@ def job_handlers(
             (IN_PROGRESS_EMAIL_JOB, lead_email),
         ]
     )
+
+
+def _deliver(
+    session: Session, settings: Settings, clock: Callable[[], datetime] = utc_now
+) -> Callable[[Thread, Sequence[Message]], None]:
+    """The team's messages on the lead's channel. WhatsApp: queued for the send job. The
+    simulator shows them in its transcript; nothing is sent."""
+    queue_outbound = QueueOutbound(
+        SqlAlchemyOutboundRepository(session),
+        LeadMessageRenderer(settings.panel_url),
+        SqlAlchemyJobQueue(session, clock),
+    )
+
+    def deliver(thread: Thread, messages: Sequence[Message]) -> None:
+        if thread.channel is Channel.WHATSAPP:
+            queue_outbound(messages, thread.visitor_id)
+
+    return deliver
+
+
+def build_lead_actions(
+    session: Session, settings: Settings, clock: Callable[[], datetime] = utc_now
+) -> LeadActions:
+    leads = SqlAlchemyLeadRepository(session)
+    threads = SqlAlchemyThreadRepository(session)
+    messages = SqlAlchemyMessageRepository(session)
+    lock = PostgresAdvisoryThreadLock(session)
+    add_message = AddTeamMessage(threads, messages, lock, clock)
+    add_event = AddSystemEvent(threads, messages, lock, clock)
+    deliver = _deliver(session, settings, clock)
+    properties = SqlAlchemyPropertyRepository(session)
+
+    def address(tenant_id: UUID, property_id: UUID) -> str | None:
+        found = properties.get(tenant_id, property_id)
+        return found.fields.address if found else None
+
+    return LeadActions(
+        take_over=TakeOverLead(
+            leads, threads, messages, TakeOverThread(threads, messages, lock, clock), clock
+        ),
+        release=ReleaseLead(
+            leads, threads, messages, ReleaseThread(threads, messages, lock, clock), clock
+        ),
+        reply=ReplyToLead(leads, threads, messages, add_message, deliver, clock),
+        confirm=ConfirmVisit(
+            leads,
+            threads,
+            messages,
+            add_message,
+            add_event,
+            deliver,
+            SqlAlchemyConnectionRepository(session),
+            _business_context(session),
+            address,
+            clock,
+        ),
+        cancel=CancelVisit(leads, threads, messages, add_message, add_event, deliver, clock),
+    )
+
+
+def lead_actions(session: SessionDep, services: ServicesDep) -> LeadActions:
+    """The team's actions on a lead (S6), per request."""
+    return build_lead_actions(session, services.settings)
 
 
 def get_whatsapp_fact(session: Session) -> Callable[[UUID], bool]:

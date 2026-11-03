@@ -10,7 +10,7 @@ import httpx
 
 from ..application.connections import PhoneInfo
 from ..domain.connection import WhatsAppConnection
-from ..domain.outbound import SendError
+from ..domain.outbound import SendError, template_body
 from .crypto import TokenCipher
 
 logger = logging.getLogger("followup.whatsapp")
@@ -113,18 +113,6 @@ class GraphClient:
 
     def subscribe_app(self, waba_id: str, token: str) -> None:
         self._request("POST", f"/{waba_id}/subscribed_apps", token)
-
-
-def template_body(name: str, language: str, parameters: Sequence[str]) -> dict[str, Any]:
-    template: dict[str, Any] = {"name": name, "language": {"code": language}}
-    if parameters:
-        template["components"] = [
-            {
-                "type": "body",
-                "parameters": [{"type": "text", "text": value} for value in parameters],
-            }
-        ]
-    return {"type": "template", "template": template}
 
 
 class CloudApiSender:

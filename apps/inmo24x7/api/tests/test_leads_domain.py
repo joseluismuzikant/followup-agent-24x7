@@ -1,5 +1,6 @@
 """Lead statuses, visit slots and contact normalization (pure domain)."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -7,8 +8,9 @@ from zoneinfo import ZoneInfo
 import pytest
 from followup_core.tenancy.domain.business_settings import ScheduleBlock
 from inmo24x7_api.leads.domain.contact import normalize_contact
-from inmo24x7_api.leads.domain.errors import InvalidLeadTransitionError
-from inmo24x7_api.leads.domain.lead import HandOffReason, Lead, LeadStatus
+from inmo24x7_api.leads.domain.errors import InvalidLeadTransitionError, VisitCancelledError
+from inmo24x7_api.leads.domain.lead import HandOffReason, Lead, LeadStatus, Visit, VisitStatus
+from inmo24x7_api.leads.domain.notices import visit_confirmation
 from inmo24x7_api.leads.domain.slots import propose_slots, short_slot_label, slot_label
 
 BA = "America/Argentina/Buenos_Aires"
@@ -46,8 +48,13 @@ def test_a_new_lead_is_qualifying_with_its_history() -> None:
         ([LeadStatus.HUMAN_REQUESTED, LeadStatus.VISIT_PROPOSED], False),
         ([LeadStatus.VISIT_CONFIRMED], False),
         ([LeadStatus.VISIT_PROPOSED, LeadStatus.QUALIFYING], False),
+        # The team cancels a confirmed visit: back to human_requested to follow up.
         (
             [LeadStatus.VISIT_PROPOSED, LeadStatus.VISIT_CONFIRMED, LeadStatus.HUMAN_REQUESTED],
+            True,
+        ),
+        (
+            [LeadStatus.VISIT_PROPOSED, LeadStatus.VISIT_CONFIRMED, LeadStatus.VISIT_PROPOSED],
             False,
         ),
     ],
@@ -174,3 +181,73 @@ def test_slot_labels_are_in_spanish() -> None:
 )
 def test_contacts_are_validated_and_normalized(text: str, expected: str | None) -> None:
     assert normalize_contact(text) == expected
+
+
+# --- Needs attention, visits and what the lead is told -------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("status", "handed_off", "replied", "expected"),
+    [
+        (LeadStatus.HUMAN_REQUESTED, T0, None, True),
+        (LeadStatus.VISIT_PROPOSED, T0, None, True),
+        (LeadStatus.VISIT_PROPOSED, T0, T0 + timedelta(minutes=5), False),
+        # A reply from before the hand-off does not count.
+        (LeadStatus.VISIT_PROPOSED, T0, T0 - timedelta(minutes=5), True),
+        (LeadStatus.VISIT_CONFIRMED, T0, None, False),
+        (LeadStatus.QUALIFYING, None, None, False),
+    ],
+)
+def test_needs_attention(status, handed_off, replied, expected) -> None:
+    lead = replace(_lead(), status=status, handed_off_at=handed_off, last_human_reply_at=replied)
+
+    assert lead.needs_attention is expected
+
+
+def test_a_reply_from_the_team_takes_the_lead_out_of_attention() -> None:
+    lead = _lead().move_to(LeadStatus.HUMAN_REQUESTED, T0).hand_off(HandOffReason.HUMAN, T0)
+
+    assert lead.needs_attention
+    assert not lead.replied_by_team(T0 + timedelta(minutes=1)).needs_attention
+
+
+def _visit(status: VisitStatus = VisitStatus.PROPOSED) -> Visit:
+    return Visit(uuid4(), uuid4(), None, "Depto · Gorriti 4800", T0, status, T0)
+
+
+def test_confirming_a_visit_is_idempotent_and_can_change_the_time() -> None:
+    confirmed = _visit().confirm()
+    later = T0 + timedelta(days=1)
+
+    assert confirmed.status is VisitStatus.CONFIRMED
+    assert confirmed.confirm() == confirmed
+    assert confirmed.confirm(later).starts_at == later
+    assert _visit().cancel().status is VisitStatus.CANCELLED
+    with pytest.raises(VisitCancelledError):
+        _visit(VisitStatus.CANCELLED).confirm()
+
+
+def test_the_confirmation_text_and_template_parameters() -> None:
+    saturday = datetime(2026, 11, 7, 10, 30, tzinfo=ZoneInfo(BA))
+
+    notice = visit_confirmation("Ana Pérez", "Gorriti 4800", saturday)
+    anonymous = visit_confirmation(None, "Gorriti 4800", saturday)
+
+    assert notice.text == (
+        "¡Listo, Ana! Te confirmamos la visita a Gorriti 4800 el sábado 7/11 a las 10:30. "
+        "Cualquier cosa, escribinos por acá."
+    )
+    assert notice.template_parameters == ("Ana", "Gorriti 4800", "sábado 7/11 a las 10:30")
+    assert anonymous.text.startswith("¡Listo! Te confirmamos")
+    assert anonymous.template_parameters[0] == "de nuevo"
+
+
+def test_the_search_text_is_lowercase_without_accents_with_phone_digits() -> None:
+    lead = replace(
+        _lead(),
+        visitor_name="Ana Pérez",
+        contact="+54 9 11 5555-0188",
+        answers={"zone": "Ñuñoa", "rooms": 2, "budget": {"amount": 1, "currency": "ARS"}},
+    )
+
+    assert lead.search_text == "ana perez +54 9 11 5555-0188 5491155550188 nunoa 2"
