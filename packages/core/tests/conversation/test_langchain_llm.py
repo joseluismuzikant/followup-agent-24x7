@@ -34,6 +34,10 @@ def _reply(model_text: str, intent: ReplyIntent) -> str:
             "Contame, ¿tenés crédito aprobado?",
         ),
         ("Soy Sofía! ¿Cuántos ambientes necesitás?", "¿Cuántos ambientes necesitás?"),
+        (
+            "¡Hola, Ana! Soy Sofía, de Inmobiliaria Sur. Para orientarte mejor, ¿qué presupuesto?",
+            "Para orientarte mejor, ¿qué presupuesto?",
+        ),
         # A plain greeting or someone else's name is not an introduction.
         ("¡Hola Ana! ¿Cuántos ambientes necesitás?", "¡Hola Ana! ¿Cuántos ambientes necesitás?"),
         ("Soy Sofía, de Inmobiliaria Sur.", "Soy Sofía, de Inmobiliaria Sur."),

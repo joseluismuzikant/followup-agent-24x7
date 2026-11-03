@@ -22,6 +22,7 @@ from followup_core.conversation.domain.errors import (
 )
 from followup_core.conversation.domain.thread import MAX_MESSAGE_LENGTH, Message
 from followup_core.identity.domain.profile import Profile
+from followup_core.messaging.domain.outbound import DeliveryStatus
 from followup_core.tenancy.application.get_tenant import GetTenant
 from followup_core.tenancy.domain.agent_config import AgentConfig
 from followup_core.tenancy.domain.errors import TenantNotFoundError
@@ -73,6 +74,10 @@ class MessageRead(BaseModel):
     cards: list[PropertyCardRead] | None
     # Visit slots offered as buttons; choosing one sends its label as the visitor's message.
     slots: list[SlotRead] | None = None
+    # "text", or what the visitor sent that the agent cannot read ("audio", "image", ...).
+    content_type: str = "text"
+    # WhatsApp only: how far an outbound message got.
+    delivery_status: Literal["queued", "sent", "delivered", "read", "failed"] | None = None
     created_at: datetime
     # Only on admin endpoints, and only when the turn was traced and LANGSMITH_UI_URL is set.
     trace_url: str | None = None
@@ -96,6 +101,8 @@ class SimulatorRead(BaseModel):
 
 class SimulatorMessageWrite(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_MESSAGE_LENGTH)
+    # Set by a tapped choice button (a visit slot), as WhatsApp reply buttons do.
+    choice_id: str | None = Field(default=None, max_length=256)
 
 
 class SimulatorReplyRead(BaseModel):
@@ -103,7 +110,9 @@ class SimulatorReplyRead(BaseModel):
     known: list[KnownFactRead]
 
 
-def message_read(message: Message, trace_base: str = "") -> MessageRead:
+def message_read(
+    message: Message, trace_base: str = "", delivery: DeliveryStatus | None = None
+) -> MessageRead:
     payload: dict[str, Any] = message.payload or {}
     cards = payload.get("cards")
     slots = payload.get("slots")
@@ -114,6 +123,8 @@ def message_read(message: Message, trace_base: str = "") -> MessageRead:
         text=message.text,
         cards=[PropertyCardRead(**card) for card in cards] if cards else None,
         slots=[SlotRead(**slot) for slot in slots] if slots else None,
+        content_type=message.content_type,
+        delivery_status=delivery.value if delivery else None,  # type: ignore[arg-type]
         created_at=message.created_at,
         trace_url=trace_url(trace_base, message.trace_run_id),
     )
@@ -168,12 +179,12 @@ def build_simulator_router(
         use_case: SendSimulatorMessage,
         tenant_id: UUID,
         profile_id: UUID,
-        text: str,
+        payload: SimulatorMessageWrite,
         trace_base: str = "",
     ) -> SimulatorReplyRead:
         started = time.perf_counter()
         try:
-            turn = use_case.execute(tenant_id, profile_id, text)
+            turn = use_case.execute(tenant_id, profile_id, payload.text, payload.choice_id)
         except InvalidMessageError as error:
             raise ApiError(422, "validation_error") from error
         except SimulatorLimitReachedError as error:
@@ -232,7 +243,7 @@ def build_simulator_router(
         profile: Annotated[Profile, Depends(current_profile)],
         use_case: Annotated[SendSimulatorMessage, Depends(send_factory)],
     ) -> SimulatorReplyRead:
-        return send(use_case, profile.tenant_id, profile.id, payload.text)
+        return send(use_case, profile.tenant_id, profile.id, payload)
 
     @router.post("/simulator/reset", response_model=SimulatorRead)
     def reset(
@@ -267,7 +278,7 @@ def build_simulator_router(
         trace_base: Annotated[str, Depends(trace_ui_url_factory)],
     ) -> SimulatorReplyRead:
         require_tenant(tenant_id, get_tenant)
-        return send(use_case, tenant_id, admin.id, payload.text, trace_base)
+        return send(use_case, tenant_id, admin.id, payload, trace_base)
 
     @router.post("/admin/tenants/{tenant_id}/simulator/reset", response_model=SimulatorRead)
     def admin_reset(

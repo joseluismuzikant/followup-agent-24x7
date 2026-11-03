@@ -1,4 +1,4 @@
-import type { LeadStatus } from "@followup/api-client-inmo24x7";
+import type { DeliveryStatus, LeadStatus } from "@followup/api-client-inmo24x7";
 
 /** S5 statuses. */
 export const leadStatusLabels: Record<LeadStatus, string> = {
@@ -14,6 +14,31 @@ export const leadStatusTones: Record<LeadStatus, "info" | "warning" | "danger" |
   human_requested: "danger",
   visit_confirmed: "success",
 };
+
+export const deliveryLabels: Record<DeliveryStatus, string> = {
+  queued: "Enviando",
+  sent: "Enviado",
+  delivered: "Entregado",
+  read: "Leído",
+  failed: "No se pudo enviar",
+};
+
+/** What the visitor sent that the agent cannot read. */
+export const contentTypeLabels: Record<string, string> = {
+  audio: "Audio",
+  voice: "Audio",
+  image: "Imagen",
+  video: "Video",
+  document: "Documento",
+  sticker: "Sticker",
+  location: "Ubicación",
+  contacts: "Contacto",
+  unsupported: "Mensaje no compatible",
+};
+
+export function channelLabel(channel: string): string {
+  return channel === "whatsapp" ? "por WhatsApp" : "en el simulador";
+}
 
 const dateTime = new Intl.DateTimeFormat("es-AR", {
   weekday: "long",

@@ -53,6 +53,10 @@ class TurnInput:
     text: str
     # When the message arrived; graphs use it instead of the wall clock, so tests can pin it.
     now: datetime = field(default_factory=lambda: datetime.now(UTC))
+    # A choice the visitor tapped (a reply button): it wins over the model's reading.
+    choice_id: str | None = None
+    # How to reach the visitor when the channel already knows it (WhatsApp: their number).
+    visitor_contact: str | None = None
 
 
 class AgentRuntime(Protocol):

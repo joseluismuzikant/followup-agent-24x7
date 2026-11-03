@@ -64,14 +64,18 @@ class SendSimulatorMessage:
         self._daily_limit = daily_limit
         self._clock = clock
 
-    def execute(self, tenant_id: UUID, profile_id: UUID, text: str) -> HandledTurn:
+    def execute(
+        self, tenant_id: UUID, profile_id: UUID, text: str, choice_id: str | None = None
+    ) -> HandledTurn:
         timezone = ZoneInfo(self._business(tenant_id).timezone)
         start_of_day = datetime.combine(self._clock().astimezone(timezone).date(), time(), timezone)
         sent_today = self._messages.count_inbound_since(tenant_id, Channel.SIMULATOR, start_of_day)
         if sent_today >= self._daily_limit:
             raise SimulatorLimitReachedError("The tenant used all of today's simulator messages.")
         key = self._threads.current_key(tenant_id, profile_id)
-        return self._handle.execute(key, text, started_by_profile_id=profile_id)
+        return self._handle.execute(
+            key, text, started_by_profile_id=profile_id, choice_id=choice_id
+        )
 
 
 class ResetSimulator:

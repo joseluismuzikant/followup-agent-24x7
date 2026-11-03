@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from .lead import Lead, LeadStatus, Visit
+from .lead import Lead, LeadStatus, Visit, VisitStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +37,8 @@ class LeadRepository(Protocol):
     def visits(self, lead_id: UUID) -> Sequence[Visit]: ...
 
     def add_visit(self, visit: Visit) -> None: ...
+
+    def set_visit_status(self, visit_id: UUID, status: VisitStatus) -> None: ...
 
     def record_matches(
         self, lead_id: UUID, property_ids: Iterable[UUID], shown_at: datetime

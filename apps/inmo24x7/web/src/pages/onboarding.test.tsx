@@ -9,6 +9,7 @@ import { fetchAgentSetup, saveAgentSetup } from "../api/agent-setup";
 import { fetchMe } from "../api/me";
 import { advanceOnboarding, fetchOnboarding } from "../api/onboarding";
 import { fetchSimulator } from "../api/simulator";
+import { fetchWhatsAppStatus } from "../api/whatsapp";
 import { isOnboardingDeferred, resumeOnboarding } from "../lib/onboarding-deferred";
 import { agentSetup, me, onboardingState, simulatorState } from "../test-fixtures";
 import { OnboardingPage } from "./onboarding";
@@ -21,6 +22,7 @@ vi.mock("../api/simulator", () => ({
   sendSimulatorMessage: vi.fn(),
   resetSimulator: vi.fn(),
 }));
+vi.mock("../api/whatsapp", () => ({ fetchWhatsAppStatus: vi.fn() }));
 vi.mock("../api/tenant-settings", () => ({
   fetchTenantSettings: vi.fn(),
   saveTenantSettings: vi.fn(),
@@ -53,6 +55,7 @@ describe("OnboardingPage", () => {
     vi.mocked(fetchMe).mockResolvedValue(me());
     vi.mocked(fetchAgentSetup).mockResolvedValue(agentSetup());
     vi.mocked(fetchSimulator).mockResolvedValue(simulatorState());
+    vi.mocked(fetchWhatsAppStatus).mockResolvedValue({ status: "not_connected" });
   });
 
   it("resumes at the saved step", async () => {
@@ -163,5 +166,25 @@ describe("OnboardingPage", () => {
     expect(await screen.findByText("✓ Cuenta creada")).toBeTruthy();
     expect(screen.getByText("Propiedades cargadas")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Ir a mi panel" })).toBeTruthy();
+  });
+
+  it("shows the S4 status card when a number is connected", async () => {
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("whatsapp"));
+    vi.mocked(fetchWhatsAppStatus).mockResolvedValue({
+      status: "connected",
+      display_phone_number: "+54 9 11 5555-0100",
+      verified_name: "Inmobiliaria Sur",
+      last_inbound_at: new Date().toISOString(),
+    });
+
+    renderWizard("/onboarding/whatsapp");
+
+    const card = await screen.findByRole("region", { name: "Estado de WhatsApp" });
+    for (const label of ["Cuenta de Meta", "Número", "Recepción de mensajes", "Mensaje de prueba"]) {
+      expect(card.textContent).toContain(label);
+    }
+    expect(card.textContent).toContain("+54 9 11 5555-0100 · Inmobiliaria Sur");
+    expect(card.textContent).toContain("Recibido");
+    expect(screen.queryByText("Entrá con tu cuenta de Facebook")).toBeNull();
   });
 });

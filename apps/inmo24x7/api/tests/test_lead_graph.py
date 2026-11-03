@@ -196,7 +196,7 @@ def test_done_when_conversation_proposes_slots_and_hands_off() -> None:
     (offer,) = chat.say("Me interesa la primera")
     assert [slot["label"] for slot in offer["slots"]] == [
         "martes 3/11, 13:00",
-        "martes 3/11, 13:30",
+        "martes 3/11, 16:00",
     ]
     assert cards[0]["title"] in offer["text"]
 
@@ -224,11 +224,80 @@ def test_after_the_hand_off_the_agent_never_proposes_a_visit_again() -> None:
     _pick_first_slot(chat)
     chat.say("Me llamo Ana Pérez")
     chat.say("ana@example.com")
+    cards = [card["id"] for card in chat.turns[2][0]["cards"]]
 
-    for text in ["Me interesa la segunda", "¿Tienen algo en Belgrano?", "la 1"]:
+    for text in ["¿Tienen algo en Belgrano?", f"Me gusta la de {cards[1]}"]:
         (reply,) = chat.say(text)
         assert reply["slots"] is None and reply["cards"] is None
-    assert chat.intents()[-3:] == ["after_hand_off"] * 3
+        assert chat.intents()[-1] == "after_hand_off"
+    assert chat.state()["visit_offer"]["property_id"] == cards[0]
+
+
+def test_another_slot_replaces_the_visit_before_and_after_the_hand_off() -> None:
+    chat = Chat()
+    for text in DONE_WHEN:
+        chat.say(text)
+    (offer,) = chat.turns[-1]
+    first, second = offer["slots"]
+    chat.say(first["label"])
+    assert chat.state()["visit"]["label"] == first["label"]
+
+    # Before the hand-off: a different slot replaces it.
+    chat.say(second["label"])
+    assert chat.state()["visit"]["label"] == second["label"]
+    assert chat.intents()[-2:] == ["slot_chosen", "ask_name"]
+
+    chat.say("Me llamo Ana Pérez")
+    chat.say("ana@example.com")
+    assert chat.state()["hand_off_reason"] == "visit"
+
+    # After the hand-off the reply buttons still work: a tapped slot changes the time.
+    chat.say(first["label"], choice_id=first["id"])
+    assert chat.state()["visit"]["label"] == first["label"]
+    assert chat.intents()[-1] == "slot_chosen"
+    # Tapping the same slot again changes nothing.
+    chat.say(first["label"], choice_id=first["id"])
+    assert chat.intents()[-1] == "after_hand_off"
+
+
+def test_another_property_gets_its_own_slots_and_then_replaces_the_visit() -> None:
+    chat = Chat()
+    for text in DONE_WHEN:
+        chat.say(text)
+    cards = chat.turns[2][0]["cards"]
+    _pick_first_slot(chat)
+
+    (offer,) = chat.say("Mejor la segunda propiedad", choice_id=cards[1]["id"])
+    assert offer["slots"] and chat.intents()[-1] == "offer_slots"
+    chat.say(offer["slots"][1]["label"], choice_id=offer["slots"][1]["id"])
+
+    visit = chat.state()["visit"]
+    assert (visit["property_id"], visit["label"]) == (cards[1]["id"], offer["slots"][1]["label"])
+
+
+def test_a_tapped_choice_wins_over_the_text_and_must_have_been_offered() -> None:
+    chat = Chat()
+    for text in DONE_WHEN[:3]:
+        chat.say(text)
+    cards = chat.turns[2][0]["cards"]
+
+    chat.say("la primera", choice_id="not-offered")
+    assert chat.state()["visit_offer"]["property_id"] == cards[0]["id"]
+    (offer,) = chat.turns[-1]
+    chat.say("la primera", choice_id=offer["slots"][1]["id"])
+    assert chat.state()["visit"]["label"] == offer["slots"][1]["label"]
+
+
+def test_a_contact_known_by_the_channel_is_never_asked_for() -> None:
+    chat = Chat(visitor_contact="+54 9 11 5555-0188")
+    for text in [*DONE_WHEN]:
+        chat.say(text)
+    _pick_first_slot(chat)
+    chat.say("Me llamo Ana Pérez")
+
+    assert "ask_contact" not in chat.intents()
+    assert chat.state()["contact"] == "+54 9 11 5555-0188"
+    assert chat.state()["hand_off_reason"] == "visit"
 
 
 @pytest.mark.parametrize("step", range(len(DONE_WHEN) + 2))
@@ -274,7 +343,7 @@ def test_out_of_hours_the_agent_still_proposes_slots_and_says_the_team_confirms(
         chat.say(text)
 
     (offer,) = chat.turns[-1]
-    assert [slot["label"] for slot in offer["slots"]] == ["lunes 9/11, 09:00", "lunes 9/11, 09:30"]
+    assert [slot["label"] for slot in offer["slots"]] == ["lunes 9/11, 09:00", "lunes 9/11, 12:00"]
     assert "te lo confirman apenas vuelvan" in offer["text"]
 
 
@@ -369,3 +438,18 @@ def test_plan_never_asks_for_personal_data_before_showing_options() -> None:
 
     assert [step.intent for step in steps] == [ReplyIntent.ASK]
     assert steps[0].question is not None and steps[0].question.key == "zone"
+
+
+def test_each_reply_only_gets_the_facts_of_its_own_step() -> None:
+    chat = Chat(visitor_contact="+54 9 11 5555-0188")
+    for text in DONE_WHEN:
+        chat.say(text)
+    (offer,) = chat.turns[-1]
+    chat.say("Me llamo Ana Pérez")
+    slot = offer["slots"][0]
+    chat.say(slot["label"], choice_id=slot["id"])
+
+    chosen, hand_off = chat.llm.replies[-2:]
+    assert (chosen.intent, hand_off.intent) == (ReplyIntent.SLOT_CHOSEN, ReplyIntent.HAND_OFF)
+    assert "slot" in chosen.facts
+    assert set(hand_off.facts) == {"visitor_name"}

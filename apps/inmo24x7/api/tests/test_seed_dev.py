@@ -19,6 +19,7 @@ TABLES = (
     "agent_config_versions",
     "properties",
     "property_imports",
+    "whatsapp_connections",
 )
 
 
@@ -41,6 +42,7 @@ def test_seed_creates_the_dev_accounts_and_running_it_twice_changes_nothing(db_s
     assert _snapshot(db_session) == first
     assert first["tenants"] == 2 and first["profiles"] == 2
     assert first["properties"] == 20 and first["property_imports"] == 1
+    assert first["whatsapp_connections"] == 1
     admin = db_session.execute(
         text("SELECT id, is_platform_admin FROM profiles WHERE email = 'admin@local.test'")
     ).one()

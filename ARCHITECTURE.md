@@ -18,7 +18,10 @@ In `packages/core`:
 
 - **Tenancy**: customers, plans, onboarding, notifications, and audit log.
 - **Identity**: profiles, roles, and global administration.
-- **Messaging**: WhatsApp Cloud API and Embedded Signup.
+- **Messaging**: WhatsApp Cloud API: connections, the webhook pipeline and sending (Embedded
+  Signup on Day 7).
+- **Scheduling**: background jobs in Postgres and the worker that runs them.
+- **Notifications**: email to the business behind an `EmailSender` port.
 - **Conversation**: follow-up threads, agent runtime, and human handoff.
 
 In `apps/inmo24x7/api`:
@@ -33,8 +36,8 @@ Both product contexts follow the same domain/application/infrastructure layout a
 ## Current boundaries
 
 - Authentication is provided by Supabase Auth behind a `TokenVerifier` port; profiles carry roles and the platform-admin flag. See "Auth modes" for local development.
-- The agent runs on LangGraph behind the `AgentRuntime` port; the simulator is its only channel
-  until WhatsApp arrives with the messaging and connection flows.
+- The agent runs on LangGraph behind the `AgentRuntime` port; the simulator and WhatsApp are its
+  channels, both through `HandleIncomingMessage`.
 - API integration tests run against a dedicated Postgres test database. Core unit tests use in-memory repositories.
 
 ## Onboarding, business settings and agent configuration
@@ -254,3 +257,87 @@ Tracing is observability only: the agent behaves the same with it off, which is 
   environment says. Pending runs are flushed on API shutdown. Tests and CI force tracing off.
 - Prompts stay as versioned files in the repo (no LangSmith prompt hub); datasets and
   evaluations come later.
+
+## Scheduling (jobs)
+
+Work that must survive a restart and must not run inside a request is a **job** in the
+`jobs` table (core `scheduling`; Day 9 extends it for reminders).
+
+- **Enqueue in the caller's transaction**, so a job exists only if the work that created it
+  committed. A `dedupe_key` (unique) drops a second job with the same key: one email per lead
+  and kind, one processing job per WhatsApp message, one purge per day.
+- **Claim with `FOR UPDATE SKIP LOCKED`**: two workers never get the same job. A claim sets
+  `locked_until`; a job whose worker died is reclaimed when its lock expires.
+- **Outcomes**: done; a failure retries with exponential backoff and jitter; past
+  `max_attempts` the job is `dead` and logged as an error. A handler can also return
+  `Reschedule` (not yet, without spending an attempt: the debounce) or `RetryLater` (keep the
+  work done so far, retry the rest: a send interrupted by a 429).
+- Claiming, running and recording the outcome are separate transactions, so delivery is
+  at-least-once and handlers are idempotent.
+- **One handler per kind** (`JobHandlers`), tested like the tool registry: every `NewJob(...)`
+  in the code has exactly one handler.
+- **The worker** is `python -m inmo24x7_api.worker`: `WORKER_CONCURRENCY` threads, each with its
+  own sessions; SIGTERM lets running jobs finish. `dev.py` starts it; production runs the API
+  image with that command.
+
+## Messaging (WhatsApp)
+
+### The pipeline
+
+```text
+Meta ─POST /webhooks/whatsapp─▶ verify signature ─▶ inbound event (unique wamid) ─▶ job
+                                          (200 in ms; no model, no Meta call)
+worker: whatsapp.process ─▶ debounce ─▶ one agent turn for the burst ─▶ outbound parts (queued)
+worker: whatsapp.send ─▶ Cloud API, in order ─▶ wamid ─▶ statuses from Meta: sent/delivered/read
+```
+
+- **Webhook.** The signature (`X-Hub-Signature-256`, HMAC-SHA256 with `META_APP_SECRET`,
+  constant-time compare) is checked over the raw body before parsing. Each message becomes a
+  `whatsapp_inbound_events` row; the unique `wamid` makes the database drop Meta's retries. An
+  unknown or disconnected `phone_number_id` is stored as `ignored` (with a warning) and still
+  gets 200. Status notifications update our outbound parts by wamid, only forward
+  (read > delivered > sent; failed keeps Meta's code).
+- **Debounce and ordering.** Each event enqueues a processing job `INBOUND_DEBOUNCE_SECONDS`
+  later. The job takes the thread's advisory lock (the same one as every turn), and while the
+  newest pending event is younger than the debounce it reschedules itself; then it takes every
+  pending event of the conversation in order and runs one turn. Each message is stored on its
+  own in the transcript; the agent reads them joined. Later jobs of the burst find nothing.
+- **Channel facts.** The thread key is `tenant:whatsapp:<wa_id>`. The visitor's number becomes
+  the lead's contact, so the agent never asks for a phone on WhatsApp. A tapped reply button
+  carries the slot id: `choice_id` is the same path the simulator's slot buttons use, and the
+  graph accepts only ids it offered. Media (audio, images, ...) is stored with its type and gets
+  a fixed reply without the model; reactions are ignored. Processed messages are marked read.
+- **Why sending is a job.** The turn stores its replies and their rendered parts
+  (`whatsapp_outbound`, `queued`) in the turn's transaction and enqueues one send job, so a Meta
+  outage never rolls back a turn and a retry never sends a part twice (parts with a wamid are
+  skipped). 429/5xx retry with backoff; permanent errors mark the part `failed` with Meta's code
+  and the rest still goes out.
+- **Rendering** is the product's: text (split above 4,096 characters), one message per property
+  card (bold title, address, price, the over-budget note and the listing link with preview), visit
+  slots as reply buttons (at most 3, titles of 20 characters, ids = slot ids). System messages
+  such as the hand-off event are never sent.
+- **The 24-hour window.** Free-form messages go only if the visitor wrote in the last 24 hours;
+  otherwise the part fails with `outside_service_window`. `send_template` (the connection's
+  template, `hello_world` on Meta test numbers) is the way to write outside it (Day 6 confirms
+  visits with it).
+- **Senders** sit behind `WhatsAppSender`: `CloudApiSender` (httpx, `META_GRAPH_API_VERSION`,
+  v26.0 by default), `LogSender` for local development (fake wamids; simulated sent → delivered
+  → read go through the same status code as Meta's), and a recording fake in tests (the Graph API
+  is mocked at the HTTP level). Each connection stores which one it uses.
+- **Connections** are one per tenant, created by hand in the backoffice today. The access token
+  is encrypted with AES-256-GCM (`TOKEN_ENCRYPTION_KEY`), stored as `k1:<base64>` so keys can be
+  rotated, and never returned or logged. Raw webhook payloads (personal data) are purged after
+  30 days by a daily job; the rows and statuses stay.
+- **Phones** are normalized with `phonenumbers`: E.164 stored, "+54 9 11 5555-0188" shown,
+  replies always to the `wa_id` as Meta sent it.
+- **Logs** carry ids, codes and timings, never message text, phone numbers or emails.
+
+### New-lead email
+
+`RecordLeadTurn` enqueues, in the turn's transaction and only for real leads (never simulator
+tests), a hand-off email ("Nueva consulta", with the answers and the visit or the request) and a
+"Consulta en curso" email 15 minutes after the first message, which is skipped if the lead was
+handed off by then. Dedupe keys make it at most one of each per lead. They go to the tenant's
+notification emails through SMTP (Mailpit locally), with a link to
+`{PANEL_URL}/consultas?lead=<id>`.
+

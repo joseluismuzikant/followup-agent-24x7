@@ -164,3 +164,18 @@ def test_team_hours_decide_the_slots(client: TestClient, auth) -> None:
         weekday, hour = slot["label"].split(",")[0].split()[0], slot["label"].split(", ")[1]
         assert weekday == "martes"
         assert time(10) <= time.fromisoformat(hour) < time(12)
+
+
+def test_picking_another_slot_replaces_the_proposed_visit(owner: Account) -> None:
+    for message in ["Hola", "Quiero alquilar", "Palermo"]:
+        _say(owner, message)
+    offer = _say(owner, "Me interesa la primera")["messages"][-1]
+    first, second = offer["slots"]
+    owner.post("/simulator/messages", {"text": first["label"], "choice_id": first["id"]})
+    owner.post("/simulator/messages", {"text": second["label"], "choice_id": second["id"]})
+
+    (lead,) = owner.get("/leads?include_test=true").json()["items"]
+    visits = owner.get(f"/leads/{lead['id']}").json()["visits"]
+    assert [visit["status"] for visit in visits] == ["cancelled", "proposed"]
+    assert visits[0]["starts_at"] != visits[1]["starts_at"]
+    assert lead["status"] == "visit_proposed"

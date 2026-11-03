@@ -23,10 +23,11 @@ export async function fetchTenantSimulator(tenantId: string): Promise<SimulatorS
 export async function sendTenantSimulatorMessage(
   tenantId: string,
   text: string,
+  choiceId?: string,
 ): Promise<SimulatorReply> {
   const { data, error, response } = await apiClient.POST(
     "/admin/tenants/{tenant_id}/simulator/messages",
-    { ...params(tenantId), body: { text } },
+    { ...params(tenantId), body: { text, choice_id: choiceId ?? null } },
   );
   if (data) {
     return data;

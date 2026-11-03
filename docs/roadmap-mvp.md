@@ -176,6 +176,18 @@ property count real leads only, not simulator tests.
 **Done when:** you message the test number from your phone and the agent qualifies you end to
 end; the agency receives the new-lead notification.
 
+**Status: done**, together with the Day 4 follow-ups (backoffice access screen, two real visit
+alternatives, replacing a proposed visit). Path A works without a Meta account:
+`scripts/simulate_whatsapp.py` posts signed webhooks, the log sender answers and Mailpit receives
+the email.
+
+**Moved or changed:** the Postgres job queue and the worker (the first piece of Day 9's
+Scheduling context) moved forward to this day, because the webhook must answer Meta at once and
+processing, sending and emails must survive restarts. The number is connected by hand in the
+backoffice (Day 7 adds Embedded Signup). The visit-confirmation template is stored per connection
+and only the backoffice test message uses it today (Day 6 confirms visits with it). WhatsApp
+notifications to the agency remain a stretch goal.
+
 ### Day 6: the inbox and dashboard KPIs
 
 - S6 inbox: full transcript, human takeover (pause the agent per thread and reply through

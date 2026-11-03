@@ -1,5 +1,7 @@
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
@@ -18,7 +20,9 @@ from followup_core.conversation.application.simulator import (
 from followup_core.conversation.application.threads import (
     GetThread,
     HandleIncomingMessage,
+    ReplyWithoutAgent,
     StartNewThread,
+    utc_now,
 )
 from followup_core.conversation.domain.llm import LanguageModel
 from followup_core.conversation.domain.runtime import BusinessContext
@@ -36,6 +40,44 @@ from followup_core.identity.domain.token_verifier import TokenVerifier
 from followup_core.identity.infrastructure.dev_verifier import DevTokenVerifier
 from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
 from followup_core.identity.infrastructure.supabase_verifier import SupabaseJwtVerifier
+from followup_core.messaging.application.connections import (
+    ConnectionDefaults,
+    GraphPort,
+    ManageConnection,
+    SaveConnection,
+)
+from followup_core.messaging.application.pipeline import (
+    MARK_READ_JOB,
+    PROCESS_JOB,
+    PURGE_JOB,
+    SEND_JOB,
+    ApplyDeliveryStatus,
+    IngestWebhook,
+    MarkRead,
+    ProcessInbound,
+    PurgePayloads,
+    SenderFor,
+    SendQueued,
+)
+from followup_core.messaging.domain.connection import SenderKind, WhatsAppConnection
+from followup_core.messaging.domain.outbound import WhatsAppSender
+from followup_core.messaging.infrastructure.crypto import TokenCipher
+from followup_core.messaging.infrastructure.graph import (
+    CloudApiSender,
+    CloudGraphPort,
+    GraphClient,
+    LogGraphPort,
+)
+from followup_core.messaging.infrastructure.log_sender import LOG_STATUS_JOB, LogSender
+from followup_core.messaging.infrastructure.repositories import (
+    SqlAlchemyConnectionRepository,
+    SqlAlchemyInboundEventRepository,
+    SqlAlchemyOutboundRepository,
+)
+from followup_core.notifications.domain.email import EmailSender
+from followup_core.notifications.infrastructure.smtp import SmtpEmailSender, SmtpSettings
+from followup_core.scheduling.domain.jobs import Job, JobHandlers, Reschedule
+from followup_core.scheduling.infrastructure.queue import SqlAlchemyJobQueue
 from followup_core.tenancy.application.agent_setup import (
     GetAgentSetup,
     ListAgentConfigVersions,
@@ -64,15 +106,21 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import StateGraph
 from sqlalchemy.orm import Session
 
-from .config import get_settings
+from .config import Settings, get_settings
 from .database import get_session
 from .defaults import build_setup_defaults
+from .leads.application.notify import (
+    HANDOFF_EMAIL_JOB,
+    IN_PROGRESS_EMAIL_JOB,
+    SendLeadEmail,
+)
 from .leads.application.queries import GetLead, ListLeads
 from .leads.application.record_turn import RecordLeadTurn
 from .leads.graph import build_lead_graph
 from .leads.infrastructure.repositories import SqlAlchemyLeadRepository
 from .leads.llm import build_language_model
 from .leads.tools import lead_tools
+from .leads.whatsapp import LeadMessageRenderer
 from .properties.application.properties import (
     CreateProperty,
     GetImportErrors,
@@ -137,6 +185,7 @@ def get_fact_providers(session: SessionDep) -> SetupFactProviders:
         agent_tested=SqlAlchemyConversationFacts(session).agent_tested,
         # Done after the first import (or the first property added by hand).
         own_properties=SqlAlchemyPropertyRepository(session).has_any,
+        whatsapp_connected=get_whatsapp_fact(session),
     )
 
 
@@ -305,7 +354,7 @@ def send_simulator_message_use_case(
         runtime,
         _agent_configs(session),
         business,
-        observers=[RecordLeadTurn(SqlAlchemyLeadRepository(session))],
+        observers=[RecordLeadTurn(SqlAlchemyLeadRepository(session), SqlAlchemyJobQueue(session))],
     )
     return SendSimulatorMessage(threads, messages, handle, business, daily_limit)
 
@@ -360,3 +409,178 @@ def get_lead_use_case(session: SessionDep) -> GetLead:
         SqlAlchemyMessageRepository(session),
         _agent_configs(session),
     )
+
+
+# --- Messaging (WhatsApp), jobs and email --------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MessagingServices:
+    """Process-wide clients, built once. Tests replace the whole bundle (fake Graph transport,
+    recording email sender)."""
+
+    settings: Settings
+    cipher: TokenCipher
+    graph: GraphClient
+    email: EmailSender
+
+
+@lru_cache
+def get_messaging_services() -> MessagingServices:
+    settings = get_settings()
+    return MessagingServices(
+        settings=settings,
+        cipher=TokenCipher.from_setting(settings.token_encryption_key),
+        graph=GraphClient(settings.meta_graph_base_url, settings.meta_graph_api_version),
+        email=SmtpEmailSender(
+            SmtpSettings(
+                host=settings.smtp_host,
+                port=settings.smtp_port,
+                username=settings.smtp_username,
+                password=settings.smtp_password,
+                starttls=settings.smtp_starttls,
+                sender=settings.email_from,
+            )
+        ),
+    )
+
+
+ServicesDep = Annotated[MessagingServices, Depends(get_messaging_services)]
+
+
+def sender_for(services: MessagingServices, queue: SqlAlchemyJobQueue) -> SenderFor:
+    """Each connection says how it sends: the Cloud API, or the log sender (development)."""
+
+    def choose(connection: WhatsAppConnection) -> WhatsAppSender:
+        if connection.sender is SenderKind.CLOUD:
+            return CloudApiSender(services.graph, services.cipher)
+        return LogSender(queue)
+
+    return choose
+
+
+def graph_for(services: MessagingServices) -> Callable[[WhatsAppConnection], GraphPort]:
+    def choose(connection: WhatsAppConnection) -> GraphPort:
+        if connection.sender is SenderKind.CLOUD:
+            return CloudGraphPort(services.graph, services.cipher)
+        return LogGraphPort()
+
+    return choose
+
+
+def ingest_webhook_use_case(session: SessionDep, services: ServicesDep) -> IngestWebhook:
+    outbound = SqlAlchemyOutboundRepository(session)
+    return IngestWebhook(
+        SqlAlchemyConnectionRepository(session),
+        SqlAlchemyInboundEventRepository(session),
+        ApplyDeliveryStatus(outbound),
+        SqlAlchemyJobQueue(session),
+        timedelta(seconds=services.settings.inbound_debounce_seconds),
+    )
+
+
+def get_webhook_secrets(services: ServicesDep) -> tuple[str, str]:
+    """(META_APP_SECRET, WHATSAPP_VERIFY_TOKEN)."""
+    return services.settings.meta_app_secret, services.settings.whatsapp_verify_token
+
+
+def save_connection_use_case(session: SessionDep, services: ServicesDep) -> SaveConnection:
+    settings = services.settings
+    return SaveConnection(
+        SqlAlchemyConnectionRepository(session),
+        services.cipher.encrypt,
+        ConnectionDefaults(
+            sender=SenderKind(settings.whatsapp_sender),
+            template_name=settings.whatsapp_default_template,
+            template_language=settings.whatsapp_default_template_language,
+        ),
+    )
+
+
+def manage_connection_use_case(session: SessionDep, services: ServicesDep) -> ManageConnection:
+    return ManageConnection(
+        SqlAlchemyConnectionRepository(session),
+        graph_for(services),
+        sender_for(services, SqlAlchemyJobQueue(session)),
+    )
+
+
+def delivery_statuses(session: SessionDep) -> SqlAlchemyOutboundRepository:
+    return SqlAlchemyOutboundRepository(session)
+
+
+def job_handlers(
+    session: Session,
+    services: MessagingServices,
+    llm: LanguageModel,
+    tracing: TurnTracing | None = None,
+    clock: Callable[[], datetime] = utc_now,
+) -> JobHandlers:
+    """Every job kind and its one handler (the worker builds this per job, on the job's
+    own session and transaction)."""
+    settings = services.settings
+    queue = SqlAlchemyJobQueue(session, clock)
+    connections = SqlAlchemyConnectionRepository(session)
+    events = SqlAlchemyInboundEventRepository(session)
+    outbound = SqlAlchemyOutboundRepository(session)
+    threads = SqlAlchemyThreadRepository(session)
+    messages = SqlAlchemyMessageRepository(session)
+    lock = PostgresAdvisoryThreadLock(session)
+    choose_sender = sender_for(services, queue)
+    debounce = timedelta(seconds=settings.inbound_debounce_seconds)
+
+    def process(job: Job) -> Reschedule | None:
+        # Built per job: the agent runtime needs this session's connection.
+        handle = HandleIncomingMessage(
+            threads,
+            messages,
+            lock,
+            agent_runtime(session, llm, tracing),
+            _agent_configs(session),
+            _business_context(session),
+            observers=[RecordLeadTurn(SqlAlchemyLeadRepository(session), queue)],
+        )
+        return ProcessInbound(
+            events,
+            connections,
+            outbound,
+            lock,
+            handle,
+            ReplyWithoutAgent(threads, messages, lock, _agent_configs(session)),
+            LeadMessageRenderer(settings.panel_url),
+            queue,
+            debounce,
+            clock,
+        )(job)
+
+    statuses = ApplyDeliveryStatus(outbound)
+
+    def log_status(job: Job) -> None:
+        """The log sender's simulated sent / delivered / read, through Meta's code path."""
+        statuses.execute(job.payload["wamid"], job.payload["status"], clock())
+
+    lead_email = SendLeadEmail(
+        get_lead_use_case(session),
+        SqlAlchemyBusinessSettingsRepository(session),
+        services.email,
+        settings.panel_url,
+    )
+    return JobHandlers(
+        [
+            (PROCESS_JOB, process),
+            (SEND_JOB, SendQueued(outbound, connections, choose_sender, clock)),
+            (MARK_READ_JOB, MarkRead(connections, choose_sender)),
+            (PURGE_JOB, PurgePayloads(events, queue, clock)),
+            (LOG_STATUS_JOB, log_status),
+            (HANDOFF_EMAIL_JOB, lead_email),
+            (IN_PROGRESS_EMAIL_JOB, lead_email),
+        ]
+    )
+
+
+def get_whatsapp_fact(session: Session) -> Callable[[UUID], bool]:
+    def connected(tenant_id: UUID) -> bool:
+        connection = SqlAlchemyConnectionRepository(session).get_by_tenant(tenant_id)
+        return connection is not None and connection.is_connected
+
+    return connected

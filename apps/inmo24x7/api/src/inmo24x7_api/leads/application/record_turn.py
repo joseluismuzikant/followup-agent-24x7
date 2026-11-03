@@ -7,9 +7,11 @@ from uuid import UUID, uuid4
 
 from followup_core.conversation.application.threads import HandledTurn
 from followup_core.conversation.domain.thread import Channel
+from followup_core.scheduling.domain.jobs import JobQueue
 
 from ..domain.lead import HandOffReason, Lead, LeadStatus, Visit, VisitStatus
 from ..domain.repositories import LeadRepository
+from .notify import queue_lead_emails
 
 
 def own_property_id(value: Any) -> UUID | None:
@@ -27,13 +29,16 @@ class RecordLeadTurn:
     the lead picked, the hand-off, and the own properties the agent showed.
     """
 
-    def __init__(self, leads: LeadRepository) -> None:
+    def __init__(self, leads: LeadRepository, queue: JobQueue | None = None) -> None:
         self._leads = leads
+        # New-lead emails (real leads only); None where they are not wanted.
+        self._queue = queue
 
     def on_turn(self, turn: HandledTurn) -> None:
         thread = turn.thread
         at = turn.inbound.created_at
-        lead = self._leads.get_by_thread(thread.id) or Lead.start(
+        existing = self._leads.get_by_thread(thread.id)
+        lead = existing or Lead.start(
             tenant_id=thread.tenant_id,
             thread_id=thread.id,
             thread_key=str(thread.key),
@@ -56,11 +61,38 @@ class RecordLeadTurn:
         if reason:
             lead = lead.hand_off(HandOffReason(reason), at)
         self._leads.save(lead)
+        if self._queue is not None:
+            queue_lead_emails(
+                self._queue,
+                lead,
+                started=existing is None,
+                handed_off_now=lead.is_handed_off
+                and (existing is None or not existing.is_handed_off),
+            )
 
-        if visit and not self._leads.visits(lead.id):
-            self._leads.add_visit(_visit(lead.id, visit, at))
+        if visit:
+            self._record_visit(lead.id, visit, at)
         shown = [own_property_id(item) for item in state.get("shown_property_ids") or []]
         self._leads.record_matches(lead.id, [item for item in shown if item], at)
+
+    def _record_visit(self, lead_id: UUID, visit: Mapping[str, Any], at: datetime) -> None:
+        """The visit in the state is the current one: a different slot or property cancels
+        the proposed visit and records the new one."""
+        wanted = _visit(lead_id, visit, at)
+        visits = self._leads.visits(lead_id)
+        if any(item.status is VisitStatus.CONFIRMED for item in visits):
+            # Confirmed by the team (Day 6): the agent never overrides it.
+            return
+        current = next((item for item in visits if item.status is VisitStatus.PROPOSED), None)
+        if current is not None:
+            if (current.starts_at, current.property_id, current.property_label) == (
+                wanted.starts_at,
+                wanted.property_id,
+                wanted.property_label,
+            ):
+                return
+            self._leads.set_visit_status(current.id, VisitStatus.CANCELLED)
+        self._leads.add_visit(wanted)
 
 
 def _visit(lead_id: UUID, visit: Mapping[str, Any], at: datetime) -> Visit:

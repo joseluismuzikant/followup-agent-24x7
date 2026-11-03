@@ -37,4 +37,5 @@ class MessageModel(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     trace_run_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    content_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

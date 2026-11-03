@@ -9,7 +9,7 @@ from followup_core.tenancy.domain.business_settings import ScheduleBlock
 from inmo24x7_api.leads.domain.contact import normalize_contact
 from inmo24x7_api.leads.domain.errors import InvalidLeadTransitionError
 from inmo24x7_api.leads.domain.lead import HandOffReason, Lead, LeadStatus
-from inmo24x7_api.leads.domain.slots import propose_slots, slot_label
+from inmo24x7_api.leads.domain.slots import propose_slots, short_slot_label, slot_label
 
 BA = "America/Argentina/Buenos_Aires"
 WEEKDAYS_9_18 = tuple(ScheduleBlock(day, time(9), time(18)) for day in range(5))
@@ -91,18 +91,25 @@ def _local(slots: list[datetime]) -> list[str]:
     return [slot.astimezone(ZoneInfo(BA)).strftime("%a %d %H:%M") for slot in slots]
 
 
-def test_slots_inside_hours_start_two_hours_ahead_on_the_half_hour() -> None:
-    # Tuesday 11:10 in Buenos Aires.
+def test_slots_are_two_real_alternatives_at_least_three_hours_apart() -> None:
+    # Tuesday 11:10 in Buenos Aires: 13:30 is the first free half hour, 16:30 the alternative.
     now = datetime(2026, 11, 3, 14, 10, tzinfo=UTC)
 
-    assert _local(propose_slots(WEEKDAYS_9_18, BA, now)) == ["Tue 03 13:30", "Tue 03 14:00"]
+    assert _local(propose_slots(WEEKDAYS_9_18, BA, now)) == ["Tue 03 13:30", "Tue 03 16:30"]
+
+
+def test_the_alternative_moves_to_the_next_day_when_the_day_ends_first() -> None:
+    # Tuesday 13:00: the first slot is 15:00 and nothing 3 hours later fits before 18:00.
+    now = datetime(2026, 11, 3, 16, 0, tzinfo=UTC)
+
+    assert _local(propose_slots(WEEKDAYS_9_18, BA, now)) == ["Tue 03 15:00", "Wed 04 09:00"]
 
 
 def test_slots_skip_closed_days_and_the_end_of_the_day() -> None:
     # Friday 16:00: 18:00 is closing time, so the next slots are on Monday.
     friday = datetime(2026, 11, 6, 19, 0, tzinfo=UTC)
 
-    assert _local(propose_slots(WEEKDAYS_9_18, BA, friday)) == ["Mon 09 09:00", "Mon 09 09:30"]
+    assert _local(propose_slots(WEEKDAYS_9_18, BA, friday)) == ["Mon 09 09:00", "Mon 09 12:00"]
 
 
 def test_slots_are_only_proposed_inside_hours_even_after_hours() -> None:
@@ -110,7 +117,7 @@ def test_slots_are_only_proposed_inside_hours_even_after_hours() -> None:
 
     slots = propose_slots(WEEKDAYS_9_18, BA, saturday_night)
 
-    assert _local(slots) == ["Mon 09 09:00", "Mon 09 09:30"]
+    assert _local(slots) == ["Mon 09 09:00", "Mon 09 12:00"]
     assert all(slot > saturday_night for slot in slots)
 
 
@@ -128,7 +135,8 @@ def test_a_slot_must_end_inside_the_block_and_split_blocks_work() -> None:
     hours = (ScheduleBlock(1, time(9), time(10)), ScheduleBlock(1, time(15), time(16)))
     now = datetime(2026, 11, 3, 11, 30, tzinfo=UTC)  # Tuesday 08:30: 10:30 is the earliest
 
-    assert _local(propose_slots(hours, BA, now)) == ["Tue 03 15:00", "Tue 03 15:30"]
+    # 15:30 is too close to 15:00, so the alternative is the next Tuesday.
+    assert _local(propose_slots(hours, BA, now)) == ["Tue 03 15:00", "Tue 10 09:00"]
 
 
 def test_no_hours_means_no_slots() -> None:
@@ -139,6 +147,9 @@ def test_slot_labels_are_in_spanish() -> None:
     start = datetime(2026, 11, 4, 10, 30, tzinfo=ZoneInfo(BA))
 
     assert slot_label(start) == "miércoles 4/11, 10:30"
+    assert short_slot_label(start) == "mié 4/11 10:30"
+    longest = datetime(2026, 12, 30, 18, 30, tzinfo=ZoneInfo(BA))
+    assert len(short_slot_label(longest)) <= 20
 
 
 # --- Contact ----------------------------------------------------------------------------
@@ -152,8 +163,8 @@ def test_slot_labels_are_in_spanish() -> None:
         ("15 5555 1234", "+54 9 11 5555-1234"),
         ("+54 9 11 5555 1234", "+54 9 11 5555-1234"),
         ("+541155551234", "+54 9 11 5555-1234"),
-        ("0341 15 456-7890", "+54 9 3414567890"),
-        ("(0351) 456-7890", "+54 9 3514567890"),
+        ("0341 15 456-7890", "+54 9 341 456-7890"),
+        ("(0351) 456-7890", "+54 9 351 456-7890"),
         ("Ana@Example.com", "ana@example.com"),
         ("5555-1234", None),
         ("123", None),

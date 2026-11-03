@@ -1,3 +1,4 @@
+import { ApiRequestError } from "@followup/api-client-inmo24x7";
 import { Button, Card, CardContent, CardHeader, CardTitle, DevSignIn } from "@followup/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -88,12 +89,66 @@ function BackofficeSignIn() {
   );
 }
 
+function accessError(error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 401) {
+      return "Tu sesión no es válida o venció. Cerrá sesión y volvé a entrar.";
+    }
+    if (error.code === "profile_not_found") {
+      return "Este usuario no tiene una cuenta en inmo24x7. Pedile acceso a un administrador.";
+    }
+    return "No pudimos verificar tu acceso. Probá de nuevo.";
+  }
+  return "No pudimos conectarnos con el servidor. Revisá tu conexión y probá de nuevo.";
+}
+
+function AccessCard({
+  email,
+  title,
+  message,
+  onRetry,
+  onSignOut,
+}: {
+  email: string;
+  title: string;
+  message: string;
+  onRetry?: () => void;
+  onSignOut: () => void;
+}) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <p className="text-sm text-muted-foreground" role={onRetry ? "alert" : undefined}>
+            {message}
+          </p>
+          {email ? (
+            <p className="text-sm">
+              Entraste como <span className="font-medium">{email}</span>
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {onRetry ? <Button onClick={onRetry}>Reintentar</Button> : null}
+            <Button variant="outline" onClick={onSignOut}>
+              Cerrar sesión
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function RequireAdmin({ children }: { children: ReactNode }) {
-  const { session, loading } = useAuth();
+  const { session, loading, signOut } = useAuth();
   const meQuery = useQuery({
     queryKey: ["me"],
     queryFn: fetchMe,
     enabled: !loading && Boolean(session),
+    retry: false,
   });
 
   if (loading) {
@@ -105,13 +160,25 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   if (meQuery.isPending) {
     return <p className="p-8 text-sm text-muted-foreground">Cargando...</p>;
   }
-  if (meQuery.isError || !meQuery.data.profile.is_platform_admin) {
+  if (meQuery.isError) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <p className="text-sm text-muted-foreground">
-          Solo administradores de la plataforma.
-        </p>
-      </div>
+      <AccessCard
+        email={session.email}
+        title="No pudimos entrar al backoffice"
+        message={accessError(meQuery.error)}
+        onRetry={() => void meQuery.refetch()}
+        onSignOut={() => void signOut()}
+      />
+    );
+  }
+  if (!meQuery.data.profile.is_platform_admin) {
+    return (
+      <AccessCard
+        email={session.email || meQuery.data.profile.email}
+        title="Backoffice"
+        message="Solo administradores de la plataforma."
+        onSignOut={() => void signOut()}
+      />
     );
   }
   return <>{children}</>;

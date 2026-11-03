@@ -36,8 +36,9 @@ ADMIN = DevAccount("admin@local.test", "Plataforma", "administrador de la plataf
 OWNER = DevAccount(
     "dueno@inmobiliariasur.test",
     "Inmobiliaria Sur",
-    "dueño de Inmobiliaria Sur, configurada y con 20 propiedades",
+    "dueño de Inmobiliaria Sur: 20 propiedades y WhatsApp de prueba (dev-phone-1)",
 )
+DEV_PHONE_NUMBER_ID = "dev-phone-1"
 NEW = DevAccount("nuevo@local.test", None, "sin cuenta: para probar el alta y el asistente")
 ACCOUNTS = (ADMIN, OWNER, NEW)
 
@@ -125,6 +126,31 @@ def _configure_owner(session: Session, tenant_id, profile_id) -> None:
         import_properties_use_case(session).execute(
             tenant_id, profile_id, SAMPLE_PROPERTIES.name, SAMPLE_PROPERTIES.read_bytes()
         )
+    _connect_whatsapp(session, tenant_id)
+
+
+def _connect_whatsapp(session: Session, tenant_id) -> None:
+    """A fake number with the log sender: scripts/simulate_whatsapp.py talks to it and
+    nothing ever reaches Meta."""
+    from followup_core.messaging.application.connections import ConnectionDraft
+    from followup_core.messaging.domain.connection import SenderKind
+    from followup_core.messaging.infrastructure.repositories import (
+        SqlAlchemyConnectionRepository,
+    )
+    from inmo24x7_api.container import get_messaging_services, save_connection_use_case
+
+    if SqlAlchemyConnectionRepository(session).get_by_tenant(tenant_id) is not None:
+        return
+    save_connection_use_case(session, get_messaging_services()).execute(
+        tenant_id,
+        ConnectionDraft(
+            phone_number_id=DEV_PHONE_NUMBER_ID,
+            waba_id="dev-waba-1",
+            display_phone_number="+54 9 11 5555-0100",
+            access_token="dev-token-not-used-by-the-log-sender",
+            sender=SenderKind.LOG,
+        ),
+    )
 
 
 def seed(session: Session) -> None:

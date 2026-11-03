@@ -13,6 +13,18 @@ def clear_settings_cache():
     get_settings.cache_clear()
 
 
+PRODUCTION_MESSAGING = {
+    "META_APP_SECRET": "real-app-secret",
+    "WHATSAPP_VERIFY_TOKEN": "real-verify-token",
+    "WHATSAPP_SENDER": "cloud",
+    # base64 of 32 bytes, not the development key.
+    "TOKEN_ENCRYPTION_KEY": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+    "SMTP_HOST": "smtp.example.com",
+    "EMAIL_FROM": "inmo24x7 <avisos@example.com>",
+    "PANEL_URL": "https://app.example.com",
+}
+
+
 def _production_env(monkeypatch, *, database_url: str | None = None, cors: str | None = None):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
@@ -20,6 +32,8 @@ def _production_env(monkeypatch, *, database_url: str | None = None, cors: str |
     monkeypatch.setenv("LLM_MODEL", "anthropic:claude-sonnet-5-5")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.delenv("AUTH_MODE", raising=False)
+    for name, value in PRODUCTION_MESSAGING.items():
+        monkeypatch.setenv(name, value)
     if database_url is None:
         monkeypatch.delenv("DATABASE_URL", raising=False)
     else:
@@ -221,4 +235,53 @@ def test_supabase_auth_in_development_needs_a_verification_method(monkeypatch) -
     monkeypatch.delenv("SUPABASE_JWKS_URL", raising=False)
 
     with pytest.raises(ConfigurationError, match="AUTH_MODE=supabase needs"):
+        get_settings()
+
+
+def test_development_has_working_messaging_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    for name in PRODUCTION_MESSAGING:
+        monkeypatch.delenv(name, raising=False)
+
+    settings = get_settings()
+
+    assert settings.whatsapp_sender == "log"
+    assert settings.meta_graph_api_version == "v26.0"
+    assert (settings.smtp_host, settings.smtp_port, settings.smtp_starttls) == (
+        "localhost",
+        1025,
+        False,
+    )
+    assert settings.panel_url == "http://localhost:5173"
+
+
+@pytest.mark.parametrize("name", sorted(PRODUCTION_MESSAGING))
+def test_production_requires_every_messaging_setting(monkeypatch, name: str) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.delenv(name)
+
+    if name == "WHATSAPP_SENDER":
+        # Defaults to cloud in production.
+        assert get_settings().whatsapp_sender == "cloud"
+        return
+    with pytest.raises(ConfigurationError, match=name):
+        get_settings()
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("WHATSAPP_SENDER", "log", "WHATSAPP_SENDER must be 'cloud'"),
+        ("TOKEN_ENCRYPTION_KEY", "aW5tbzI0eDctZGV2LW9ubHktdG9rZW4ta2V5LTAwMDE=", "development key"),
+        ("TOKEN_ENCRYPTION_KEY", "c2hvcnQ=", "32 bytes"),
+        ("META_APP_SECRET", "dev-app-secret", "META_APP_SECRET"),
+    ],
+)
+def test_production_rejects_development_messaging_values(
+    monkeypatch, name: str, value: str, message: str
+) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ConfigurationError, match=message):
         get_settings()
