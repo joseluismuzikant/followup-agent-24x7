@@ -131,12 +131,12 @@ describe("ChatSimulator visit slots and system events", () => {
     },
   ];
 
-  it("renders the slots as buttons that send the label", async () => {
+  it("renders the slots as buttons that send the label and the slot id", async () => {
     const { onSend, user } = renderChat({ messages: offer });
 
     await user.click(screen.getByRole("button", { name: "martes 3/11, 13:30" }));
 
-    expect(onSend).toHaveBeenCalledWith("martes 3/11, 13:30");
+    expect(onSend).toHaveBeenCalledWith("martes 3/11, 13:30", "slot-2");
   });
 
   it("hides old slot buttons once the visitor answered, and shows system events", () => {

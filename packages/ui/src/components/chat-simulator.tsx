@@ -29,7 +29,8 @@ interface ChatSimulatorProps {
   agentName: string;
   businessName: string;
   messages: readonly ChatMessage[];
-  onSend: (text: string) => void;
+  /** `choiceId` is set when a quick reply (visit slot) was tapped. */
+  onSend: (text: string, choiceId?: string) => void;
   onReset: () => void;
   /** Shows the typing indicator and blocks sending. */
   typing?: boolean;
@@ -146,7 +147,7 @@ function ChatSimulator({
                     variant="outline"
                     size="sm"
                     disabled={typing}
-                    onClick={() => onSend(slot.label)}
+                    onClick={() => onSend(slot.label, slot.id)}
                   >
                     {slot.label}
                   </Button>

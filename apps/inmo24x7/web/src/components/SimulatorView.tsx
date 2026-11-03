@@ -11,8 +11,13 @@ import { apiErrorMessage } from "../lib/api-errors";
 
 const SIMULATOR_KEY = ["simulator"];
 
-interface PendingMessage {
+interface Outgoing {
   text: string;
+  /** The tapped quick reply (visit slot), sent like WhatsApp reply buttons. */
+  choiceId?: string;
+}
+
+interface PendingMessage extends Outgoing {
   failed: boolean;
   retryable: boolean;
 }
@@ -35,12 +40,12 @@ export function SimulatorView() {
   const [error, setError] = useState<string | null>(null);
 
   const send = useMutation({
-    mutationFn: sendSimulatorMessage,
-    onMutate: (text) => {
-      setPending({ text, failed: false, retryable: false });
+    mutationFn: ({ text, choiceId }: Outgoing) => sendSimulatorMessage(text, choiceId),
+    onMutate: ({ text, choiceId }) => {
+      setPending({ text, choiceId, failed: false, retryable: false });
       setError(null);
     },
-    onSuccess: async (reply, text) => {
+    onSuccess: async (reply, { text }) => {
       queryClient.setQueryData<SimulatorState>(SIMULATOR_KEY, (current) =>
         current
           ? {
@@ -53,6 +58,7 @@ export function SimulatorView() {
                   author: "visitor",
                   text,
                   cards: null,
+                  content_type: "text",
                   created_at: new Date().toISOString(),
                 },
                 ...reply.messages,
@@ -65,9 +71,9 @@ export function SimulatorView() {
       await queryClient.invalidateQueries({ queryKey: SIMULATOR_KEY });
       await queryClient.invalidateQueries({ queryKey: ["onboarding"] });
     },
-    onError: (failure, text) => {
+    onError: (failure, { text, choiceId }) => {
       const unavailable = failure instanceof ApiRequestError && failure.code === "agent_unavailable";
-      setPending({ text, failed: true, retryable: unavailable });
+      setPending({ text, choiceId, failed: true, retryable: unavailable });
       setError(
         unavailable
           ? "Tu agente no pudo responder ahora. Probá de nuevo."
@@ -129,7 +135,7 @@ export function SimulatorView() {
           messages={messages}
           typing={send.isPending}
           resetting={reset.isPending}
-          onSend={(text) => send.mutate(text)}
+          onSend={(text, choiceId) => send.mutate({ text, choiceId })}
           onReset={() => reset.mutate()}
           notice={
             error ? (
@@ -138,7 +144,7 @@ export function SimulatorView() {
                   {error}
                 </p>
                 {pending?.retryable ? (
-                  <Button size="sm" variant="outline" onClick={() => send.mutate(pending.text)}>
+                  <Button size="sm" variant="outline" onClick={() => send.mutate({ text: pending.text, choiceId: pending.choiceId })}>
                     Reintentar
                   </Button>
                 ) : null}

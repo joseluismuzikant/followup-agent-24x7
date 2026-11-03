@@ -2,6 +2,7 @@ import type { Lead, LeadDetail } from "@followup/api-client-inmo24x7";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchLead, fetchLeads } from "../api/leads";
@@ -54,6 +55,7 @@ const detail: LeadDetail = {
       author: "visitor",
       text: "Hola",
       cards: null,
+      content_type: "text",
       created_at: "2026-11-02T14:50:00Z",
     },
     {
@@ -62,16 +64,19 @@ const detail: LeadDetail = {
       author: "system",
       text: "El agente derivó la consulta a tu equipo",
       cards: null,
+      content_type: "text",
       created_at: "2026-11-02T15:00:00Z",
     },
   ],
 };
 
-function renderPage() {
+function renderPage(path = "/consultas") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <ConsultasPage />
+      <MemoryRouter initialEntries={[path]}>
+        <ConsultasPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   return userEvent.setup();
@@ -127,5 +132,56 @@ describe("ConsultasPage", () => {
     expect(within(panel).getByText("Palermo")).toBeTruthy();
     // Takeover and confirming the visit come on Day 6.
     expect(within(panel).queryByRole("button")).toBeNull();
+  });
+
+  it("shows WhatsApp leads as real, with delivery labels and media types", async () => {
+    vi.mocked(fetchLead).mockResolvedValue({
+      ...detail,
+      is_test: false,
+      channel: "whatsapp",
+      transcript: [
+        {
+          id: "w1",
+          direction: "inbound",
+          author: "visitor",
+          text: "",
+          cards: null,
+          content_type: "audio",
+          created_at: "2026-11-02T14:50:00Z",
+        },
+        {
+          id: "w2",
+          direction: "outbound",
+          author: "agent",
+          text: "Por ahora solo puedo leer mensajes de texto. ¿Me lo escribís?",
+          cards: null,
+          content_type: "text",
+          delivery_status: "read",
+          created_at: "2026-11-02T14:50:05Z",
+        },
+        {
+          id: "w3",
+          direction: "outbound",
+          author: "agent",
+          text: "¿Seguís ahí?",
+          cards: null,
+          content_type: "text",
+          delivery_status: "failed",
+          created_at: "2026-11-03T16:00:00Z",
+        },
+      ],
+    });
+
+    renderPage("/consultas?lead=l2");
+
+    const panel = await screen.findByRole("complementary", { name: "Detalle de la consulta" });
+    expect(within(panel).getByText(/por WhatsApp/)).toBeTruthy();
+    expect(within(panel).queryByText("Prueba")).toBeNull();
+    expect(within(panel).getByText("Audio")).toBeTruthy();
+    expect(within(panel).getByText("Leído")).toBeTruthy();
+    expect(within(panel).getByText("No se pudo enviar")).toBeTruthy();
+    expect(vi.mocked(fetchLead)).toHaveBeenCalledWith("l2");
+    const row = screen.getByText("+54 9 11 4444-0000").closest("tr") as HTMLElement;
+    expect(within(row).getByText("en el simulador")).toBeTruthy();
   });
 });

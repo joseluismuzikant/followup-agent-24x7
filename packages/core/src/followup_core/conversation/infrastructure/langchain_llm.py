@@ -60,7 +60,8 @@ def strip_introduction(text: str, agent_name: str) -> str:
     if not agent_name.strip():
         return text
     pattern = re.compile(
-        r"^\s*(?:¡?\s*hola\s*!?[,.]?\s*)?"
+        # "¡Hola!", "Hola, Ana!", "¡Hola de nuevo!" before the introduction.
+        r"^\s*(?:¡?\s*hola\b[^.!?¿]{0,40}[!.,]?\s*)?"
         rf"(?:soy|te habla|mi nombre es)\s+{re.escape(agent_name.strip())}\b[^.!?¿]*[.!]\s*",
         re.IGNORECASE,
     )

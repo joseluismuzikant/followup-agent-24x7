@@ -18,15 +18,21 @@ _HTTP_CODES = {
 }
 
 
-def error_response(status_code: int, code: str) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content={"code": code})
+def error_response(
+    status_code: int, code: str, details: dict[str, str] | None = None
+) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"code": code, **(details or {})})
 
 
 class ApiError(Exception):
-    def __init__(self, status_code: int, code: str) -> None:
+    """A stable code, plus optional details for audiences that may see them (e.g. Meta's
+    error code on admin endpoints)."""
+
+    def __init__(self, status_code: int, code: str, **details: str) -> None:
         super().__init__(code)
         self.status_code = status_code
         self.code = code
+        self.details = details
 
 
 def register_error_handlers(app: FastAPI) -> None:
@@ -35,7 +41,7 @@ def register_error_handlers(app: FastAPI) -> None:
         _request: Request,
         error: ApiError,
     ) -> JSONResponse:
-        return error_response(error.status_code, error.code)
+        return error_response(error.status_code, error.code, error.details)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(

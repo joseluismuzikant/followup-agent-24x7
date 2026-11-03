@@ -17,17 +17,28 @@ import {
 } from "@followup/ui";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { fetchLead, fetchLeads } from "../api/leads";
 import { apiErrorMessage } from "../lib/api-errors";
-import { formatDateTime, leadStatusLabels, leadStatusTones, timeAgo } from "../lib/leads";
+import {
+  channelLabel,
+  contentTypeLabels,
+  deliveryLabels,
+  formatDateTime,
+  leadStatusLabels,
+  leadStatusTones,
+  timeAgo,
+} from "../lib/leads";
 
 /** Consultas, minimal until the Day 6 inbox: list, statuses and a read-only detail. */
 export function ConsultasPage() {
   const toggleId = useId();
   const [includeTest, setIncludeTest] = useState(true);
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<string | null>(null);
+  // The new-lead email links to /consultas?lead=<id>.
+  const [searchParams] = useSearchParams();
+  const [selected, setSelected] = useState<string | null>(searchParams.get("lead"));
   const listQuery = useQuery({
     queryKey: ["leads", { includeTest, page }],
     queryFn: () => fetchLeads({ includeTest, page }),
@@ -121,6 +132,7 @@ function LeadRow({
   return (
     <TableRow className={cn(selected && "bg-muted")}>
       <TableCell>
+        <div className="flex flex-col">
         <button
           type="button"
           className="flex items-center gap-2 text-left font-medium underline-offset-4 hover:underline"
@@ -129,6 +141,8 @@ function LeadRow({
           {leadName(lead)}
           {lead.is_test ? <Badge>Prueba</Badge> : null}
         </button>
+        <span className="text-xs text-muted-foreground">{channelLabel(lead.channel)}</span>
+        </div>
       </TableCell>
       <TableCell className="text-muted-foreground">{lead.looking_for || "—"}</TableCell>
       <TableCell>
@@ -168,8 +182,7 @@ export function LeadDetailView({ lead }: { lead: LeadDetail }) {
             {lead.is_test ? <Badge>Prueba</Badge> : null}
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            {lead.contact ?? "Sin contacto todavía"} ·{" "}
-            {lead.channel === "simulator" ? "Simulador" : "WhatsApp"}
+            {lead.contact ?? "Sin contacto todavía"} · {channelLabel(lead.channel)}
           </p>
         </CardHeader>
       </Card>
@@ -193,19 +206,44 @@ export function LeadDetailView({ lead }: { lead: LeadDetail }) {
       <section aria-label="Conversación" className="flex flex-col gap-2 rounded-lg border bg-card p-4">
         <h3 className="text-sm font-semibold">Conversación</h3>
         {lead.transcript.map((message) => (
-          <p
+          <div
             key={message.id}
             className={cn(
-              "max-w-[85%] whitespace-pre-line rounded-2xl px-3 py-2 text-sm",
-              message.author === "visitor" && "self-end bg-primary text-primary-foreground",
-              (message.author === "agent" || message.author === "human") &&
-                "self-start bg-muted",
-              message.author === "system" &&
-                "self-center rounded-full border px-3 py-1 text-xs text-muted-foreground",
+              "flex max-w-[85%] flex-col gap-0.5",
+              message.author === "visitor" && "self-end items-end",
+              (message.author === "agent" || message.author === "human") && "self-start",
+              message.author === "system" && "self-center",
             )}
           >
-            {message.text}
-          </p>
+            <p
+              className={cn(
+                "whitespace-pre-line rounded-2xl px-3 py-2 text-sm",
+                message.author === "visitor" && "bg-primary text-primary-foreground",
+                (message.author === "agent" || message.author === "human") && "bg-muted",
+                message.author === "system" &&
+                  "rounded-full border px-3 py-1 text-xs text-muted-foreground",
+              )}
+            >
+              {message.content_type !== "text" ? (
+                <span className="italic">
+                  {contentTypeLabels[message.content_type] ?? "Archivo"}
+                  {message.text ? `: ${message.text}` : ""}
+                </span>
+              ) : (
+                message.text
+              )}
+            </p>
+            {message.delivery_status ? (
+              <span
+                className={cn(
+                  "text-[11px] text-muted-foreground",
+                  message.delivery_status === "failed" && "text-destructive",
+                )}
+              >
+                {deliveryLabels[message.delivery_status]}
+              </span>
+            ) : null}
+          </div>
         ))}
       </section>
     </aside>

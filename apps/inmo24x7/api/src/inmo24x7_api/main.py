@@ -13,6 +13,7 @@ from .container import (
     advance_onboarding_use_case,
     create_property_use_case,
     create_tenant_use_case,
+    delivery_statuses,
     get_agent_setup_use_case,
     get_language_model,
     get_lead_use_case,
@@ -23,15 +24,19 @@ from .container import (
     get_token_verifier,
     get_trace_ui_url,
     get_tracing,
+    get_webhook_secrets,
     has_published_properties,
     import_errors_use_case,
     import_properties_use_case,
+    ingest_webhook_use_case,
     list_agent_versions_use_case,
     list_leads_use_case,
     list_properties_use_case,
     list_tenants_use_case,
+    manage_connection_use_case,
     reset_simulator_use_case,
     save_agent_setup_use_case,
+    save_connection_use_case,
     send_simulator_message_use_case,
     set_property_status_use_case,
     sign_up_use_case,
@@ -50,6 +55,8 @@ from .properties.router import build_properties_router
 from .simulator import build_simulator_router
 from .tenant_settings import build_tenant_settings_router
 from .tracing import flush
+from .webhooks import build_webhook_router
+from .whatsapp import build_whatsapp_router
 
 configure_logging()
 settings = get_settings()
@@ -126,7 +133,15 @@ def create_app() -> FastAPI:
             import_errors_use_case,
         )
     )
-    application.include_router(build_leads_router(list_leads_use_case, get_lead_use_case))
+    application.include_router(
+        build_leads_router(list_leads_use_case, get_lead_use_case, delivery_statuses)
+    )
+    application.include_router(build_webhook_router(ingest_webhook_use_case, get_webhook_secrets))
+    application.include_router(
+        build_whatsapp_router(
+            save_connection_use_case, manage_connection_use_case, get_tenant_use_case
+        )
+    )
     application.include_router(
         build_tenancy_router(
             create_tenant_use_case,

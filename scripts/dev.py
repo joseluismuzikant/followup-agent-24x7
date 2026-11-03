@@ -10,7 +10,9 @@ API_DIR = "apps/inmo24x7/api"
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the API, the panel and the backoffice.")
+    parser = argparse.ArgumentParser(
+        description="Run the API, the worker, the panel and the backoffice."
+    )
     parser.add_argument("--seed", action="store_true", help="seed the dev accounts after migrating")
     args = parser.parse_args(argv)
     load_env_file(ROOT / ".env")
@@ -18,7 +20,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run(["uv", "sync", "--all-packages"])
     run([*PNPM, "install", "--frozen-lockfile"])
-    run(["docker", "compose", "up", "-d", "--wait", "db"])
+    run(["docker", "compose", "up", "-d", "--wait", "db", "mailpit"])
     run(["uv", "run", "alembic", "upgrade", "head"])
     if args.seed:
         run(["uv", "run", "--all-packages", "python", "scripts/seed_dev.py"])
@@ -39,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
                 "8001",
             ]
         ),
+        # Background jobs: WhatsApp processing and sending, new-lead emails.
+        spawn(["uv", "--directory", API_DIR, "run", "python", "-m", "inmo24x7_api.worker"]),
         spawn([*PNPM, "--filter", "@inmo24x7/web", "dev"]),
         spawn([*PNPM, "--filter", "@inmo24x7/backoffice", "dev"]),
     ]
@@ -46,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     print("\nPanel:      http://localhost:5173", flush=True)
     print("Backoffice: http://localhost:5174", flush=True)
     print("API:        http://localhost:8001/docs", flush=True)
+    print("Mailpit:    http://localhost:8025", flush=True)
 
     exit_code = 0
     try:

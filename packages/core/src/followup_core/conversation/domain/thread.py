@@ -81,6 +81,18 @@ class Message:
     payload: dict[str, Any] | None = None
     # Root LangSmith run of the turn that produced an outbound message, when traced.
     trace_run_id: UUID | None = None
+    # "text", or what a channel delivered that the agent cannot read ("audio", "image", ...).
+    content_type: str = "text"
+
+
+@dataclass(frozen=True, slots=True)
+class InboundPart:
+    """One message the visitor sent. A channel may deliver several before the agent answers
+    (a burst on WhatsApp); each is stored on its own and the agent reads them together."""
+
+    text: str
+    received_at: datetime | None = None
+    content_type: str = "text"
 
 
 def clean_inbound_text(text: str) -> str:

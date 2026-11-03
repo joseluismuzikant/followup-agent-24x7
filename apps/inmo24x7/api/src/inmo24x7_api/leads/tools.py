@@ -18,7 +18,7 @@ from followup_core.tenancy.domain.business_settings import ScheduleBlock, is_wit
 from ..properties.domain.search import PropertyMatch, PropertyQuery, PropertySearch
 from .domain.contact import normalize_contact
 from .domain.lead import HandOffReason
-from .domain.slots import propose_slots, slot_label
+from .domain.slots import propose_slots, short_slot_label, slot_label
 
 SEARCH_PROPERTIES = "search_properties"
 SAVE_CONTACT = "save_contact"
@@ -50,8 +50,9 @@ class ProposeVisitInput:
 
 @dataclass(frozen=True, slots=True)
 class VisitSlot:
-    id: str
+    id: str  # unique per start time, so a slot of an older offer never matches a new one
     label: str
+    short_label: str  # "jue 6/11 10:30", fits a WhatsApp reply button
     starts_at: str  # ISO 8601 with the tenant's offset
 
 
@@ -101,8 +102,13 @@ def _propose_visit(arguments: ProposeVisitInput) -> VisitProposal:
         property_id=arguments.property_id,
         property_label=arguments.property_label,
         slots=[
-            VisitSlot(id=f"slot-{index + 1}", label=slot_label(start), starts_at=start.isoformat())
-            for index, start in enumerate(starts)
+            VisitSlot(
+                id=f"slot-{start:%Y%m%d%H%M}",
+                label=slot_label(start),
+                short_label=short_slot_label(start),
+                starts_at=start.isoformat(),
+            )
+            for start in starts
         ],
         after_hours=not is_within_hours(arguments.team_hours, arguments.timezone, arguments.now),
     )

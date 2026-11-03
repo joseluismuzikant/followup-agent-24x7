@@ -67,7 +67,7 @@ Dashed components and edges are planned.
 ```mermaid
 flowchart TB
     subgraph Channels["Channels"]
-        WHATSAPP["WhatsApp<br/>Meta Cloud API<br/>(planned)"]
+        WHATSAPP["WhatsApp<br/>Meta Cloud API"]
         SIMULATOR["Web chat simulator"]
     end
 
@@ -97,7 +97,9 @@ flowchart TB
     subgraph Core["packages/core"]
         TENANCY["Tenancy"]
         IDENTITY["Identity"]
-        MESSAGING["Messaging<br/>(planned)"]
+        MESSAGING["Messaging<br/>webhook · sending"]
+        SCHEDULING["Scheduling<br/>Postgres jobs"]
+        NOTIFICATIONS["Notifications<br/>email"]
         CONVERSATION["Conversation"]
     end
 
@@ -115,7 +117,15 @@ flowchart TB
     ARCA["ARCA<br/>(planned)"]
     MERCADO_PAGO["Mercado Pago<br/>(planned)"]
 
-    WHATSAPP -.-> MESSAGING
+    WHATSAPP -->|webhook| API
+    MESSAGING -->|Cloud API| WHATSAPP
+    WORKER["Worker<br/>python -m inmo24x7_api.worker"]
+    MAILPIT["SMTP<br/>Mailpit locally"]
+    WORKER --> SCHEDULING
+    WORKER --> MESSAGING
+    WORKER --> CONVERSATION
+    NOTIFICATIONS --> MAILPIT
+    SCHEDULING --> POSTGRES
     SIMULATOR --> WEB
 
     WEB --> API
@@ -135,7 +145,9 @@ flowchart TB
 
     API --> TENANCY
     API --> IDENTITY
-    API -.-> MESSAGING
+    API --> MESSAGING
+    API --> SCHEDULING
+    LEADS --> NOTIFICATIONS
     API --> CONVERSATION
     API --> PROPERTIES
     API --> LEADS
@@ -162,7 +174,7 @@ flowchart TB
     CC_API -.-> MERCADO_PAGO
 
     classDef planned fill:#ffffff,stroke:#8b8b8b,stroke-width:1px,stroke-dasharray: 5 5,color:#666666;
-    class WHATSAPP,CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,MESSAGING,SUPABASE,ARCA,MERCADO_PAGO planned;
+    class CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,SUPABASE,ARCA,MERCADO_PAGO planned;
 ```
 
 The same context layers apply to every bounded context. Dependencies point inward, and the domain has no outward imports.
@@ -198,12 +210,14 @@ cp .env.example .env
 uv run --all-packages python scripts/dev.py --seed
 ```
 
-`dev.py` installs dependencies, starts Postgres, applies migrations, seeds the dev accounts
-(`--seed`, safe to repeat) and starts the API and both panels. Press `Ctrl+C` to stop everything.
+`dev.py` installs dependencies, starts Postgres and Mailpit, applies migrations, seeds the dev
+accounts (`--seed`, safe to repeat) and starts the API, the job worker and both panels. Press
+`Ctrl+C` to stop everything.
 
 - Panel: http://localhost:5173
 - Backoffice: http://localhost:5174
 - API: http://localhost:8001 (documentation at `/docs`, readiness at `/health/ready`)
+- Mailpit (emails sent locally): http://localhost:8025
 
 `.env.example` sets `AUTH_MODE=dev` and `VITE_AUTH_MODE=dev`. The sign-in screens then show a
 **Modo desarrollo** box: type an email and press **Entrar**, no password. The session is the
@@ -211,7 +225,7 @@ token `dev:<email>`, and the API maps each email to a fixed user id. Seeded acco
 
 | Email | What you get |
 | --- | --- |
-| `dueno@inmobiliariasur.test` | Owner of "Inmobiliaria Sur": agent configured, onboarding finished, the 20 properties of `docs/samples/propiedades.csv`. |
+| `dueno@inmobiliariasur.test` | Owner of "Inmobiliaria Sur": agent configured, onboarding finished, the 20 properties of `docs/samples/propiedades.csv`, and a fake WhatsApp number (`dev-phone-1`, log sender) for the simulate script. |
 | `admin@local.test` | Platform admin (its own business "Plataforma"): use it in the backoffice. |
 | `nuevo@local.test` | No account yet: try sign-up and the wizard from scratch. Any other email works the same way. |
 
@@ -273,6 +287,51 @@ to `supabase`, then `make_admin.py <email>` for your own user once you signed up
   `.env.example`), or to the `inmo24x7-dev` project when those are empty. Personal data is
   masked before it is sent.
 
+### Testing WhatsApp locally
+
+**A) No Meta account at all** (log sender, Mailpit). After `dev.py --seed`:
+
+```bash
+uv run --all-packages python scripts/simulate_whatsapp.py "Hola, busco un 2 ambientes en Palermo"
+uv run --all-packages python scripts/simulate_whatsapp.py "Quiero alquilar"
+uv run --all-packages python scripts/simulate_whatsapp.py "Me interesa la primera"
+# the slot ids are in Consultas or in the worker log (whatsapp.send); tap one:
+uv run --all-packages python scripts/simulate_whatsapp.py --slot slot-202611041000 "mié 4/11 10:00"
+uv run --all-packages python scripts/simulate_whatsapp.py "Me llamo Ana"
+uv run --all-packages python scripts/simulate_whatsapp.py --audio   # fixed "solo texto" reply
+```
+
+The script builds a real Cloud API payload, signs it with `META_APP_SECRET` and posts it to
+`/webhooks/whatsapp` from `--from 5491155550188` (default). The worker answers a few seconds
+later through the log sender (ids and statuses only in the log). Sign in to the panel as
+`dueno@inmobiliariasur.test`: the conversation is in Consultas "por WhatsApp" with Enviado →
+Entregado → Leído under each reply, and the new-lead email is in Mailpit
+(http://localhost:8025) once the lead is handed off (or 15 minutes after the first message).
+
+**B) The Meta test number, from your phone.**
+
+1. In [Meta for Developers](https://developers.facebook.com/), create an app of type
+   *Business* and add the **WhatsApp** product. Meta gives you a test number with a
+   `phone_number_id` and a WhatsApp Business Account (WABA) id.
+2. In *WhatsApp → API Setup*, add your phone as a test recipient (up to 5) and confirm it.
+3. Create a long-lived token: *Business settings → Users → System users*, add a system user,
+   assign the app and the WABA, and generate a token with `whatsapp_business_messaging` and
+   `whatsapp_business_management`. Do not use the 24-hour temporary token.
+4. Expose the API: `cloudflared tunnel --url http://localhost:8001` (or
+   `ngrok http 8001`) and copy the https URL.
+5. In *WhatsApp → Configuration*: callback URL `https://<tunnel>/webhooks/whatsapp`, verify
+   token = your `WHATSAPP_VERIFY_TOKEN`; then subscribe the **messages** field. Set
+   `META_APP_SECRET` to the app secret (*App settings → Basic*) and restart `dev.py`.
+6. Backoffice → Negocios → **WhatsApp** on the business row: paste the `phone_number_id`,
+   WABA id and token, sender **Cloud API**, Guardar, then **Probar conexión**, **Suscribir la
+   app**, and **Enviar mensaje de prueba** to your phone (template `hello_world`).
+7. Set `WHATSAPP_SENDER=cloud` for new connections, and message the test number from your
+   phone. The agent answers on WhatsApp (property messages with links, visit slots as reply
+   buttons, hand-off) and the agency's email arrives in Mailpit.
+
+Meta only accepts free-form messages within 24 hours of the person's last message; outside it
+the sender refuses with `outside_service_window` and only templates can be sent.
+
 ### Sample files
 
 `docs/samples/` has `propiedades.csv` (20 valid CABA listings), the same rows as
@@ -323,6 +382,14 @@ docker run --rm \
 
 The API image contains the root Alembic configuration and runs from `/app`. Start the new API only after the migration exits successfully.
 
+The same image runs the job worker (WhatsApp processing and sending, new-lead emails) with
+another command; run at least one next to the API, with the same environment:
+
+```bash
+docker run -d --env-file production.env ghcr.io/owner/repository/inmo24x7-api:sha-<commit> \
+  python -m inmo24x7_api.worker
+```
+
 ## Environment variables
 
 Copy `.env.example` to `.env` to change the defaults. The development script and Vite read the root `.env`. Docker Compose also reads it automatically.
@@ -360,12 +427,23 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `LANGSMITH_REDACT_PII` | `true` | API | Masks emails, Argentine phone numbers and DNIs in every traced input and output before it is sent. |
 | `LANGSMITH_UI_URL` | *(empty)* | API | The project's page in the LangSmith UI (`…/o/<org>/projects/p/<project-id>`). When set, backoffice simulator messages get a "Ver traza" link. |
 | `LANGSMITH_HIDE_INPUTS`, `LANGSMITH_HIDE_OUTPUTS` | *(unset)* | API | Read by the LangSmith client: `true` drops inputs or outputs from traces entirely, keeping only names, timing and metadata. |
+| `WHATSAPP_SENDER` | `log` (`.env.example`); unset: `log` in development, `cloud` in production | API, worker | Default sender for new connections: `cloud` (Meta's Cloud API) or `log` (nothing leaves the machine; statuses are simulated). Production requires `cloud`. Each connection stores its own. |
+| `META_APP_SECRET` | `dev-app-secret` | API | Verifies `X-Hub-Signature-256` on every webhook. Required in production (the dev value is refused). |
+| `WHATSAPP_VERIFY_TOKEN` | `dev-verify-token` | API | The token you type in Meta's webhook configuration. Required in production. |
+| `META_GRAPH_BASE_URL`, `META_GRAPH_API_VERSION` | `https://graph.facebook.com`, `v26.0` | API, worker | Graph API endpoint and version. |
+| `WHATSAPP_DEFAULT_TEMPLATE`, `WHATSAPP_DEFAULT_TEMPLATE_LANGUAGE` | `hello_world`, `en_US` | API | Template for new connections (messages outside the 24-hour window, "Enviar mensaje de prueba"). |
+| `TOKEN_ENCRYPTION_KEY` | a dev key in `.env.example` | API, worker | Base64 of 32 bytes; encrypts WhatsApp access tokens (AES-GCM). Required in production, where the dev key is refused. Generate with `python -c "import base64, os; print(base64.b64encode(os.urandom(32)).decode())"`. |
+| `INBOUND_DEBOUNCE_SECONDS` | `3` | Worker | How long the worker waits for more messages before answering a burst. |
+| `WORKER_CONCURRENCY` | `4` | Worker | Jobs run at the same time per worker process. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_STARTTLS` | `localhost`, `1025`, —, —, `false` | Worker | Where new-lead emails go (Mailpit locally). `SMTP_HOST` is required in production; STARTTLS defaults to on there. |
+| `EMAIL_FROM` | `inmo24x7 <avisos@inmo24x7.local>` | Worker | Sender of the new-lead emails. Required in production. |
+| `PANEL_URL` | `http://localhost:5173` | API, worker | The panel's public URL, for links in emails ("Ver la consulta") and sample property links on WhatsApp. Required in production. |
 | `VITE_PANEL_URL` | `http://localhost:5173` | Backoffice | Panel origin, used to open sample property links from the backoffice simulator. Optional Docker build argument. |
 | `APP_VERSION` | `0.1.0` | API, Docker | Version returned by readiness. Passed as a Docker build argument. |
 | `GIT_COMMIT` | `unknown` | API, Docker | Commit returned by readiness. Passed as a Docker build argument. |
 | `BUILD_DATE` | `unknown` | API, Docker | Build date returned by readiness. Passed as a Docker build argument. |
 
-The API reads the `SUPABASE_*`, LLM and `LANGSMITH_*` variables only at runtime; they are never Docker build arguments, so they cannot end up in an image layer. Only the public `VITE_SUPABASE_*` values are embedded in the panel builds. Meta variables are added in milestone 3. The repository contains no real secrets.
+The API reads the `SUPABASE_*`, LLM and `LANGSMITH_*` variables only at runtime; they are never Docker build arguments, so they cannot end up in an image layer. Only the public `VITE_SUPABASE_*` values are embedded in the panel builds. The same goes for `META_*`, `WHATSAPP_*`, `TOKEN_ENCRYPTION_KEY` and `SMTP_*`. The repository contains no real secrets: the values in `.env.example` are development-only and production refuses them.
 
 Only the development script loads `.env` into API processes. When using the manual commands, export the variables in your shell.
 
@@ -435,6 +513,9 @@ All routes below need an access token (Supabase, or `dev:<email>` with `AUTH_MOD
 | `POST /properties/import` | Multipart `file` (CSV or XLSX, up to 5 MB and 2,000 rows): report with `imported`, `total`, `failed` and the row errors. `413 import_too_large`, `422 import_file_invalid`. |
 | `GET /properties/import/{id}/errors.csv`, `GET /properties/import-template.csv` | The failed rows plus an `error` column, and the template with the Spanish headers. |
 | `GET /leads?status=&include_test=&page=` | Leads, newest activity first: name or contact, what they look for, status, test flag. Simulator leads only with `include_test=true`. |
+| `GET /whatsapp` | The business's WhatsApp status for the panel (badge, wizard step 4). Any role. |
+| `GET /webhooks/whatsapp`, `POST /webhooks/whatsapp` | Meta's webhook: verification, and messages/statuses (signed with `X-Hub-Signature-256`; no access token). |
+| `GET/PUT /admin/tenants/{id}/whatsapp`, `POST .../test`, `.../subscribe`, `.../test-message`, `.../disconnect` | Platform admins: manual connection. The token is never returned. `whatsapp_api_error` includes `meta_code`. |
 | `GET /leads/{id}` | The same plus answers, status history, visits and the transcript (with system events). `404 lead_not_found`. |
 
 Errors return stable codes instead of user-facing text:

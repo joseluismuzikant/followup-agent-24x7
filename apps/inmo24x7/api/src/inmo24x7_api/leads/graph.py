@@ -103,31 +103,66 @@ def _card(state: LeadState, choice_id: str | None) -> dict[str, Any] | None:
 
 
 def offered_choices(state: LeadState) -> list[Choice]:
-    """While slots are on offer the lead picks a slot; otherwise one of the shown cards."""
-    if state.get("visit") or state.get("hand_off_reason"):
-        return []
+    """What the lead can pick: the slots on offer first, then the shown cards. After the
+    hand-off only the slots of the existing offer remain (to change the time); no new
+    property is offered."""
     offer = state.get("visit_offer")
-    if offer:
-        return [Choice(slot["id"], slot["label"]) for slot in offer["slots"]]
-    return [Choice(card["id"], card["label"]) for card in state.get("offered_cards") or []]
+    slots = [Choice(slot["id"], slot["label"]) for slot in offer["slots"]] if offer else []
+    if state.get("hand_off_reason"):
+        return slots
+    cards = [Choice(card["id"], card["label"]) for card in state.get("offered_cards") or []]
+    return [*slots, *cards]
+
+
+def selected_choice(
+    tapped: str | None, guessed: str | None, offered: Sequence[Choice]
+) -> str | None:
+    """The one place both channels resolve a pick: a tapped button (the simulator's slot
+    buttons, WhatsApp reply buttons) wins over the model's reading of the text, and only ids
+    the agent actually offered count."""
+    ids = {choice.id for choice in offered}
+    for candidate in (tapped, guessed):
+        if candidate in ids:
+            return candidate
+    return None
+
+
+def _changes_visit(state: LeadState, slot: dict[str, Any] | None) -> bool:
+    """A picked slot that is not the visit already noted (a new time or a new property)."""
+    if slot is None:
+        return False
+    visit = state.get("visit")
+    offer = state.get("visit_offer") or {}
+    return not visit or (visit["starts_at"], visit["property_id"]) != (
+        slot["starts_at"],
+        offer.get("property_id"),
+    )
 
 
 def plan_turn(state: LeadState, questions: Sequence[QualificationQuestion]) -> list[Step]:
     """The intents of this turn, in order. Each step becomes one outbound message, and only
     one step per turn asks something, so a message never asks two things."""
     first_turn = state.get("turns", 0) == 0
+    choice = state.get("turn_choice")
+    slot = _slot(state, choice)
     if state.get("hand_off_reason"):
+        # Changing the time of the visit already proposed is still possible.
+        if _changes_visit(state, slot) and not state.get("turn_wants_human"):
+            return [Step(ReplyIntent.SLOT_CHOSEN)]
         return [Step(ReplyIntent.AFTER_HAND_OFF)]
     if state.get("turn_wants_human"):
         return _with_greeting([Step(ReplyIntent.HAND_OFF)], first_turn)
 
     steps: list[Step] = []
-    choice = state.get("turn_choice")
-    visit = state.get("visit")
-    if not visit and _slot(state, choice) is not None:
+    visit = bool(state.get("visit"))
+    offer = state.get("visit_offer") or {}
+    card = _card(state, choice)
+    if _changes_visit(state, slot):
+        # A first pick, or a different slot that replaces the visit already noted.
         steps.append(Step(ReplyIntent.SLOT_CHOSEN))
         visit = True
-    elif not visit and not state.get("visit_offer") and _card(state, choice) is not None:
+    elif card is not None and card["id"] != offer.get("property_id"):
+        # A (different) property: offer its slots; picking one later replaces the visit.
         return [Step(ReplyIntent.OFFER_SLOTS)]
 
     answers = state.get("answers") or {}
@@ -174,29 +209,34 @@ def _clean(value: str | None, limit: int) -> str | None:
 
 def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     context = runtime.context
+    turn = context.turn
     if state.get("hand_off_reason") == HandOffReason.HUMAN:
         return {}
     answers = dict(state.get("answers") or {})
     handed_off = bool(state.get("hand_off_reason"))
     pending = [] if handed_off else [q for q in enabled_questions(context) if q.key not in answers]
+    update: dict[str, Any] = {}
+    # The channel may already know how to reach the visitor (WhatsApp: their own number),
+    # so the agent never asks for it.
+    if not state.get("contact") and turn.visitor_contact:
+        update["contact"] = turn.visitor_contact
     wants_name = not handed_off and not state.get("visitor_name")
-    wants_contact = not handed_off and not state.get("contact")
+    wants_contact = not handed_off and not state.get("contact") and "contact" not in update
+    offered = offered_choices(state)
 
     result = context.llm.extract(
         ExtractionRequest(
             questions=pending,
-            transcript=context.turn.transcript,
+            transcript=turn.transcript,
             latest=state["inbound"],
             asked_key=state.get("asked_key"),
             wants_name=wants_name,
             wants_contact=wants_contact,
-            choices=offered_choices(state),
+            choices=offered,
         )
     )
-    update: dict[str, Any] = {
-        "turn_choice": result.choice_id,
-        "turn_wants_human": result.wants_human,
-    }
+    update["turn_choice"] = selected_choice(turn.choice_id, result.choice_id, offered)
+    update["turn_wants_human"] = result.wants_human
     if handed_off:
         return update
 
@@ -205,9 +245,11 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         if value is not None:
             answers[question.key] = value
     update["answers"] = answers
-    if wants_name and (name := _clean(result.visitor_name, MAX_NAME_LENGTH)):
+    # A message that picks a card or a slot is that pick, never a name or a contact.
+    picked = update["turn_choice"] is not None
+    if wants_name and not picked and (name := _clean(result.visitor_name, MAX_NAME_LENGTH)):
         update["visitor_name"] = name
-    if wants_contact and (raw := _clean(result.contact, MAX_CONTACT_LENGTH)):
+    if wants_contact and not picked and (raw := _clean(result.contact, MAX_CONTACT_LENGTH)):
         contact = context.tools.call(SAVE_CONTACT, SaveContactInput(raw))
         if contact:
             update["contact"] = contact
@@ -284,6 +326,9 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     outbox: list[dict[str, Any]] = []
     asked_key: str | None = None
     for step in steps:
+        # Facts belong to their own step: a slot noted in this turn must not leak into the
+        # hand-off message that follows it.
+        facts = {"visitor_name": state.get("visitor_name") or ""}
         payload: dict[str, Any] | None = None
         intent = step.intent
 
@@ -324,7 +369,12 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                 intent = ReplyIntent.HAND_OFF
             else:
                 slots = [
-                    {"id": slot.id, "label": slot.label, "starts_at": slot.starts_at}
+                    {
+                        "id": slot.id,
+                        "label": slot.label,
+                        "short_label": slot.short_label,
+                        "starts_at": slot.starts_at,
+                    }
                     for slot in proposal.slots
                 ]
                 update["visit_offer"] = {
@@ -335,7 +385,12 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                 facts["option"] = card["label"]
                 facts["slots"] = " o ".join(slot["label"] for slot in slots)
                 facts["after_hours"] = "sí" if proposal.after_hours else ""
-                payload = {"slots": [{"id": s["id"], "label": s["label"]} for s in slots]}
+                payload = {
+                    "slots": [
+                        {"id": s["id"], "label": s["label"], "short_label": s["short_label"]}
+                        for s in slots
+                    ]
+                }
 
         elif intent is ReplyIntent.SLOT_CHOSEN:
             offer = state.get("visit_offer") or {}

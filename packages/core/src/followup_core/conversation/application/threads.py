@@ -10,8 +10,10 @@ from ..domain.llm import TranscriptLine
 from ..domain.repositories import MessageRepository, ThreadLock, ThreadRepository
 from ..domain.runtime import AgentRuntime, TurnInput, TurnMetrics
 from ..domain.thread import (
+    MAX_MESSAGE_LENGTH,
     Author,
     Direction,
+    InboundPart,
     Message,
     Thread,
     ThreadKey,
@@ -32,6 +34,7 @@ def utc_now() -> datetime:
 @dataclass(frozen=True, slots=True)
 class HandledTurn:
     thread: Thread
+    # The last inbound message of the turn; `inbound_messages` has all of them, in order.
     inbound: Message
     outbound: Sequence[Message]
     state: Mapping[str, Any]
@@ -40,6 +43,7 @@ class HandledTurn:
     # True when this message opened the thread.
     started_thread: bool = False
     trace_run_id: UUID | None = None
+    inbound_messages: Sequence[Message] = ()
 
 
 class TurnObserver(Protocol):
@@ -105,9 +109,29 @@ class HandleIncomingMessage:
         self._observers = observers
 
     def execute(
-        self, key: ThreadKey, text: str, started_by_profile_id: UUID | None = None
+        self,
+        key: ThreadKey,
+        text: str | Sequence[InboundPart],
+        started_by_profile_id: UUID | None = None,
+        *,
+        choice_id: str | None = None,
+        visitor_contact: str | None = None,
     ) -> HandledTurn:
-        text = clean_inbound_text(text)
+        """One turn for one message, or for a burst of them (`InboundPart`s, each stored on
+        its own; the agent reads their texts joined, in order)."""
+        parts = [InboundPart(text)] if isinstance(text, str) else list(text)
+        # What the agent cannot read (media in a burst) is stored but not given to it.
+        stored = [
+            clean_inbound_text(part.text)
+            if part.content_type == "text"
+            else part.text.strip()[:MAX_MESSAGE_LENGTH]
+            for part in parts
+        ]
+        texts = [
+            value for part, value in zip(parts, stored, strict=True) if part.content_type == "text"
+        ]
+        if not texts:
+            raise ValueError("A turn needs at least one text message.")
         self._lock.acquire(key)
 
         thread = self._threads.get_by_key(key)
@@ -121,6 +145,7 @@ class HandleIncomingMessage:
         # Run the agent before writing anything: if it fails, no thread, inbound message or
         # partial reply is stored.
         received_at = self._clock()
+        text = "\n".join(texts)
         turn = self._runtime.handle(
             thread,
             TurnInput(
@@ -132,13 +157,28 @@ class HandleIncomingMessage:
                 ],
                 text=text,
                 now=received_at,
+                choice_id=choice_id,
+                visitor_contact=visitor_contact,
             ),
         )
 
         if is_new:
             self._threads.add(thread)
-        inbound = Message(uuid4(), thread.id, Direction.INBOUND, Author.VISITOR, text, received_at)
-        self._messages.append(inbound)
+        inbound_messages = [
+            Message(
+                uuid4(),
+                thread.id,
+                Direction.INBOUND,
+                Author.VISITOR,
+                part_text,
+                part.received_at or received_at,
+                content_type=part.content_type,
+            )
+            for part, part_text in zip(parts, stored, strict=True)
+        ]
+        for message in inbound_messages:
+            self._messages.append(message)
+        inbound = inbound_messages[-1]
         outbound: list[Message] = []
         for item in turn.outbound:
             message = Message(
@@ -164,10 +204,64 @@ class HandleIncomingMessage:
             metrics=turn.metrics,
             started_thread=is_new,
             trace_run_id=turn.trace_run_id,
+            inbound_messages=inbound_messages,
         )
         for observer in self._observers:
             observer.on_turn(handled)
         return handled
+
+
+@dataclass(frozen=True, slots=True)
+class FixedReply:
+    thread: Thread
+    inbound_messages: Sequence[Message]
+    outbound: Message
+
+
+class ReplyWithoutAgent:
+    """Stores what the agent cannot read (audio, images, ...) and a fixed reply, without
+    running the agent or calling the model. Same lock and thread rules as a turn."""
+
+    def __init__(
+        self,
+        threads: ThreadRepository,
+        messages: MessageRepository,
+        lock: ThreadLock,
+        configs: AgentConfigSource,
+        clock: Clock = utc_now,
+    ) -> None:
+        self._threads = threads
+        self._messages = messages
+        self._lock = lock
+        self._configs = configs
+        self._clock = clock
+
+    def execute(self, key: ThreadKey, parts: Sequence[InboundPart], reply: str) -> FixedReply:
+        self._lock.acquire(key)
+        now = self._clock()
+        thread = self._threads.get_by_key(key)
+        if thread is None:
+            version, _ = self._configs.current(key.tenant_id)
+            thread = _new_thread(key, version, None, now)
+            self._threads.add(thread)
+        inbound = [
+            Message(
+                uuid4(),
+                thread.id,
+                Direction.INBOUND,
+                Author.VISITOR,
+                part.text.strip()[:MAX_MESSAGE_LENGTH],
+                part.received_at or now,
+                content_type=part.content_type,
+            )
+            for part in parts
+        ]
+        for message in inbound:
+            self._messages.append(message)
+        outbound = Message(uuid4(), thread.id, Direction.OUTBOUND, Author.AGENT, reply, now)
+        self._messages.append(outbound)
+        self._threads.touch(thread.id, now)
+        return FixedReply(thread, inbound, outbound)
 
 
 class GetThread:

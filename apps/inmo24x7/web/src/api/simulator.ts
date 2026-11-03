@@ -15,9 +15,12 @@ export async function fetchSimulator(): Promise<SimulatorState> {
   throw new ApiRequestError(response.status, errorCode(error));
 }
 
-export async function sendSimulatorMessage(text: string): Promise<SimulatorReply> {
+export async function sendSimulatorMessage(
+  text: string,
+  choiceId?: string,
+): Promise<SimulatorReply> {
   const { data, error, response } = await apiClient.POST("/simulator/messages", {
-    body: { text },
+    body: { text, choice_id: choiceId ?? null },
   });
   if (data) {
     return data;

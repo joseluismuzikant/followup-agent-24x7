@@ -41,6 +41,10 @@ export type LeadList = components["schemas"]["LeadListRead"];
 export type LeadDetail = components["schemas"]["LeadDetailRead"];
 export type LeadStatus = Lead["status"];
 export type LeadVisit = components["schemas"]["VisitRead"];
+export type DeliveryStatus = NonNullable<SimulatorMessage["delivery_status"]>;
+export type WhatsAppStatus = components["schemas"]["WhatsAppStatusRead"];
+export type WhatsAppConnection = components["schemas"]["WhatsAppConnectionRead"];
+export type WhatsAppConnectionInput = components["schemas"]["WhatsAppConnectionWrite"];
 
 export class ApiRequestError extends Error {
   readonly status: number;

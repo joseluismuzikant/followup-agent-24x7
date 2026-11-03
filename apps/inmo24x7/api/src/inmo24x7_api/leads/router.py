@@ -7,6 +7,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from followup_core.identity.domain.profile import Profile
+from followup_core.messaging.domain.outbound import overall_status
+from followup_core.messaging.domain.repositories import OutboundRepository
 from pydantic import BaseModel
 
 from ..auth import current_profile
@@ -83,6 +85,7 @@ def lead_read(lead: Lead) -> LeadRead:
 def build_leads_router(
     list_factory: Callable[..., ListLeads],
     get_factory: Callable[..., GetLead],
+    delivery_factory: Callable[..., OutboundRepository],
 ) -> APIRouter:
     router = APIRouter(tags=["leads"])
 
@@ -111,12 +114,14 @@ def build_leads_router(
         lead_id: UUID,
         profile: Annotated[Profile, Depends(current_profile)],
         use_case: Annotated[GetLead, Depends(get_factory)],
+        delivery: Annotated[OutboundRepository, Depends(delivery_factory)],
     ) -> LeadDetailRead:
         try:
             detail = use_case.execute(profile.tenant_id, lead_id)
         except LeadNotFoundError as error:
             raise ApiError(404, "lead_not_found") from error
         lead = detail.lead
+        statuses = delivery.statuses([message.id for message in detail.transcript])
         state = {
             "answers": lead.answers,
             "visitor_name": lead.visitor_name,
@@ -142,7 +147,10 @@ def build_leads_router(
                 )
                 for visit in detail.visits
             ],
-            transcript=[message_read(message) for message in detail.transcript],
+            transcript=[
+                message_read(message, delivery=overall_status(statuses.get(message.id, ())))
+                for message in detail.transcript
+            ],
         )
 
     return router

@@ -5,11 +5,13 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchOnboarding } from "../api/onboarding";
+import { fetchWhatsAppStatus } from "../api/whatsapp";
 import { isOnboardingDeferred, deferOnboarding } from "../lib/onboarding-deferred";
 import { onboardingState } from "../test-fixtures";
 import { InicioPage } from "./inicio";
 
 vi.mock("../api/onboarding", () => ({ fetchOnboarding: vi.fn() }));
+vi.mock("../api/whatsapp", () => ({ fetchWhatsAppStatus: vi.fn() }));
 
 function renderInicio() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -30,6 +32,7 @@ describe("Inicio setup checklist", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     deferOnboarding();
+    vi.mocked(fetchWhatsAppStatus).mockResolvedValue({ status: "not_connected" });
   });
 
   it("shows N de 5 listos with done items as text and pending ones as links", async () => {
@@ -69,5 +72,25 @@ describe("Inicio setup checklist", () => {
 
     await screen.findByText("Te falta poco para dejarlo completo");
     expect(screen.queryByRole("button", { name: "Continuar configuración" })).toBeNull();
+  });
+
+  it("shows Agente activo with the number only when WhatsApp is connected", async () => {
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("done"));
+    vi.mocked(fetchWhatsAppStatus).mockResolvedValue({
+      status: "connected",
+      display_phone_number: "+54 9 11 5555-0100",
+    });
+    renderInicio();
+
+    expect(await screen.findByText("Agente activo · +54 9 11 5555-0100")).toBeTruthy();
+  });
+
+  it("hides the badge when WhatsApp is not connected", async () => {
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("done"));
+    vi.mocked(fetchWhatsAppStatus).mockResolvedValue({ status: "disconnected" });
+    renderInicio();
+
+    await screen.findByText("Te falta poco para dejarlo completo");
+    expect(screen.queryByText(/Agente activo/)).toBeNull();
   });
 });

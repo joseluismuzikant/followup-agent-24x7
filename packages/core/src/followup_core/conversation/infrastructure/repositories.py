@@ -100,6 +100,7 @@ class SqlAlchemyMessageRepository:
                 text=message.text,
                 payload=message.payload,
                 trace_run_id=message.trace_run_id,
+                content_type=message.content_type,
                 created_at=message.created_at,
             )
         )
@@ -121,6 +122,7 @@ class SqlAlchemyMessageRepository:
                 created_at=_aware(model.created_at),
                 payload=model.payload,
                 trace_run_id=model.trace_run_id,
+                content_type=model.content_type,
             )
             for model in models
         ]

@@ -1,8 +1,9 @@
-import { Button, Card, CardContent, CardHeader, CardTitle } from "@followup/ui";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "@followup/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
 import { fetchOnboarding } from "../api/onboarding";
+import { fetchWhatsAppStatus } from "../api/whatsapp";
 import { SetupChecklist } from "../components/SetupChecklist";
 
 export function InicioPage() {
@@ -11,10 +12,22 @@ export function InicioPage() {
     queryFn: fetchOnboarding,
     retry: false,
   });
+  const whatsappQuery = useQuery({
+    queryKey: ["whatsapp"],
+    queryFn: fetchWhatsAppStatus,
+    retry: false,
+  });
+  const whatsapp = whatsappQuery.data;
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
+      <div className="flex flex-wrap items-center gap-3">
+        {whatsapp?.status === "connected" ? (
+          <Badge tone="success">
+            Agente activo
+            {whatsapp.display_phone_number ? ` · ${whatsapp.display_phone_number}` : ""}
+          </Badge>
+        ) : null}
         <Button asChild>
           <Link to="/probar">Probar el agente</Link>
         </Button>

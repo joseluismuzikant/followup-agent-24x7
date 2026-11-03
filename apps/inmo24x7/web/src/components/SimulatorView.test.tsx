@@ -36,6 +36,7 @@ const reply: SimulatorReply = {
       author: "agent",
       text: "Contame: ¿zona o barrio?",
       cards: null,
+      content_type: "text",
       created_at: "2026-10-29T12:00:00Z",
     },
   ],

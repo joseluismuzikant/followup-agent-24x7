@@ -13,8 +13,13 @@ import {
 import { apiErrorMessage } from "../lib/api-errors";
 import { panelLink } from "../lib/nav";
 
-interface PendingMessage {
+interface Outgoing {
   text: string;
+  /** The tapped quick reply (visit slot), sent like WhatsApp reply buttons. */
+  choiceId?: string;
+}
+
+interface PendingMessage extends Outgoing {
   failed: boolean;
   retryable: boolean;
 }
@@ -31,12 +36,13 @@ export function AdminSimulator({ tenantId }: { tenantId: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const send = useMutation({
-    mutationFn: (text: string) => sendTenantSimulatorMessage(tenantId, text),
-    onMutate: (text) => {
-      setPending({ text, failed: false, retryable: false });
+    mutationFn: ({ text, choiceId }: Outgoing) =>
+      sendTenantSimulatorMessage(tenantId, text, choiceId),
+    onMutate: ({ text, choiceId }) => {
+      setPending({ text, choiceId, failed: false, retryable: false });
       setError(null);
     },
-    onSuccess: async (reply, text) => {
+    onSuccess: async (reply, { text }) => {
       queryClient.setQueryData<SimulatorState>(queryKey, (current) =>
         current
           ? {
@@ -49,6 +55,7 @@ export function AdminSimulator({ tenantId }: { tenantId: string }) {
                   author: "visitor",
                   text,
                   cards: null,
+                  content_type: "text",
                   created_at: new Date().toISOString(),
                 },
                 ...reply.messages,
@@ -60,9 +67,9 @@ export function AdminSimulator({ tenantId }: { tenantId: string }) {
       setPending(null);
       await queryClient.invalidateQueries({ queryKey });
     },
-    onError: (failure, text) => {
+    onError: (failure, { text, choiceId }) => {
       const unavailable = failure instanceof ApiRequestError && failure.code === "agent_unavailable";
-      setPending({ text, failed: true, retryable: unavailable });
+      setPending({ text, choiceId, failed: true, retryable: unavailable });
       setError(apiErrorMessage(failure, "No pudimos enviar el mensaje. Probá de nuevo."));
     },
   });
@@ -126,7 +133,7 @@ export function AdminSimulator({ tenantId }: { tenantId: string }) {
           messages={messages}
           typing={send.isPending}
           resetting={reset.isPending}
-          onSend={(text) => send.mutate(text)}
+          onSend={(text, choiceId) => send.mutate({ text, choiceId })}
           onReset={() => reset.mutate()}
           resolveLink={panelLink}
           notice={
@@ -136,7 +143,7 @@ export function AdminSimulator({ tenantId }: { tenantId: string }) {
                   {error}
                 </p>
                 {pending?.retryable ? (
-                  <Button size="sm" variant="outline" onClick={() => send.mutate(pending.text)}>
+                  <Button size="sm" variant="outline" onClick={() => send.mutate({ text: pending.text, choiceId: pending.choiceId })}>
                     Reintentar
                   </Button>
                 ) : null}

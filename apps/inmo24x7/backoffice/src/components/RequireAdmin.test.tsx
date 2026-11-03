@@ -1,3 +1,4 @@
+import { ApiRequestError } from "@followup/api-client-inmo24x7";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -68,5 +69,48 @@ describe("RequireAdmin sign-in", () => {
 
     expect(await screen.findByRole("button", { name: "Continuar con Google" })).toBeTruthy();
     expect(screen.queryByText("Modo desarrollo")).toBeNull();
+  });
+
+  describe("when signed in", () => {
+    beforeEach(() => {
+      mode.current = "dev";
+    });
+
+    async function signedIn(email = "persona@local.test") {
+      const { signInDev } = await import("../lib/dev-session");
+      signInDev(email);
+      return renderGuard();
+    }
+
+    it("tells a non-admin who they are and lets them sign out", async () => {
+      vi.mocked(fetchMe).mockResolvedValue({
+        profile: { is_platform_admin: false, email: "persona@local.test" },
+      } as Awaited<ReturnType<typeof fetchMe>>);
+      const user = await signedIn();
+
+      expect(await screen.findByText("Solo administradores de la plataforma.")).toBeTruthy();
+      expect(screen.getByText("persona@local.test")).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Cerrar sesión" }));
+      expect(readDevToken()).toBeNull();
+    });
+
+    it.each([
+      [new ApiRequestError(401, "unauthorized"), "Tu sesión no es válida o venció"],
+      [new ApiRequestError(404, "profile_not_found"), "no tiene una cuenta en inmo24x7"],
+      [new TypeError("Failed to fetch"), "No pudimos conectarnos con el servidor"],
+    ])("shows an error card with Reintentar and Cerrar sesión (%s)", async (error, message) => {
+      vi.mocked(fetchMe).mockRejectedValueOnce(error);
+      const user = await signedIn();
+
+      expect((await screen.findByRole("alert")).textContent).toContain(message);
+      expect(screen.queryByText("Solo administradores de la plataforma.")).toBeNull();
+      expect(screen.getByText("persona@local.test")).toBeTruthy();
+
+      vi.mocked(fetchMe).mockResolvedValue({
+        profile: { is_platform_admin: true, email: "persona@local.test" },
+      } as Awaited<ReturnType<typeof fetchMe>>);
+      await user.click(screen.getByRole("button", { name: "Reintentar" }));
+      expect(await screen.findByText("Negocios")).toBeTruthy();
+    });
   });
 });

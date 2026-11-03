@@ -40,7 +40,13 @@ export function TenantsTable({ tenants }: TenantsTableProps) {
             <TableCell className="text-muted-foreground">
               {dateFormatter.format(new Date(tenant.created_at))}
             </TableCell>
-            <TableCell className="text-right">
+            <TableCell className="space-x-4 text-right">
+              <a
+                href={`/negocios/${tenant.id}/whatsapp`}
+                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                WhatsApp
+              </a>
               <a
                 href={`/simulador?negocio=${tenant.id}`}
                 className="text-sm font-medium text-primary underline-offset-4 hover:underline"

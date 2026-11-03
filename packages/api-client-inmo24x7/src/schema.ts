@@ -432,6 +432,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhooks/whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Verify */
+        get: operations["verify_webhooks_whatsapp_get"];
+        put?: never;
+        /** Receive */
+        post: operations["receive_webhooks_whatsapp_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Panel Status */
+        get: operations["panel_status_whatsapp_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Get */
+        get: operations["admin_get_admin_tenants__tenant_id__whatsapp_get"];
+        /** Admin Save */
+        put: operations["admin_save_admin_tenants__tenant_id__whatsapp_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/whatsapp/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Test */
+        post: operations["admin_test_admin_tenants__tenant_id__whatsapp_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/whatsapp/subscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Subscribe */
+        post: operations["admin_subscribe_admin_tenants__tenant_id__whatsapp_subscribe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/whatsapp/test-message": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Test Message */
+        post: operations["admin_test_message_admin_tenants__tenant_id__whatsapp_test_message_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/whatsapp/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Disconnect */
+        post: operations["admin_disconnect_admin_tenants__tenant_id__whatsapp_disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tenants": {
         parameters: {
             query?: never;
@@ -729,6 +850,13 @@ export interface components {
             /** Slots */
             slots?: components["schemas"]["SlotRead"][] | null;
             /**
+             * Content Type
+             * @default text
+             */
+            content_type: string;
+            /** Delivery Status */
+            delivery_status?: ("queued" | "sent" | "delivered" | "read" | "failed") | null;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1008,6 +1136,8 @@ export interface components {
         SimulatorMessageWrite: {
             /** Text */
             text: string;
+            /** Choice Id */
+            choice_id?: string | null;
         };
         /** SimulatorRead */
         SimulatorRead: {
@@ -1142,6 +1272,16 @@ export interface components {
              */
             created_at: string;
         };
+        /** TestMessageRead */
+        TestMessageRead: {
+            /** Wamid */
+            wamid: string;
+        };
+        /** TestMessageWrite */
+        TestMessageWrite: {
+            /** To */
+            to: string;
+        };
         /** ThreadRead */
         ThreadRead: {
             /** Key */
@@ -1188,6 +1328,76 @@ export interface components {
              * @enum {string}
              */
             status: "proposed" | "confirmed" | "cancelled";
+        };
+        /**
+         * WhatsAppConnectionRead
+         * @description What admins see. Never the token.
+         */
+        WhatsAppConnectionRead: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "connected" | "disconnected" | "error" | "not_connected";
+            /** Display Phone Number */
+            display_phone_number?: string | null;
+            /** Verified Name */
+            verified_name?: string | null;
+            /** Last Inbound At */
+            last_inbound_at?: string | null;
+            /** Connected At */
+            connected_at?: string | null;
+            /** Phone Number Id */
+            phone_number_id?: string | null;
+            /** Waba Id */
+            waba_id?: string | null;
+            /** Sender */
+            sender?: ("cloud" | "log") | null;
+            /** Template Name */
+            template_name?: string | null;
+            /** Template Language */
+            template_language?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /**
+             * Has Access Token
+             * @default false
+             */
+            has_access_token: boolean;
+        };
+        /** WhatsAppConnectionWrite */
+        WhatsAppConnectionWrite: {
+            /** Phone Number Id */
+            phone_number_id: string;
+            /** Waba Id */
+            waba_id: string;
+            /** Display Phone Number */
+            display_phone_number?: string | null;
+            /** Access Token */
+            access_token?: string | null;
+            /** Sender */
+            sender?: ("cloud" | "log") | null;
+        };
+        /**
+         * WhatsAppStatusRead
+         * @description What the panel shows (S5 badge, S4 card).
+         */
+        WhatsAppStatusRead: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "connected" | "disconnected" | "error" | "not_connected";
+            /** Display Phone Number */
+            display_phone_number?: string | null;
+            /** Verified Name */
+            verified_name?: string | null;
+            /** Last Inbound At */
+            last_inbound_at?: string | null;
+            /** Connected At */
+            connected_at?: string | null;
         };
     };
     responses: never;
@@ -1968,6 +2178,275 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadDetailRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_webhooks_whatsapp_get: {
+        parameters: {
+            query?: {
+                "hub.mode"?: string;
+                "hub.verify_token"?: string;
+                "hub.challenge"?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receive_webhooks_whatsapp_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+    };
+    panel_status_whatsapp_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppStatusRead"];
+                };
+            };
+        };
+    };
+    admin_get_admin_tenants__tenant_id__whatsapp_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppConnectionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_save_admin_tenants__tenant_id__whatsapp_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhatsAppConnectionWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppConnectionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_test_admin_tenants__tenant_id__whatsapp_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppConnectionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_subscribe_admin_tenants__tenant_id__whatsapp_subscribe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppConnectionRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_test_message_admin_tenants__tenant_id__whatsapp_test_message_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestMessageWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestMessageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_disconnect_admin_tenants__tenant_id__whatsapp_disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatsAppConnectionRead"];
                 };
             };
             /** @description Validation Error */

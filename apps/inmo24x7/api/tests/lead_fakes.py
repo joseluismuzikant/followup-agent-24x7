@@ -59,7 +59,9 @@ class Chat:
         team_hours: tuple[ScheduleBlock, ...] = WEEKDAYS_9_18,
         now: datetime = TUESDAY_11,
         tracing: TurnTracing | None = None,
+        visitor_contact: str | None = None,
     ) -> None:
+        self.visitor_contact = visitor_contact
         self.config = config
         self.llm = RecordingLlm()
         self.tool_calls: list[str] = []
@@ -97,9 +99,18 @@ class Chat:
 
         return registry.wrapped(lambda tool: record(tool.name))
 
-    def say(self, text: str) -> list[dict[str, Any]]:
+    def say(self, text: str, choice_id: str | None = None) -> list[dict[str, Any]]:
         turn = self.runtime.handle(
-            self.thread, TurnInput(self.config, self.business, [], text, now=self.now)
+            self.thread,
+            TurnInput(
+                self.config,
+                self.business,
+                [],
+                text,
+                now=self.now,
+                choice_id=choice_id,
+                visitor_contact=self.visitor_contact,
+            ),
         )
         messages = [
             {

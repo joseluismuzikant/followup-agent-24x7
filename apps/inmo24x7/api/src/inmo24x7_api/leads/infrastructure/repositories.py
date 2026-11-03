@@ -150,6 +150,12 @@ class SqlAlchemyLeadRepository:
         )
         self._session.flush()
 
+    def set_visit_status(self, visit_id: UUID, status: VisitStatus) -> None:
+        model = self._session.get(VisitModel, visit_id)
+        if model is not None:
+            model.status = status.value
+            self._session.flush()
+
     def record_matches(
         self, lead_id: UUID, property_ids: Iterable[UUID], shown_at: datetime
     ) -> None:
