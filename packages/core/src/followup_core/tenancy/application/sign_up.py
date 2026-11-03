@@ -5,11 +5,13 @@ from uuid import UUID
 from followup_core.identity.domain.profile import Profile, Role
 from followup_core.identity.domain.profile_repository import ProfileRepository
 
+from ..domain.audit import ActorKind, AuditAction, AuditEvent, AuditLog, NoAuditLog
 from ..domain.business_settings import BusinessSettings, BusinessType
 from ..domain.business_settings_repository import BusinessSettingsRepository
 from ..domain.errors import TenantNotFoundError
 from ..domain.onboarding import Onboarding
 from ..domain.onboarding_repository import OnboardingRepository
+from ..domain.owner_claims import OwnerClaimRepository
 from ..domain.tenant import Tenant
 from ..domain.tenant_repository import TenantRepository
 from .defaults import SetupDefaults
@@ -30,12 +32,16 @@ class SignUp:
         onboarding_repository: OnboardingRepository,
         settings_repository: BusinessSettingsRepository,
         defaults: SetupDefaults,
+        claims: OwnerClaimRepository | None = None,
+        audit: AuditLog | None = None,
     ) -> None:
         self._tenant_repository = tenant_repository
         self._profile_repository = profile_repository
         self._onboarding_repository = onboarding_repository
         self._settings_repository = settings_repository
         self._defaults = defaults
+        self._claims = claims
+        self._audit = audit or NoAuditLog()
 
     def execute(
         self,
@@ -54,6 +60,10 @@ class SignUp:
                 tenant=tenant,
                 created=False,
             )
+
+        claim = self._claims.get_open(email) if self._claims is not None else None
+        if claim is not None:
+            return self._claim(user_id, email, claim.tenant_id)
 
         parsed_type = BusinessType.parse(business_type)
         tenant = self._with_free_slug(Tenant.create(business_name))
@@ -78,7 +88,38 @@ class SignUp:
                 notification_emails=(profile.email,),
             )
         )
-        self._onboarding_repository.add(Onboarding.start(tenant.id, datetime.now(UTC)))
+        now = datetime.now(UTC)
+        self._onboarding_repository.add(Onboarding.start(tenant.id, now))
+        self._audit.record(
+            AuditEvent(
+                tenant.id, now, ActorKind.USER, AuditAction.SIGN_UP, actor_profile_id=user_id
+            )
+        )
+        return SignUpResult(profile=profile, tenant=tenant, created=True)
+
+    def _claim(self, user_id: UUID, email: str, tenant_id: UUID) -> SignUpResult:
+        """An admin created this business for this email ("Dar de alta"): the owner joins
+        it instead of creating another one. The business name typed at sign-up is ignored."""
+        tenant = self._tenant_repository.get_by_id(tenant_id)
+        if tenant is None:
+            raise TenantNotFoundError("The claimed tenant does not exist.")
+        profile = Profile(
+            id=user_id,
+            email=email,
+            display_name=email,
+            tenant_id=tenant.id,
+            role=Role.OWNER,
+            is_platform_admin=False,
+        )
+        self._profile_repository.add(profile)
+        now = datetime.now(UTC)
+        assert self._claims is not None
+        self._claims.mark_claimed(email, now)
+        self._audit.record(
+            AuditEvent(
+                tenant.id, now, ActorKind.USER, AuditAction.OWNER_CLAIMED, actor_profile_id=user_id
+            )
+        )
         return SignUpResult(profile=profile, tenant=tenant, created=True)
 
     def _with_free_slug(self, tenant: Tenant) -> Tenant:

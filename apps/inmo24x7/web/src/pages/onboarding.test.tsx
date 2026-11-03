@@ -102,7 +102,10 @@ describe("OnboardingPage", () => {
     ]) {
       expect(screen.getByText(title)).toBeTruthy();
     }
-    expect(screen.queryByRole("button", { name: "Conectar WhatsApp" })).toBeNull();
+    // Without the Meta app configured (local development) the button waits for an admin.
+    const connect = screen.getByRole("button", { name: "Conectar WhatsApp" }) as HTMLButtonElement;
+    expect(connect.disabled).toBe(true);
+    expect(screen.getByText(/La conexión con Meta no está configurada/)).toBeTruthy();
   });
 
   it("lets the stepper jump to completed steps only", async () => {

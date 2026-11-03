@@ -294,7 +294,10 @@ class ReplyWithoutAgent:
         self._configs = configs
         self._clock = clock
 
-    def execute(self, key: ThreadKey, parts: Sequence[InboundPart], reply: str) -> FixedReply:
+    def execute(
+        self, key: ThreadKey, parts: Sequence[InboundPart], reply: str | None
+    ) -> FixedReply:
+        """`reply` None stores the messages only (a suspended business)."""
         self._lock.acquire(key)
         now = self._clock()
         thread = self._threads.get_by_key(key)
@@ -317,8 +320,8 @@ class ReplyWithoutAgent:
         for message in inbound:
             self._messages.append(message)
         self._threads.touch(thread.id, now)
-        if thread.is_taken_over:
-            # The team answers; no fixed reply.
+        if thread.is_taken_over or reply is None:
+            # The team answers (or nobody does); no fixed reply.
             return FixedReply(thread, inbound, None)
         outbound = Message(uuid4(), thread.id, Direction.OUTBOUND, Author.AGENT, reply, now)
         self._messages.append(outbound)

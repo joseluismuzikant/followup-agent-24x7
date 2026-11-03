@@ -1,7 +1,7 @@
 """In-memory repositories and builders shared by the tenancy unit tests."""
 
 from dataclasses import replace
-from datetime import time
+from datetime import datetime, time
 from uuid import UUID
 
 from followup_core.identity.domain.profile import Profile
@@ -15,6 +15,7 @@ from followup_core.tenancy.domain.agent_config import (
     Tone,
 )
 from followup_core.tenancy.domain.agent_config_repository import AgentConfigVersion
+from followup_core.tenancy.domain.audit import AuditEvent
 from followup_core.tenancy.domain.business_settings import (
     DEFAULT_TIMEZONE,
     TEAM_HOURS_WEEKDAYS_9_18,
@@ -24,6 +25,7 @@ from followup_core.tenancy.domain.business_settings import (
 )
 from followup_core.tenancy.domain.errors import AgentConfigConflictError
 from followup_core.tenancy.domain.onboarding import Onboarding
+from followup_core.tenancy.domain.owner_claims import OwnerClaim
 from followup_core.tenancy.domain.tenant import Tenant
 
 
@@ -193,3 +195,37 @@ def sample_settings(tenant_id: UUID, **overrides) -> BusinessSettings:
     }
     values.update(overrides)
     return BusinessSettings(**values)
+
+
+class InMemoryOwnerClaims:
+    def __init__(self) -> None:
+        self.claims: dict[str, OwnerClaim] = {}
+
+    def get_open(self, email: str) -> OwnerClaim | None:
+        claim = self.claims.get(email.strip().lower())
+        return claim if claim is not None and claim.claimed_at is None else None
+
+    def exists(self, email: str) -> bool:
+        return email.strip().lower() in self.claims
+
+    def add(self, claim: OwnerClaim) -> None:
+        self.claims[claim.email] = claim
+
+    def mark_claimed(self, email: str, at: datetime) -> None:
+        self.claims[email] = replace(self.claims[email], claimed_at=at)
+
+
+class RecordingAuditLog:
+    def __init__(self) -> None:
+        self.events: list[AuditEvent] = []
+
+    def record(self, event: AuditEvent) -> None:
+        if event.dedupe_key and any(e.dedupe_key == event.dedupe_key for e in self.events):
+            return
+        self.events.append(event)
+
+    def latest(self, tenant_id: UUID, limit: int) -> list[AuditEvent]:
+        return [e for e in reversed(self.events) if e.tenant_id == tenant_id][:limit]
+
+    def actions(self) -> list[str]:
+        return [event.action.value for event in self.events]

@@ -19,6 +19,7 @@ DEFAULT_GRAPH_BASE_URL = "https://graph.facebook.com"
 # The latest Graph API version when Day 5 was built (v26.0, July 2026).
 DEFAULT_GRAPH_API_VERSION = "v26.0"
 DEFAULT_PANEL_URL = "http://localhost:5173"
+DEFAULT_SUPPORT_EMAIL = "soporte@inmo24x7.local"
 
 
 class ConfigurationError(RuntimeError):
@@ -70,6 +71,11 @@ class Settings:
     smtp_starttls: bool = False
     email_from: str = "inmo24x7 <avisos@inmo24x7.local>"
     panel_url: str = DEFAULT_PANEL_URL
+    # Embedded Signup (the app id is public; the config id comes from Facebook Login for
+    # Business). Empty in development: customers then connect through the backoffice form.
+    meta_app_id: str = ""
+    meta_embedded_signup_config_id: str = ""
+    support_email: str = DEFAULT_SUPPORT_EMAIL
 
     @property
     def is_production(self) -> bool:
@@ -171,6 +177,8 @@ def _messaging_settings(production: bool) -> dict[str, object]:
             "WHATSAPP_DEFAULT_TEMPLATE_LANGUAGE", ""
         ).strip()
         or "en_US",
+        "meta_app_id": setting("META_APP_ID", ""),
+        "meta_embedded_signup_config_id": setting("META_EMBEDDED_SIGNUP_CONFIG_ID", ""),
         "token_encryption_key": _encryption_key(production),
         "inbound_debounce_seconds": _non_negative("INBOUND_DEBOUNCE_SECONDS", 3.0),
         "worker_concurrency": int(_positive_number("WORKER_CONCURRENCY", 4)),
@@ -192,6 +200,7 @@ def _email_settings(production: bool) -> dict[str, object]:
         "smtp_starttls": _flag("SMTP_STARTTLS", default=production),
         "email_from": required("EMAIL_FROM", "inmo24x7 <avisos@inmo24x7.local>"),
         "panel_url": required("PANEL_URL", DEFAULT_PANEL_URL).rstrip("/"),
+        "support_email": required("SUPPORT_EMAIL", DEFAULT_SUPPORT_EMAIL),
     }
 
 

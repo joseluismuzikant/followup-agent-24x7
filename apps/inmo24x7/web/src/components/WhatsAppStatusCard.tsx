@@ -16,25 +16,27 @@ function rows(status: WhatsAppStatus): Row[] {
   return [
     {
       label: "Cuenta de Meta",
-      value:
-        status.status === "error"
-          ? "Hay un problema con la conexión. Ya nos avisaron."
-          : connected
-            ? "Conectada"
-            : "Desconectada",
+      value: status.error
+        ? status.error.title
+        : connected
+          ? "Conectada"
+          : "Desconectada",
       ok: connected,
     },
     { label: "Número", value: number || "Pendiente", ok: Boolean(status.display_phone_number) },
     {
       label: "Recepción de mensajes",
-      value: received && status.last_inbound_at
-        ? `Funcionando · último mensaje ${timeAgo(status.last_inbound_at)}`
-        : "Esperando el primer mensaje",
+      value:
+        received && status.last_inbound_at
+          ? `Funcionando · último mensaje ${timeAgo(status.last_inbound_at)}`
+          : "Esperando el primer mensaje",
       ok: received,
     },
     {
       label: "Mensaje de prueba",
-      value: received ? "Recibido" : "Escribile a tu número desde otro teléfono para probarlo",
+      value: received
+        ? "Recibido: tu agente ya respondió"
+        : "Escribile a tu número desde otro teléfono: tu agente te va a responder",
       ok: received,
     },
   ];

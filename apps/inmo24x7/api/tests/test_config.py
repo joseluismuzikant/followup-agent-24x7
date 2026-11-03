@@ -22,6 +22,9 @@ PRODUCTION_MESSAGING = {
     "SMTP_HOST": "smtp.example.com",
     "EMAIL_FROM": "inmo24x7 <avisos@example.com>",
     "PANEL_URL": "https://app.example.com",
+    "META_APP_ID": "1234567890",
+    "META_EMBEDDED_SIGNUP_CONFIG_ID": "987654321",
+    "SUPPORT_EMAIL": "soporte@example.com",
 }
 
 
@@ -253,6 +256,9 @@ def test_development_has_working_messaging_defaults(monkeypatch) -> None:
         False,
     )
     assert settings.panel_url == "http://localhost:5173"
+    # Without Embedded Signup locally: admins connect numbers by hand.
+    assert (settings.meta_app_id, settings.meta_embedded_signup_config_id) == ("", "")
+    assert settings.support_email == "soporte@inmo24x7.local"
 
 
 @pytest.mark.parametrize("name", sorted(PRODUCTION_MESSAGING))

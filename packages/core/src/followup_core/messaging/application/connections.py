@@ -7,8 +7,20 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from followup_core.conversation.application.threads import Clock, utc_now
+from followup_core.tenancy.domain.audit import (
+    ActorKind,
+    AuditAction,
+    AuditEvent,
+    AuditLog,
+    NoAuditLog,
+)
 
-from ..domain.connection import ConnectionStatus, SenderKind, WhatsAppConnection
+from ..domain.connection import (
+    BusinessVerification,
+    ConnectionStatus,
+    SenderKind,
+    WhatsAppConnection,
+)
 from ..domain.outbound import SendError, WhatsAppSender
 from ..domain.phones import to_e164
 from ..domain.repositories import ConnectionRepository
@@ -42,12 +54,18 @@ class WhatsAppApiError(Exception):
 class PhoneInfo:
     display_phone_number: str
     verified_name: str
+    quality_rating: str | None = None
+    name_status: str | None = None
 
 
 class GraphPort(Protocol):
     def phone_number(self, connection: WhatsAppConnection) -> PhoneInfo: ...
 
     def subscribe_app(self, connection: WhatsAppConnection) -> None: ...
+
+    def business_verification(self, connection: WhatsAppConnection) -> BusinessVerification:
+        """UNKNOWN when Meta does not tell (never raises)."""
+        ...
 
 
 class Encrypt(Protocol):
@@ -74,20 +92,33 @@ class ConnectionDefaults:
     template_language: str
 
 
+class Resume(Protocol):
+    def resume(self, tenant_id: UUID) -> int: ...
+
+
 class SaveConnection:
+    """The manual connection (backoffice fallback). It writes the same connection as
+    Embedded Signup, clears an error and sends what was waiting for it."""
+
     def __init__(
         self,
         connections: ConnectionRepository,
         encrypt: Encrypt,
         defaults: ConnectionDefaults,
         clock: Clock = utc_now,
+        audit: AuditLog | None = None,
+        resume: Resume | None = None,
     ) -> None:
         self._connections = connections
         self._encrypt = encrypt
         self._defaults = defaults
         self._clock = clock
+        self._audit = audit or NoAuditLog()
+        self._resume = resume
 
-    def execute(self, tenant_id: UUID, draft: ConnectionDraft) -> WhatsAppConnection:
+    def execute(
+        self, tenant_id: UUID, draft: ConnectionDraft, admin_id: UUID | None = None
+    ) -> WhatsAppConnection:
         phone_number_id, waba_id = draft.phone_number_id.strip(), draft.waba_id.strip()
         if not _ID.fullmatch(phone_number_id) or not _ID.fullmatch(waba_id):
             raise ConnectionInvalidError("phone_number_id and waba_id are short ids.")
@@ -132,6 +163,7 @@ class SaveConnection:
                 sender=draft.sender or current.sender,
                 status=ConnectionStatus.CONNECTED,
                 last_error_code=None,
+                failing_since=None,
                 connected_at=current.connected_at or now,
                 updated_at=now,
                 visit_template_name=(
@@ -144,6 +176,18 @@ class SaveConnection:
                 ),
             )
         self._connections.save(connection)
+        self._audit.record(
+            AuditEvent(
+                tenant_id,
+                now,
+                ActorKind.ADMIN,
+                AuditAction.WHATSAPP_CONNECTED,
+                {"source": "manual", "phone_number_id": phone_number_id, "waba_id": waba_id},
+                actor_profile_id=admin_id,
+            )
+        )
+        if self._resume is not None:
+            self._resume.resume(tenant_id)
         return connection
 
 
@@ -166,11 +210,15 @@ class ManageConnection:
         graph_for: Callable[[WhatsAppConnection], GraphPort],
         sender_for: Callable[[WhatsAppConnection], WhatsAppSender],
         clock: Clock = utc_now,
+        audit: AuditLog | None = None,
+        resume: Resume | None = None,
     ) -> None:
         self._connections = connections
         self._graph_for = graph_for
         self._sender_for = sender_for
         self._clock = clock
+        self._audit = audit or NoAuditLog()
+        self._resume = resume
 
     def get(self, tenant_id: UUID) -> WhatsAppConnection | None:
         return self._connections.get_by_tenant(tenant_id)
@@ -191,15 +239,21 @@ class ManageConnection:
             info = self._graph_for(connection).phone_number(connection)
         except SendError as error:
             raise self._failed(connection, error) from error
+        now = self._clock()
         updated = replace(
-            connection,
+            connection.recovered(now) if connection.is_failing else connection,
             display_phone_number=info.display_phone_number or connection.display_phone_number,
             verified_name=info.verified_name or connection.verified_name,
+            quality_rating=info.quality_rating or connection.quality_rating,
+            name_status=info.name_status or connection.name_status,
             status=ConnectionStatus.CONNECTED,
             last_error_code=None,
-            updated_at=self._clock(),
+            last_health_check_at=now,
+            updated_at=now,
         )
         self._connections.save(updated)
+        if self._resume is not None:
+            self._resume.resume(tenant_id)
         return updated
 
     def subscribe(self, tenant_id: UUID) -> WhatsAppConnection:
@@ -225,10 +279,18 @@ class ManageConnection:
         except SendError as error:
             raise self._failed(connection, error) from error
 
-    def disconnect(self, tenant_id: UUID) -> WhatsAppConnection:
+    def disconnect(self, tenant_id: UUID, admin_id: UUID | None = None) -> WhatsAppConnection:
         connection = self._require(tenant_id)
-        updated = replace(
-            connection, status=ConnectionStatus.DISCONNECTED, updated_at=self._clock()
-        )
+        now = self._clock()
+        updated = replace(connection, status=ConnectionStatus.DISCONNECTED, updated_at=now)
         self._connections.save(updated)
+        self._audit.record(
+            AuditEvent(
+                tenant_id,
+                now,
+                ActorKind.ADMIN,
+                AuditAction.WHATSAPP_DISCONNECTED,
+                actor_profile_id=admin_id,
+            )
+        )
         return updated

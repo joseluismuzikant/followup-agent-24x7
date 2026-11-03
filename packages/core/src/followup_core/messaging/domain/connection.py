@@ -10,6 +10,13 @@ class ConnectionStatus(StrEnum):
     ERROR = "error"
 
 
+class BusinessVerification(StrEnum):
+    VERIFIED = "verified"
+    PENDING = "pending"
+    FAILED = "failed"
+    UNKNOWN = "unknown"  # Meta does not tell us (the panel shows neutral copy and links)
+
+
 class SenderKind(StrEnum):
     CLOUD = "cloud"  # the real Cloud API
     LOG = "log"  # local development: nothing leaves the machine
@@ -39,10 +46,37 @@ class WhatsAppConnection:
     # "confirmacion_visita"). None until the agency has one.
     visit_template_name: str | None = None
     visit_template_language: str = "es_AR"
+    business_id: str | None = None
+    quality_rating: str | None = None  # GREEN | YELLOW | RED | NA | UNKNOWN
+    name_status: str | None = None  # display name review: APPROVED | PENDING_REVIEW | ...
+    business_verification: BusinessVerification = BusinessVerification.UNKNOWN
+    # When messages stopped going out (the first failure of the current error).
+    failing_since: datetime | None = None
+    last_health_check_at: datetime | None = None
 
     @property
     def is_connected(self) -> bool:
         return self.status is ConnectionStatus.CONNECTED
 
+    @property
+    def is_failing(self) -> bool:
+        return self.status is ConnectionStatus.ERROR
+
     def with_error(self, code: str, at: datetime) -> "WhatsAppConnection":
-        return replace(self, status=ConnectionStatus.ERROR, last_error_code=code, updated_at=at)
+        """A Graph call failed: keep Meta's code. `failing_since` keeps the first failure."""
+        return replace(
+            self,
+            status=ConnectionStatus.ERROR,
+            last_error_code=code,
+            failing_since=self.failing_since or at,
+            updated_at=at,
+        )
+
+    def recovered(self, at: datetime) -> "WhatsAppConnection":
+        return replace(
+            self,
+            status=ConnectionStatus.CONNECTED,
+            last_error_code=None,
+            failing_since=None,
+            updated_at=at,
+        )

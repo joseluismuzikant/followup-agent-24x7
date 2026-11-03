@@ -15,6 +15,7 @@ from ..domain.agent_config import (
     custom_key_number,
 )
 from ..domain.agent_config_repository import AgentConfigRepository, AgentConfigVersion
+from ..domain.audit import ActorKind, AuditAction, AuditEvent, AuditLog, NoAuditLog
 from ..domain.business_settings import ScheduleBlock
 from ..domain.business_settings_repository import BusinessSettingsRepository
 from ..domain.errors import InvalidQuestionsError, TenantSetupNotFoundError
@@ -100,9 +101,11 @@ class SaveAgentSetup:
         agent_configs: AgentConfigRepository,
         settings: BusinessSettingsRepository,
         defaults: SetupDefaults,
+        audit: AuditLog | None = None,
     ) -> None:
         self._agent_configs = agent_configs
         self._settings = settings
+        self._audit = audit or NoAuditLog()
         self._built_in_keys = {
             question.key for question in defaults.agent_config.qualification_questions
         }
@@ -127,13 +130,25 @@ class SaveAgentSetup:
         config = self._config_from_draft(tenant_id, draft)
         latest = self._agent_configs.latest(tenant_id)
         if latest is None or latest.config != config:
+            version = (latest.version if latest else 0) + 1
+            now = datetime.now(UTC)
             self._agent_configs.add_version(
                 AgentConfigVersion(
                     tenant_id=tenant_id,
-                    version=(latest.version if latest else 0) + 1,
-                    created_at=datetime.now(UTC),
+                    version=version,
+                    created_at=now,
                     created_by_profile_id=profile_id,
                     config=config,
+                )
+            )
+            self._audit.record(
+                AuditEvent(
+                    tenant_id,
+                    now,
+                    ActorKind.USER,
+                    AuditAction.AGENT_CONFIG_SAVED,
+                    {"version": version},
+                    actor_profile_id=profile_id,
                 )
             )
         if new_settings != current_settings:

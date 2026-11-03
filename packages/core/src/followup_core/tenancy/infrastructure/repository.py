@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..domain.errors import DuplicateTenantSlugError, TenantNotFoundError
-from ..domain.tenant import Tenant, TenantStatus
+from ..domain.tenant import Plan, Tenant, TenantStatus
 from .models import TenantModel
 
 
@@ -18,6 +18,9 @@ def _to_domain(model: TenantModel) -> Tenant:
     trial_ends_at = model.trial_ends_at
     if trial_ends_at.tzinfo is None:
         trial_ends_at = trial_ends_at.replace(tzinfo=UTC)
+    suspended_at = model.suspended_at
+    if suspended_at is not None and suspended_at.tzinfo is None:
+        suspended_at = suspended_at.replace(tzinfo=UTC)
 
     return Tenant(
         id=model.id,
@@ -26,6 +29,9 @@ def _to_domain(model: TenantModel) -> Tenant:
         created_at=created_at,
         status=TenantStatus(model.status),
         trial_ends_at=trial_ends_at,
+        plan=Plan(model.plan),
+        suspended_reason=model.suspended_reason,
+        suspended_at=suspended_at,
     )
 
 
@@ -42,6 +48,7 @@ class SqlAlchemyTenantRepository:
                 created_at=tenant.created_at,
                 status=tenant.status.value,
                 trial_ends_at=tenant.trial_ends_at,
+                plan=tenant.plan.value,
             )
         )
         try:
@@ -58,6 +65,9 @@ class SqlAlchemyTenantRepository:
             raise TenantNotFoundError(f"Tenant '{tenant.id}' does not exist.")
         model.name = tenant.name
         model.status = tenant.status.value
+        model.plan = tenant.plan.value
+        model.suspended_reason = tenant.suspended_reason
+        model.suspended_at = tenant.suspended_at
         self._session.flush()
 
     def get_by_id(self, tenant_id: UUID) -> Tenant | None:

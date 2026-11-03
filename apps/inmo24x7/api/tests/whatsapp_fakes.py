@@ -36,17 +36,33 @@ VISITOR = "5491155550188"
 
 class FakeGraph:
     """Answers like the Graph API and records every request. `fail_next` queues error
-    responses (status, Meta code) for the next send calls."""
+    responses (status, Meta code) for the next send calls; `fail_on` queues them for any
+    call whose path ends with the key (Embedded Signup steps, the phone number read)."""
 
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, dict[str, Any]]] = []
         self.fail_next: list[tuple[int, int]] = []
+        self.fail_on: dict[str, list[tuple[int, int]]] = {}
+        self.verification_status = "verified"
+        self.quality_rating = "GREEN"
         self._sent = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else {}
         self.requests.append((request.method, request.url.path, body))
         path = request.url.path
+        for suffix, failures in self.fail_on.items():
+            if path.endswith(suffix) and failures:
+                status, code = failures.pop(0)
+                return httpx.Response(status, json={"error": {"code": code, "message": "x"}})
+        if path.endswith("/oauth/access_token"):
+            return httpx.Response(200, json={"access_token": "EAAB-business-token"})
+        if path.endswith("/register"):
+            return httpx.Response(200, json={"success": True})
+        if request.method == "GET" and "verification_status" in request.url.params.get(
+            "fields", ""
+        ):
+            return httpx.Response(200, json={"verification_status": self.verification_status})
         if path.endswith("/messages") and body.get("status") == "read":
             return httpx.Response(200, json={"success": True})
         if path.endswith("/messages"):
@@ -60,7 +76,12 @@ class FakeGraph:
         if request.method == "GET":
             return httpx.Response(
                 200,
-                json={"display_phone_number": "+54 9 11 5555-0100", "verified_name": "Inmo Sur"},
+                json={
+                    "display_phone_number": "+54 9 11 5555-0100",
+                    "verified_name": "Inmo Sur",
+                    "quality_rating": self.quality_rating,
+                    "name_status": "APPROVED",
+                },
             )
         return httpx.Response(404, json={"error": {"code": 100}})
 
@@ -97,6 +118,8 @@ def build_services(graph: FakeGraph, debounce: float = 3.0) -> MessagingServices
         whatsapp_sender="cloud",
         inbound_debounce_seconds=debounce,
         panel_url="https://panel.example.com",
+        meta_app_id="app-123",
+        meta_embedded_signup_config_id="config-456",
     )
     return MessagingServices(
         settings=settings,
@@ -144,6 +167,9 @@ class WhatsAppWorld:
             },
         )
         return response.status_code
+
+    def calls(self, suffix: str) -> int:
+        return sum(1 for _method, path, _body in self.graph.requests if path.endswith(suffix))
 
     def say(self, text: str | None, sender: str = VISITOR, **kwargs: Any) -> int:
         return self.post(

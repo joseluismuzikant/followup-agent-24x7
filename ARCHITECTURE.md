@@ -359,7 +359,10 @@ worker: whatsapp.send ─▶ Cloud API, in order ─▶ wamid ─▶ statuses fr
   constant-time compare) is checked over the raw body before parsing. Each message becomes a
   `whatsapp_inbound_events` row; the unique `wamid` makes the database drop Meta's retries. An
   unknown or disconnected `phone_number_id` is stored as `ignored` (with a warning) and still
-  gets 200. Status notifications update our outbound parts by wamid, only forward
+  gets 200. A connection in error still receives: the messages are answered and the replies
+  wait for the reconnection. `account_update` changes are applied too (see below), and every
+  request is counted per hour (`webhook_counters`: received, signature rejected) for Salud del
+  sistema. Status notifications update our outbound parts by wamid, only forward
   (read > delivered > sent; failed keeps Meta's code).
 - **Debounce and ordering.** Each event enqueues a processing job `INBOUND_DEBOUNCE_SECONDS`
   later. The job takes the thread's advisory lock (the same one as every turn), and while the
@@ -389,7 +392,8 @@ worker: whatsapp.send ─▶ Cloud API, in order ─▶ wamid ─▶ statuses fr
   v26.0 by default), `LogSender` for local development (fake wamids; simulated sent → delivered
   → read go through the same status code as Meta's), and a recording fake in tests (the Graph API
   is mocked at the HTTP level). Each connection stores which one it uses.
-- **Connections** are one per tenant, created by hand in the backoffice today. The access token
+- **Connections** are one per tenant, created with Embedded Signup (below) or by hand in the
+  backoffice (the fallback); both write the same row. The access token
   is encrypted with AES-256-GCM (`TOKEN_ENCRYPTION_KEY`), stored as `k1:<base64>` so keys can be
   rotated, and never returned or logged. Raw webhook payloads (personal data) are purged after
   30 days by a daily job; the rows and statuses stay.
@@ -405,4 +409,100 @@ tests), a hand-off email ("Nueva consulta", with the answers and the visit or th
 handed off by then. Dedupe keys make it at most one of each per lead. They go to the tenant's
 notification emails through SMTP (Mailpit locally), with a link to
 `{PANEL_URL}/consultas?lead=<id>`.
+
+### Embedded Signup (S4)
+
+```text
+panel: FB.login(config_id, response_type=code) ─▶ code (30 s) + WA_EMBEDDED_SIGNUP FINISH
+       {waba_id, phone_number_id, business_id} ─▶ POST /whatsapp/embedded-signup (both at once)
+API:   exchanged ─▶ subscribed ─▶ registered ─▶ connected        (whatsapp_signups.step)
+       oauth/access_token   /{waba}/subscribed_apps   /{number}/register   GET /{number}
+```
+
+- **One use case, resumable.** `CompleteEmbeddedSignup` (core Messaging) saves the progress after
+  each step: the business token encrypted like any access token, and a 6-digit PIN generated
+  once per tenant (encrypted) for `register`. A failure returns `502 whatsapp_signup_failed` with
+  the step and Meta's code, and the progress stays, so "Reintentar configuración" (panel or
+  backoffice) continues from that step without Meta's popup. Only a failed code exchange needs
+  the popup again (the code lives 30 seconds): `409 whatsapp_signup_restart`.
+- **Idempotent.** A retry for a number that is already connected changes nothing and calls
+  nobody. A new code starts over (new token, same PIN). A `phone_number_id` connected to
+  another tenant is refused before any Meta call (`409 whatsapp_phone_number_taken`).
+- **The last step** reads the number (display number, verified name, quality, name status) and
+  tries the business verification (`GET /{business_id}?fields=verification_status`; Meta does
+  not document it for every business token, so a failure means `unknown` and the panel shows
+  both "Pendiente en Meta" links with neutral copy). It saves the connection as connected,
+  writes the audit event and sends any replies that were waiting.
+- **The web side** pairs FB.login's code with the `WA_EMBEDDED_SIGNUP` message (origin ending in
+  `facebook.com`), whichever comes second, and posts both. `CANCEL`, `ERROR` and
+  `FINISH_ONLY_WABA` are reported (`/embedded-signup/abandoned`, recorded in the audit log
+  with the step and Meta's code) and explained in Spanish.
+
+### Connection health
+
+- **Meta errors** are classified once in core (`messaging/domain/meta_errors.py`): Meta's code →
+  a stable internal code and a kind (auth, account, throttle, recipient, template,
+  registration, request, unknown). The product owns the Spanish copy per internal code
+  (`inmo24x7_api/whatsapp_errors.py`: title, what happened, what to do, and a technical line
+  for admins). The status endpoints return it as data, so the panel and the backoffice show
+  the same words; unknown codes get a generic message and the code only for admins.
+- **States.** `connected` → `error` (with `last_error_code` and `failing_since`, kept from the
+  first failure) → `connected` again. `ConnectionHealth` is the only place that moves them and
+  writes the audit events (system failures at most once per tenant, code and hour).
+- **Auth errors stop sending at once.** An auth error (190, 0, 3, 10, 200–299, 131005) or a
+  blocking account error from a send, a read receipt or a Graph call marks the connection in
+  error. The send job marks that part and the rest `waiting_connection` and finishes: there is
+  no retry loop against a dead token, and later send jobs wait too. Throttling still retries
+  with backoff; a recipient or template error fails only that part.
+- **Reconnecting** (Embedded Signup, the manual form, a successful "Probar conexión" or health
+  check, or an `account_update` that reinstates the account) puts the waiting parts back in
+  the queue and sends them with one job, in conversation order. The 24-hour window still
+  applies, so a reply that waited too long fails with `outside_service_window`.
+- **The 6-hour check.** `whatsapp.health_sweep` runs once per 6-hour slot (the worker enqueues
+  the current slot at start, each run chains the next; the dedupe key keeps it to one) and
+  enqueues one `whatsapp.health_check` per Cloud connection of an active tenant. The check
+  stores quality, name status and business verification; an auth error puts the connection in
+  error, and a success clears an auth error.
+- **`account_update`.** `PARTNER_APP_UNINSTALLED` and `PARTNER_REMOVED` (the customer removed
+  our access), `ACCOUNT_DELETED` and `ACCOUNT_OFFBOARDED` put the connection in error;
+  `DISABLED_UPDATE` disables or reinstates; `ACCOUNT_RECONNECTED` recovers an offboarded number;
+  `PARTNER_CLIENT_CERTIFICATION_STATUS_UPDATE` updates the business verification. Restrictions
+  and violations are recorded only: a send that is really blocked fails with its own code.
+
+### Audit log
+
+`audit_events` (core Tenancy) records what happened to a business: sign-up and owner claim,
+agent config saved (version), properties imported (counts), WhatsApp connected, disconnected,
+in error, recovered, signup failed or abandoned, Meta account updates, send failures,
+suspension and reactivation, reconnect link sent, and businesses created by an admin. Each
+event has an actor kind (`user`, `admin`, `system`) and, for people, the profile id. `details`
+holds only ids, counts, codes and versions: the domain rejects any other key, so names,
+emails, phones, message text and the suspension reason never land there. Repeated system
+failures carry an hourly dedupe key. S9 "Actividad" shows the latest 20.
+
+### Suspension and plans
+
+- **Suspend** (admin, with a reason kept on the tenant) blocks the panel API with
+  `403 tenant_suspended` in `current_profile` (only `/me` and sign-up skip the check, so the
+  panel can show "Tu cuenta está suspendida"). Inbound WhatsApp messages are stored but never
+  answered (no agent, no read receipt), queued sends fail with `tenant_suspended`, and the lead
+  emails, the reconnect email and the health checks skip the tenant. Nothing is deleted;
+  reactivating resumes everything with the next message.
+- **Plans** are read-only for the MVP: trial ("Prueba · N días" from `trial_ends_at`) and pro,
+  both with 1,000 conversations a month. A conversation this month is a WhatsApp thread with
+  at least one inbound message since the 1st (Buenos Aires time); the simulator does not count.
+  No enforcement and no billing yet.
+- **"Dar de alta un negocio"** creates the tenant, its settings and onboarding, and an owner
+  claim for an email. The first sign-up with that email joins the business as owner instead of
+  creating another one.
+
+### Backoffice (S8, S9)
+
+`inmo24x7_api/backoffice/` reads one row per business in SQL (owner, onboarding facts,
+WhatsApp, leads in 7 days) and applies pure rules from `backoffice/domain/rules.py` for the
+WhatsApp badge, "Necesitan ayuda" (WhatsApp in error, onboarding unfinished for more than
+48 hours, or a trial ending within 3 days without WhatsApp), the filters, search and the KPIs.
+It reads every business once per request and filters in Python, which is fine for the MVP's
+hundreds of businesses; move the rules into SQL if that grows to thousands. Platform-admin
+tenants are left out. The detail masks the WABA (`•••• 1234`).
 

@@ -21,6 +21,8 @@ UNREADABLE_REPLY = "Por ahora solo puedo leer mensajes de texto. Â¿Me lo escribÃ
 
 class DeliveryStatus(StrEnum):
     QUEUED = "queued"
+    # The connection is in error (token revoked, ...): sent once the customer reconnects.
+    WAITING = "waiting_connection"
     SENT = "sent"
     DELIVERED = "delivered"
     READ = "read"
@@ -30,6 +32,7 @@ class DeliveryStatus(StrEnum):
 # A status only moves forward (Meta may deliver "read" before "delivered").
 _RANK = {
     DeliveryStatus.QUEUED: 0,
+    DeliveryStatus.WAITING: 0,
     DeliveryStatus.SENT: 1,
     DeliveryStatus.DELIVERED: 2,
     DeliveryStatus.READ: 3,

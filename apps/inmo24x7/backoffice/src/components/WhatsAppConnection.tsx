@@ -73,7 +73,15 @@ const actionDone: Record<ConnectionAction, string> = {
 };
 
 /** Manual connection of a business's number (Day 7 adds Embedded Signup). */
-export function WhatsAppConnectionPanel({ tenantId }: { tenantId: string }) {
+/** The manual connection (the fallback while a customer cannot use Embedded Signup). */
+export function WhatsAppConnectionPanel({
+  tenantId,
+  onSaved,
+}: {
+  tenantId: string;
+  /** Called after every change, so the S9 card shows the new state. */
+  onSaved?: () => void;
+}) {
   const queryClient = useQueryClient();
   const queryKey = ["whatsapp-connection", tenantId];
   const connectionQuery = useQuery({ queryKey, queryFn: () => fetchConnection(tenantId) });
@@ -84,10 +92,12 @@ export function WhatsAppConnectionPanel({ tenantId }: { tenantId: string }) {
       queryClient.setQueryData(queryKey, connection);
     }
     setNotice({ text, error: false });
+    onSaved?.();
   }
   function failed(error: unknown) {
     setNotice({ text: apiErrorMessage(error, "No pudimos hacerlo. Probá de nuevo."), error: true });
     void queryClient.invalidateQueries({ queryKey });
+    onSaved?.();
   }
 
   const save = useMutation({

@@ -19,7 +19,7 @@ import { fetchTenantSettings, saveTenantSettings } from "../api/tenant-settings"
 import { fetchWhatsAppStatus } from "../api/whatsapp";
 import { AgentSetupForm } from "../components/AgentSetupForm";
 import { SimulatorView } from "../components/SimulatorView";
-import { WhatsAppStatusCard } from "../components/WhatsAppStatusCard";
+import { ConnectWhatsApp } from "../components/whatsapp/ConnectWhatsApp";
 import { BusinessStep } from "../components/onboarding/BusinessStep";
 import { apiErrorMessage } from "../lib/api-errors";
 import { deferOnboarding, resumeOnboarding } from "../lib/onboarding-deferred";
@@ -307,23 +307,6 @@ function TryStep() {
   );
 }
 
-const whatsappSteps = [
-  {
-    title: "Entrá con tu cuenta de Facebook",
-    text: "La que administra la página o el negocio de la inmobiliaria.",
-  },
-  {
-    title: "Elegí el número",
-    text:
-      "Puede ser uno nuevo o el que ya usan. Si está en la app de WhatsApp Business, Meta te guía para pasarlo.",
-  },
-  {
-    title: "Confirmá con el código por SMS",
-    text:
-      "Listo: nosotros configuramos todo lo demás y te mandamos un mensaje de prueba.",
-  },
-];
-
 function WhatsAppStep() {
   const advance = useAdvance("done");
   const statusQuery = useQuery({
@@ -332,59 +315,31 @@ function WhatsAppStep() {
     retry: false,
   });
   const status = statusQuery.data;
-
-  if (status && status.status !== "not_connected") {
-    return (
-      <StepCard
-        title="Tu WhatsApp"
-        description="Tu número ya está conectado. Así viene la conexión."
-      >
-        <div className="flex flex-col gap-6">
-          <WhatsAppStatusCard status={status} />
-          {advance.isError ? (
-            <p className="text-sm text-destructive" role="alert">
-              {apiErrorMessage(advance.error, "No pudimos avanzar. Probá de nuevo.")}
-            </p>
-          ) : null}
-          <Button className="self-start" disabled={advance.isPending} onClick={() => advance.mutate()}>
-            Seguir
-          </Button>
-        </div>
-      </StepCard>
-    );
-  }
+  const connected = status !== undefined && status.status !== "not_connected";
 
   return (
     <StepCard
-      title="Conectá WhatsApp"
-      description="Se abre una ventana de Meta. Tarda unos 3 minutos y no necesitás saber nada técnico."
+      title={connected ? "Tu WhatsApp" : "Conectá WhatsApp"}
+      description={
+        connected
+          ? "Tu número ya está conectado. Así viene la conexión."
+          : "Se abre una ventana de Meta. Tarda unos 3 minutos y no necesitás saber nada técnico."
+      }
     >
       <div className="flex flex-col gap-6">
-        <ol className="flex flex-col gap-3">
-          {whatsappSteps.map((item, position) => (
-            <li key={item.title} className="flex gap-3 text-sm">
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border text-xs">
-                {position + 1}
-              </span>
-              <span>
-                <span className="block font-medium">{item.title}</span>
-                <span className="text-muted-foreground">{item.text}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
+        <ConnectWhatsApp status={status} />
         {advance.isError ? (
           <p className="text-sm text-destructive" role="alert">
             {apiErrorMessage(advance.error, "No pudimos avanzar. Probá de nuevo.")}
           </p>
         ) : null}
         <Button
-          variant="outline"
+          variant={connected ? "default" : "outline"}
           className="self-start"
           disabled={advance.isPending}
           onClick={() => advance.mutate()}
         >
-          Hacerlo más tarde y seguir probando en el simulador
+          {connected ? "Seguir" : "Hacerlo más tarde y seguir probando en el simulador"}
         </Button>
       </div>
     </StepCard>

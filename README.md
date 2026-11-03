@@ -322,9 +322,10 @@ Entregado → Leído under each reply, and the new-lead email is in Mailpit
 5. In *WhatsApp → Configuration*: callback URL `https://<tunnel>/webhooks/whatsapp`, verify
    token = your `WHATSAPP_VERIFY_TOKEN`; then subscribe the **messages** field. Set
    `META_APP_SECRET` to the app secret (*App settings → Basic*) and restart `dev.py`.
-6. Backoffice → Negocios → **WhatsApp** on the business row: paste the `phone_number_id`,
-   WABA id and token, sender **Cloud API**, Guardar, then **Probar conexión**, **Suscribir la
-   app**, and **Enviar mensaje de prueba** to your phone (template `hello_world`).
+6. Backoffice → Negocios → open the business → WhatsApp → **Conexión manual y mensaje de
+   prueba**: paste the `phone_number_id`, WABA id and token, sender **Cloud API**, Guardar,
+   then **Probar conexión**, **Suscribir la app**, and **Enviar mensaje de prueba** to your
+   phone (template `hello_world`).
 7. Set `WHATSAPP_SENDER=cloud` for new connections, and message the test number from your
    phone. The agent answers on WhatsApp (property messages with links, visit slots as reply
    buttons, hand-off) and the agency's email arrives in Mailpit.
@@ -379,6 +380,63 @@ Then put its name in Backoffice → Negocios → WhatsApp → **Plantilla de con
 visita** and Guardar. Without it, confirming after 24 hours answers
 `template_not_configured` and changes nothing. (Meta's test number can only send templates
 approved for your app; `hello_world` cannot confirm a visit.)
+
+### Connecting WhatsApp with Embedded Signup (S4)
+
+Customers connect their own number from the panel (wizard step 4 and Configuración →
+WhatsApp): **Conectar WhatsApp** opens Meta's Embedded Signup (v4), and the API exchanges the
+code, subscribes the app to the customer's WABA, registers the number with a PIN of ours and
+reads it. Each step is stored, so **Reintentar configuración** (panel or backoffice) resumes
+from the failed one. The manual connection above stays as the fallback and writes the same
+connection.
+
+What must exist in Meta first:
+
+1. **Tech Provider** onboarding for your Meta business (business verification approved), and
+   the app in **Live** mode.
+2. A **Facebook Login for Business** configuration with the **WhatsApp Embedded Signup**
+   variation (permissions `whatsapp_business_management` and `whatsapp_business_messaging`).
+   Its id is `META_EMBEDDED_SIGNUP_CONFIG_ID` / `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID`; the app
+   id is `META_APP_ID` / `VITE_META_APP_ID`.
+3. The panel's domain in the app's **Allowed domains** (and *Valid OAuth redirect URIs*) for
+   the JavaScript SDK.
+4. The webhook (callback `https://<api>/webhooks/whatsapp`) subscribed to the **messages** and
+   **account_update** fields. `account_update` tells us when a customer removes the app,
+   Meta disables or reinstates an account, or a business verification changes.
+
+The Facebook SDK only runs on HTTPS pages, so locally Embedded Signup needs a tunnel to the
+panel (`cloudflared tunnel --url http://localhost:5173`) whose domain is in the allowed
+domains. Without `VITE_META_APP_ID` the button is disabled ("La conexión con Meta no está
+configurada en este entorno") and you test with the manual fallback: the seed's businesses,
+the log sender and `simulate_whatsapp.py`.
+
+**Connection health.** A send or Graph call that fails with an auth error (190, 0, 10,
+200–299) puts the connection in error at once: no retry loop, the remaining replies wait as
+`waiting_connection`, the panel shows a red banner with the translated message and **Volver
+a conectar**, and S9 shows since when messages fail. Reconnecting (Embedded Signup, the
+manual form or a successful health check) sends the waiting replies in order; the 24-hour
+window still applies. A job reads every Cloud connection every 6 hours (number status,
+quality rating, business verification). Try it locally:
+
+```bash
+# a webhook as if the customer removed the app (the dev business's WABA is dev-waba-1)
+uv run --all-packages python - <<'PY'
+import json, sys; sys.path.insert(0, "scripts")
+import simulate_whatsapp as s, httpx
+body = s.encode({"object": "whatsapp_business_account", "entry": [{"id": "dev-waba-1",
+  "changes": [{"field": "account_update", "value": {"event": "PARTNER_APP_UNINSTALLED"}}]}]})
+print(httpx.post("http://localhost:8001/webhooks/whatsapp", content=body, headers={
+  "Content-Type": "application/json", "X-Hub-Signature-256": s.sign(body, "dev-app-secret")}))
+PY
+```
+
+Inicio shows the red banner; Backoffice → Inmobiliaria Sur shows the diagnosis, and saving
+the manual connection again clears it.
+
+**Suspension** (Backoffice → a business → Suspender, with a reason): the panel answers
+`403 tenant_suspended` (except `/me`, which shows "Tu cuenta está suspendida"), WhatsApp
+messages are stored but never answered, and no emails or health checks run. Reactivar
+resumes everything; nothing is deleted.
 
 ### Sample files
 
@@ -486,6 +544,9 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_STARTTLS` | `localhost`, `1025`, —, —, `false` | Worker | Where new-lead emails go (Mailpit locally). `SMTP_HOST` is required in production; STARTTLS defaults to on there. |
 | `EMAIL_FROM` | `inmo24x7 <avisos@inmo24x7.local>` | Worker | Sender of the new-lead emails. Required in production. |
 | `PANEL_URL` | `http://localhost:5173` | API, worker | The panel's public URL, for links in emails ("Ver la consulta") and sample property links on WhatsApp. Required in production. |
+| `META_APP_ID`, `META_EMBEDDED_SIGNUP_CONFIG_ID` | *(empty)* | API | Embedded Signup: the app id (public) and the Facebook Login for Business configuration id. The code exchange also uses `META_APP_SECRET`. Required in production; empty locally (manual fallback). |
+| `VITE_META_APP_ID`, `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID`, `VITE_META_GRAPH_API_VERSION` | *(empty)*, *(empty)*, `v26.0` | Web | The same ids for the Facebook SDK in the panel (build time). Without them "Conectar WhatsApp" is disabled. |
+| `SUPPORT_EMAIL` | `soporte@inmo24x7.local` | API | Shown on the suspended-account screen. Required in production. |
 | `VITE_PANEL_URL` | `http://localhost:5173` | Backoffice | Panel origin, used to open sample property links from the backoffice simulator. Optional Docker build argument. |
 | `APP_VERSION` | `0.1.0` | API, Docker | Version returned by readiness. Passed as a Docker build argument. |
 | `GIT_COMMIT` | `unknown` | API, Docker | Commit returned by readiness. Passed as a Docker build argument. |
@@ -567,9 +628,17 @@ All routes below need an access token (Supabase, or `dev:<email>` with `AUTH_MOD
 | `POST /leads/{id}/visits/{visit_id}/confirm` `{starts_at?}` | Confirms (optionally at another future time) and tells the lead: text, or the visit template after 24 hours. `409 template_not_configured`, `409 visit_cancelled`, `422 visit_time_in_past`. |
 | `POST /leads/{id}/visits/{visit_id}/cancel` `{message?}` | Cancels the visit; the lead goes back to "Pidió hablar con alguien". |
 | `GET /dashboard` | Inicio: this week's KPIs (received and out of hours, qualified, visits, average response) and "Para atender hoy". Real leads only. |
-| `GET /whatsapp` | The business's WhatsApp status for the panel (badge, wizard step 4). Any role. |
+| `GET /whatsapp` | The business's WhatsApp status for the panel (badge, S4 card, error banner): number, quality, business verification, `error {code, title, message, action}` in Spanish, `failing_since`, and the signup step when it stopped halfway. Any role. |
+| `POST /whatsapp/embedded-signup` `{code, waba_id, phone_number_id, business_id?}` | Embedded Signup: exchange, subscribe, register, read, connect. Owner or manager. `409 whatsapp_phone_number_taken`, `502 whatsapp_signup_failed {step, meta_code, error}` (progress is kept). |
+| `POST /whatsapp/embedded-signup/retry` | Resumes from the failed step with the stored token. `409 whatsapp_signup_restart` when the code was never exchanged. |
+| `POST /whatsapp/embedded-signup/abandoned` `{event, current_step?, error_code?}` | Records a CANCEL / ERROR / FINISH_ONLY_WABA from Meta's popup; returns Meta's code in Spanish. |
 | `GET /webhooks/whatsapp`, `POST /webhooks/whatsapp` | Meta's webhook: verification, and messages/statuses (signed with `X-Hub-Signature-256`; no access token). |
 | `GET/PUT /admin/tenants/{id}/whatsapp`, `POST .../test`, `.../subscribe`, `.../test-message`, `.../disconnect` | Platform admins: manual connection. The token is never returned. `whatsapp_api_error` includes `meta_code`. |
+| `POST /admin/tenants/{id}/whatsapp/retry-signup`, `.../reconnect-link` | "Reintentar configuración" and "Enviarle link para reconectar" (emails the owners a link to Configuración → WhatsApp). |
+| `GET /admin/tenants?filter=all\|needs_help\|trial&q=&page=` | S8: businesses with plan, onboarding "N de 5", WhatsApp badge, inquiries in 7 days, and the four KPIs. |
+| `POST /admin/tenants` `{business_name, owner_email}` | "Dar de alta un negocio": the owner joins it when they sign up with that email. `409 owner_email_taken`. |
+| `GET /admin/tenants/{id}`, `POST .../suspend {reason}`, `.../reactivate` | S9: WhatsApp diagnosis (WABA masked), activity (audit log), onboarding, plan usage, users; suspension. |
+| `GET /admin/system`, `GET /admin/plans` | Salud del sistema (jobs, webhooks, signature rejections, failed sends by Meta code, version, database) and Planes. |
 | `GET /leads/{id}` | The same plus answers (the configured questions, in order), status history, visits, the transcript (system events, team authors, delivery), who controls the conversation and the WhatsApp 24-hour window. `404 lead_not_found`. |
 
 Errors return stable codes instead of user-facing text:

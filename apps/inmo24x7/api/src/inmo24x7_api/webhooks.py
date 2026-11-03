@@ -6,18 +6,25 @@ import hmac
 import json
 import logging
 from collections.abc import Callable
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from followup_core.messaging.application.pipeline import IngestWebhook
 from starlette.concurrency import run_in_threadpool
 
-from .http_errors import ApiError
+from .http_errors import ApiError, error_response
 
 logger = logging.getLogger("inmo24x7.webhooks")
 
 SIGNATURE_HEADER = "X-Hub-Signature-256"
+
+
+class WebhookCounters(Protocol):
+    """Hourly counts for Salud del sistema."""
+
+    def increment(self, kind: str, at: datetime) -> None: ...
 
 
 def valid_signature(secret: str, body: bytes, header: str | None) -> bool:
@@ -31,6 +38,7 @@ def valid_signature(secret: str, body: bytes, header: str | None) -> bool:
 def build_webhook_router(
     ingest_factory: Callable[..., IngestWebhook],
     secrets_factory: Callable[..., tuple[str, str]],
+    counters_factory: Callable[..., WebhookCounters],
 ) -> APIRouter:
     router = APIRouter(tags=["webhooks"])
 
@@ -47,12 +55,13 @@ def build_webhook_router(
         logger.warning("whatsapp_verify_rejected")
         raise ApiError(403, "forbidden")
 
-    @router.post("/webhooks/whatsapp")
+    @router.post("/webhooks/whatsapp", response_model=dict[str, str])
     async def receive(
         request: Request,
         secrets: Annotated[tuple[str, str], Depends(secrets_factory)],
         ingest: Annotated[IngestWebhook, Depends(ingest_factory)],
-    ) -> dict[str, str]:
+        counters: Annotated[WebhookCounters, Depends(counters_factory)],
+    ) -> dict[str, str] | JSONResponse:
         # The signature covers the exact bytes Meta sent: read them before any parsing.
         body = await request.body()
         app_secret, _ = secrets
@@ -61,7 +70,9 @@ def build_webhook_router(
                 "whatsapp_signature_rejected",
                 extra={"has_signature": SIGNATURE_HEADER.lower() in request.headers},
             )
-            raise ApiError(401, "invalid_signature")
+            # Returned, not raised, so the counter is committed.
+            await run_in_threadpool(counters.increment, "signature_rejected", datetime.now(UTC))
+            return error_response(401, "invalid_signature")
         try:
             payload = json.loads(body)
         except ValueError as error:
@@ -69,6 +80,7 @@ def build_webhook_router(
         if not isinstance(payload, dict):
             raise ApiError(400, "bad_request")
         # The database work is synchronous: keep it off the event loop.
+        await run_in_threadpool(counters.increment, "received", datetime.now(UTC))
         result = await run_in_threadpool(ingest.execute, payload)
         logger.info(
             "whatsapp_webhook",
@@ -77,6 +89,7 @@ def build_webhook_router(
                 "duplicates": result.duplicates,
                 "ignored": result.ignored,
                 "statuses": result.statuses,
+                "account_updates": result.account_updates,
             },
         )
         return {"status": "ok"}

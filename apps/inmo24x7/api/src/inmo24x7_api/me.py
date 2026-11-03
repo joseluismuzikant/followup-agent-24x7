@@ -18,7 +18,7 @@ from followup_core.tenancy.domain.errors import (
 from followup_core.tenancy.domain.tenant import Tenant
 from pydantic import BaseModel, Field
 
-from .auth import current_identity, current_profile
+from .auth import current_identity, current_profile, current_profile_any_status
 from .http_errors import ApiError
 
 SignUpFactory = Callable[..., SignUp]
@@ -44,6 +44,7 @@ class TenantSummaryRead(BaseModel):
     name: str
     slug: str
     status: str
+    plan: str
     trial_ends_at: datetime
     created_at: datetime
 
@@ -56,6 +57,8 @@ class SignUpResponse(BaseModel):
 class MeResponse(BaseModel):
     profile: ProfileRead
     tenant: TenantSummaryRead
+    # Shown on the suspended-account screen.
+    support_email: str
 
 
 def _profile_read(profile: Profile) -> ProfileRead:
@@ -75,6 +78,7 @@ def _tenant_read(tenant: Tenant) -> TenantSummaryRead:
         name=tenant.name,
         slug=tenant.slug,
         status=tenant.status.value,
+        plan=tenant.plan.value,
         trial_ends_at=tenant.trial_ends_at,
         created_at=tenant.created_at,
     )
@@ -83,6 +87,7 @@ def _tenant_read(tenant: Tenant) -> TenantSummaryRead:
 def build_me_router(
     sign_up_factory: SignUpFactory,
     get_tenant_factory: GetTenantFactory,
+    support_email: str,
 ) -> APIRouter:
     router = APIRouter(tags=["me"])
 
@@ -117,7 +122,7 @@ def build_me_router(
 
     @router.get("/me", response_model=MeResponse)
     def me(
-        profile: Annotated[Profile, Depends(current_profile)],
+        profile: Annotated[Profile, Depends(current_profile_any_status)],
         get_tenant: Annotated[GetTenant, Depends(get_tenant_factory)],
     ) -> MeResponse:
         try:
@@ -128,6 +133,7 @@ def build_me_router(
         return MeResponse(
             profile=_profile_read(profile),
             tenant=_tenant_read(tenant),
+            support_email=support_email,
         )
 
     @router.get("/tenant", response_model=TenantSummaryRead)

@@ -54,6 +54,14 @@ from followup_core.messaging.application.connections import (
     ManageConnection,
     SaveConnection,
 )
+from followup_core.messaging.application.health import (
+    HEALTH_CHECK_JOB,
+    HEALTH_SWEEP_JOB,
+    ApplyAccountUpdate,
+    ConnectionHealth,
+    HealthCheck,
+    HealthSweep,
+)
 from followup_core.messaging.application.pipeline import (
     MARK_READ_JOB,
     PROCESS_JOB,
@@ -68,12 +76,19 @@ from followup_core.messaging.application.pipeline import (
     SenderFor,
     SendQueued,
 )
-from followup_core.messaging.domain.connection import SenderKind, WhatsAppConnection
+from followup_core.messaging.application.signup import CompleteEmbeddedSignup
+from followup_core.messaging.domain.connection import (
+    BusinessVerification,
+    SenderKind,
+    WhatsAppConnection,
+)
 from followup_core.messaging.domain.outbound import WhatsAppSender
+from followup_core.messaging.domain.signup import Signup
 from followup_core.messaging.infrastructure.crypto import TokenCipher
 from followup_core.messaging.infrastructure.graph import (
     CloudApiSender,
     CloudGraphPort,
+    CloudSignupGraph,
     GraphClient,
     LogGraphPort,
 )
@@ -82,11 +97,17 @@ from followup_core.messaging.infrastructure.repositories import (
     SqlAlchemyConnectionRepository,
     SqlAlchemyInboundEventRepository,
     SqlAlchemyOutboundRepository,
+    SqlAlchemySignupRepository,
+    SqlAlchemyWebhookCounters,
 )
 from followup_core.notifications.domain.email import EmailSender
 from followup_core.notifications.infrastructure.smtp import SmtpEmailSender, SmtpSettings
 from followup_core.scheduling.domain.jobs import Job, JobHandlers, Reschedule
 from followup_core.scheduling.infrastructure.queue import SqlAlchemyJobQueue
+from followup_core.tenancy.application.admin_tenants import (
+    CreateBusinessForOwner,
+    SetTenantSuspension,
+)
 from followup_core.tenancy.application.agent_setup import (
     GetAgentSetup,
     ListAgentConfigVersions,
@@ -104,7 +125,14 @@ from followup_core.tenancy.application.tenant_settings import (
     GetTenantSettings,
     UpdateTenantSettings,
 )
+from followup_core.tenancy.domain.audit import AuditLog
 from followup_core.tenancy.domain.errors import TenantNotFoundError
+from followup_core.tenancy.domain.tenant import TenantStatus
+from followup_core.tenancy.infrastructure.audit_repository import (
+    SqlAlchemyAuditLog,
+    SqlAlchemyOwnerClaimRepository,
+)
+from followup_core.tenancy.infrastructure.models import TenantModel
 from followup_core.tenancy.infrastructure.repository import SqlAlchemyTenantRepository
 from followup_core.tenancy.infrastructure.setup_repositories import (
     SqlAlchemyAgentConfigRepository,
@@ -116,6 +144,8 @@ from langgraph.graph import StateGraph
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .backoffice.application.overview import GetBusiness, ListBusinesses
+from .backoffice.infrastructure.queries import SqlAlchemyBackofficeQueries
 from .config import Settings, get_settings
 from .dashboard.application.get_dashboard import GetDashboard
 from .dashboard.infrastructure.queries import SqlAlchemyDashboardQueries
@@ -155,6 +185,7 @@ from .properties.infrastructure.repositories import (
     TenantPropertySearch,
 )
 from .properties.infrastructure.spreadsheet import read_spreadsheet
+from .reconnect import RECONNECT_EMAIL_JOB, RequestReconnectLink, SendReconnectEmail
 from .tracing import Tracing, build_tracing, turn_tracing
 
 logger = logging.getLogger("inmo24x7.container")
@@ -206,6 +237,7 @@ def get_fact_providers(session: SessionDep) -> SetupFactProviders:
         # Done after the first import (or the first property added by hand).
         own_properties=SqlAlchemyPropertyRepository(session).has_any,
         whatsapp_connected=get_whatsapp_fact(session),
+        meta_business_verified=get_meta_verified_fact(session),
     )
 
 
@@ -216,7 +248,25 @@ def sign_up_use_case(session: SessionDep) -> SignUp:
         SqlAlchemyOnboardingRepository(session),
         SqlAlchemyBusinessSettingsRepository(session),
         get_setup_defaults(),
+        SqlAlchemyOwnerClaimRepository(session),
+        SqlAlchemyAuditLog(session),
     )
+
+
+def create_business_use_case(session: SessionDep) -> CreateBusinessForOwner:
+    return CreateBusinessForOwner(
+        SqlAlchemyTenantRepository(session),
+        SqlAlchemyProfileRepository(session),
+        SqlAlchemyOnboardingRepository(session),
+        SqlAlchemyBusinessSettingsRepository(session),
+        SqlAlchemyOwnerClaimRepository(session),
+        get_setup_defaults(),
+        SqlAlchemyAuditLog(session),
+    )
+
+
+def tenant_suspension_use_case(session: SessionDep) -> SetTenantSuspension:
+    return SetTenantSuspension(SqlAlchemyTenantRepository(session), SqlAlchemyAuditLog(session))
 
 
 def setup_checklist_use_case(session: SessionDep) -> GetSetupChecklist:
@@ -246,6 +296,7 @@ def save_agent_setup_use_case(session: SessionDep) -> SaveAgentSetup:
         SqlAlchemyAgentConfigRepository(session),
         SqlAlchemyBusinessSettingsRepository(session),
         get_setup_defaults(),
+        SqlAlchemyAuditLog(session),
     )
 
 
@@ -411,6 +462,7 @@ def import_properties_use_case(session: SessionDep) -> ImportProperties:
         SqlAlchemyPropertyRepository(session),
         SqlAlchemyPropertyImportRepository(session),
         read_spreadsheet,
+        audit=SqlAlchemyAuditLog(session),
     )
 
 
@@ -518,13 +570,21 @@ def graph_for(services: MessagingServices) -> Callable[[WhatsAppConnection], Gra
 
 def ingest_webhook_use_case(session: SessionDep, services: ServicesDep) -> IngestWebhook:
     outbound = SqlAlchemyOutboundRepository(session)
+    connections = SqlAlchemyConnectionRepository(session)
     return IngestWebhook(
-        SqlAlchemyConnectionRepository(session),
+        connections,
         SqlAlchemyInboundEventRepository(session),
         ApplyDeliveryStatus(outbound),
         SqlAlchemyJobQueue(session),
         timedelta(seconds=services.settings.inbound_debounce_seconds),
+        account_updates=ApplyAccountUpdate(
+            connections, connection_health(session), SqlAlchemyAuditLog(session)
+        ),
     )
+
+
+def webhook_counters(session: SessionDep) -> SqlAlchemyWebhookCounters:
+    return SqlAlchemyWebhookCounters(session)
 
 
 def get_webhook_secrets(services: ServicesDep) -> tuple[str, str]:
@@ -537,11 +597,9 @@ def save_connection_use_case(session: SessionDep, services: ServicesDep) -> Save
     return SaveConnection(
         SqlAlchemyConnectionRepository(session),
         services.cipher.encrypt,
-        ConnectionDefaults(
-            sender=SenderKind(settings.whatsapp_sender),
-            template_name=settings.whatsapp_default_template,
-            template_language=settings.whatsapp_default_template_language,
-        ),
+        connection_defaults(settings),
+        audit=SqlAlchemyAuditLog(session),
+        resume=connection_health(session),
     )
 
 
@@ -550,6 +608,86 @@ def manage_connection_use_case(session: SessionDep, services: ServicesDep) -> Ma
         SqlAlchemyConnectionRepository(session),
         graph_for(services),
         sender_for(services, SqlAlchemyJobQueue(session)),
+        audit=SqlAlchemyAuditLog(session),
+        resume=connection_health(session),
+    )
+
+
+def connection_defaults(settings: Settings) -> ConnectionDefaults:
+    return ConnectionDefaults(
+        sender=SenderKind(settings.whatsapp_sender),
+        template_name=settings.whatsapp_default_template,
+        template_language=settings.whatsapp_default_template_language,
+    )
+
+
+def connection_health(
+    session: Session, clock: Callable[[], datetime] = utc_now
+) -> ConnectionHealth:
+    return ConnectionHealth(
+        SqlAlchemyConnectionRepository(session),
+        SqlAlchemyOutboundRepository(session),
+        SqlAlchemyJobQueue(session, clock),
+        SqlAlchemyAuditLog(session),
+        clock,
+    )
+
+
+def embedded_signup_use_case(session: SessionDep, services: ServicesDep) -> CompleteEmbeddedSignup:
+    settings = services.settings
+    return CompleteEmbeddedSignup(
+        SqlAlchemySignupRepository(session),
+        SqlAlchemyConnectionRepository(session),
+        CloudSignupGraph(services.graph, settings.meta_app_id, settings.meta_app_secret),
+        services.cipher,
+        connection_defaults(settings),
+        connection_health(session),
+        SqlAlchemyAuditLog(session),
+    )
+
+
+def signup_state(session: SessionDep) -> Callable[[UUID], Signup | None]:
+    return SqlAlchemySignupRepository(session).get
+
+
+def audit_log(session: SessionDep) -> AuditLog:
+    return SqlAlchemyAuditLog(session)
+
+
+def tenant_is_active(session: Session) -> Callable[[UUID], bool]:
+    """False for a suspended business: no agent replies, emails or scheduled checks."""
+
+    def active(tenant_id: UUID) -> bool:
+        model = session.get(TenantModel, tenant_id)
+        return model is None or model.status != TenantStatus.SUSPENDED.value
+
+    return active
+
+
+def owner_emails(session: Session) -> Callable[[UUID], Sequence[str]]:
+    def owners(tenant_id: UUID) -> Sequence[str]:
+        return list(
+            session.scalars(
+                select(ProfileModel.email)
+                .where(ProfileModel.tenant_id == tenant_id, ProfileModel.role == "owner")
+                .order_by(ProfileModel.email)
+            )
+        )
+
+    return owners
+
+
+def business_name(session: Session) -> Callable[[UUID], str]:
+    def name(tenant_id: UUID) -> str:
+        model = session.get(TenantModel, tenant_id)
+        return model.name if model else ""
+
+    return name
+
+
+def reconnect_link_use_case(session: SessionDep) -> Callable[[UUID, UUID], int]:
+    return RequestReconnectLink(
+        owner_emails(session), SqlAlchemyJobQueue(session), SqlAlchemyAuditLog(session), utc_now
     )
 
 
@@ -576,6 +714,8 @@ def job_handlers(
     lock = PostgresAdvisoryThreadLock(session)
     choose_sender = sender_for(services, queue)
     debounce = timedelta(seconds=settings.inbound_debounce_seconds)
+    health = connection_health(session, clock)
+    is_active = tenant_is_active(session)
 
     def process(job: Job) -> Reschedule | None:
         # Built per job: the agent runtime needs this session's connection.
@@ -600,6 +740,7 @@ def job_handlers(
             queue,
             debounce,
             clock,
+            is_active,
         )(job)
 
     statuses = ApplyDeliveryStatus(outbound)
@@ -613,12 +754,31 @@ def job_handlers(
         SqlAlchemyBusinessSettingsRepository(session),
         services.email,
         settings.panel_url,
+        is_active,
     )
     return JobHandlers(
         [
             (PROCESS_JOB, process),
-            (SEND_JOB, SendQueued(outbound, connections, choose_sender, clock)),
-            (MARK_READ_JOB, MarkRead(connections, choose_sender)),
+            (
+                SEND_JOB,
+                SendQueued(outbound, connections, choose_sender, clock, health, is_active),
+            ),
+            (MARK_READ_JOB, MarkRead(connections, choose_sender, health)),
+            (HEALTH_SWEEP_JOB, HealthSweep(connections, queue, is_active, clock)),
+            (
+                HEALTH_CHECK_JOB,
+                HealthCheck(connections, graph_for(services), health, is_active, clock),
+            ),
+            (
+                RECONNECT_EMAIL_JOB,
+                SendReconnectEmail(
+                    owner_emails(session),
+                    business_name(session),
+                    services.email,
+                    settings.panel_url,
+                    is_active,
+                ),
+            ),
             (PURGE_JOB, PurgePayloads(events, queue, clock)),
             (LOG_STATUS_JOB, log_status),
             (HANDOFF_EMAIL_JOB, lead_email),
@@ -688,6 +848,35 @@ def build_lead_actions(
 def lead_actions(session: SessionDep, services: ServicesDep) -> LeadActions:
     """The team's actions on a lead (S6), per request."""
     return build_lead_actions(session, services.settings)
+
+
+def backoffice_queries(session: SessionDep) -> SqlAlchemyBackofficeQueries:
+    return SqlAlchemyBackofficeQueries(session)
+
+
+def list_businesses_use_case(session: SessionDep) -> ListBusinesses:
+    return ListBusinesses(SqlAlchemyBackofficeQueries(session), utc_now)
+
+
+def get_business_use_case(session: SessionDep) -> GetBusiness:
+    return GetBusiness(
+        SqlAlchemyBackofficeQueries(session),
+        SqlAlchemyTenantRepository(session).get_by_id,
+        SqlAlchemyConnectionRepository(session).get_by_tenant,
+        SqlAlchemySignupRepository(session).get,
+        utc_now,
+    )
+
+
+def get_meta_verified_fact(session: Session) -> Callable[[UUID], bool]:
+    def verified(tenant_id: UUID) -> bool:
+        connection = SqlAlchemyConnectionRepository(session).get_by_tenant(tenant_id)
+        return (
+            connection is not None
+            and connection.business_verification is BusinessVerification.VERIFIED
+        )
+
+    return verified
 
 
 def get_whatsapp_fact(session: Session) -> Callable[[UUID], bool]:

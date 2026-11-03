@@ -60,6 +60,12 @@ class Connections:
 
     def mark_inbound(self, connection_id: UUID, at: datetime) -> None: ...
 
+    def get_by_waba_id(self, waba_id: str) -> WhatsAppConnection | None:
+        return self.item if self.item.waba_id == waba_id else None
+
+    def cloud_connections(self) -> Sequence[WhatsAppConnection]:
+        return [self.item] if self.item.sender is SenderKind.CLOUD else []
+
 
 class Outbound:
     def __init__(self, parts: list[OutboundPart], last_inbound: datetime | None) -> None:
@@ -78,6 +84,21 @@ class Outbound:
         self.parts[part_id] = replace(
             self.parts[part_id], status=DeliveryStatus.FAILED, error_code=code
         )
+
+    def mark_waiting(self, part_ids: Sequence[UUID], code: str, at: datetime) -> None:
+        for part_id in part_ids:
+            self.parts[part_id] = replace(
+                self.parts[part_id], status=DeliveryStatus.WAITING, error_code=code
+            )
+
+    def waiting_messages(self, tenant_id: UUID) -> Sequence[UUID]:
+        waiting = [p.message_id for p in self.parts.values() if p.status is DeliveryStatus.WAITING]
+        return list(dict.fromkeys(waiting))
+
+    def requeue(self, message_ids: Sequence[UUID], at: datetime) -> None:
+        for part in list(self.parts.values()):
+            if part.message_id in message_ids and part.status is DeliveryStatus.WAITING:
+                self.parts[part.id] = replace(part, status=DeliveryStatus.QUEUED, error_code=None)
 
     def apply_status(self, wamid, status, error_code, at) -> bool:
         return False

@@ -30,6 +30,12 @@ const messages: Record<string, string> = {
     "Llegaste al límite de mensajes de prueba de hoy. Mañana podés seguir probando.",
   setup_not_found: "Todavía no encontramos la configuración de tu negocio.",
   team_hours_invalid: "Revisá el horario del equipo.",
+  tenant_suspended: "Tu cuenta está suspendida.",
+  whatsapp_connection_invalid: "Los datos que mandó Meta no son válidos. Volvé a conectar.",
+  whatsapp_phone_number_taken:
+    "Ese número ya está conectado a otra cuenta de inmo24x7. Elegí otro número o escribinos.",
+  whatsapp_signup_restart:
+    "La conexión con Meta se cortó antes de terminar. Tocá “Conectar WhatsApp” de nuevo.",
   template_not_configured:
     "Para confirmar fuera de las 24 horas hace falta la plantilla de confirmación de visita. Pedile a soporte que la configure.",
   tenant_name_invalid: "El nombre del negocio no es válido.",

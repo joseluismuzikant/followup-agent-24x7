@@ -224,6 +224,19 @@ production in under 10 minutes. **inmo24x7 MVP is demo-ready.**
 
 **Stretch:** test link / QR at the end of the wizard; cross-tenant Conversaciones viewer.
 
+**Status: 7A done; 7B (deploy, backups, go-live) next.** 7A shipped Embedded Signup v4 with
+resumable steps, Meta errors in Spanish, connection health (auth errors stop sending, replies
+wait and resume on reconnect, a 6-hour check, `account_update` events), the Tenancy audit
+log, suspension, read-only plans, and the S8/S9 backoffice with Salud del sistema and
+Planes.
+
+**Moved or changed:** "Dar de alta un negocio" creates the business for an owner email that
+claims it at sign-up (no invitation email). Business verification comes from Meta's business
+node when the token can read it and from the certification webhook; otherwise S4 shows both
+links with neutral copy. The S4 test message is the customer writing to their own number (the
+agent's reply is the test), not a message we send. The wa.me link / QR stretch and the
+Conversaciones viewer stay out.
+
 ---
 
 ## Days 8–12: Cuentas Claras

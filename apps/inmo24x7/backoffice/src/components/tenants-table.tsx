@@ -1,5 +1,6 @@
-import type { Tenant } from "@followup/api-client-inmo24x7";
+import type { BusinessRow } from "@followup/api-client-inmo24x7";
 import {
+  Badge,
   Table,
   TableBody,
   TableCell,
@@ -7,52 +8,54 @@ import {
   TableHeader,
   TableRow,
 } from "@followup/ui";
+import { Link } from "react-router";
 
-interface TenantsTableProps {
-  tenants: Tenant[];
-}
+import { badgeLabels, badgeTones, formatDate, planLabel } from "../lib/labels";
 
-const dateFormatter = new Intl.DateTimeFormat("es-AR", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-export function TenantsTable({ tenants }: TenantsTableProps) {
+/** S8: one row per business. */
+export function TenantsTable({ businesses }: { businesses: BusinessRow[] }) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Negocio</TableHead>
-          <TableHead>Identificador</TableHead>
-          <TableHead>Creado</TableHead>
-          <TableHead>
-            <span className="sr-only">Acciones</span>
-          </TableHead>
+          <TableHead>Plan</TableHead>
+          <TableHead>Onboarding</TableHead>
+          <TableHead>WhatsApp</TableHead>
+          <TableHead className="text-right">Consultas (7 días)</TableHead>
+          <TableHead>Alta</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {tenants.map((tenant) => (
-          <TableRow key={tenant.id}>
-            <TableCell className="font-medium">{tenant.name}</TableCell>
-            <TableCell className="font-mono text-xs text-muted-foreground">
-              {tenant.slug}
-            </TableCell>
-            <TableCell className="text-muted-foreground">
-              {dateFormatter.format(new Date(tenant.created_at))}
-            </TableCell>
-            <TableCell className="space-x-4 text-right">
-              <a
-                href={`/negocios/${tenant.id}/whatsapp`}
-                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+        {businesses.map((business) => (
+          <TableRow key={business.id}>
+            <TableCell>
+              <Link
+                to={`/negocios/${business.id}`}
+                className="font-medium underline-offset-4 hover:underline"
               >
-                WhatsApp
-              </a>
-              <a
-                href={`/simulador?negocio=${tenant.id}`}
-                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-              >
-                Probar su agente
-              </a>
+                {business.name}
+              </Link>
+              <span className="block text-xs text-muted-foreground">
+                {business.owner_email ?? "Sin dueño"}
+                {business.owner_pending ? " · todavía no entró" : ""}
+              </span>
+              {business.status === "suspended" ? (
+                <Badge tone="danger" className="mt-1">
+                  Suspendido
+                </Badge>
+              ) : null}
+            </TableCell>
+            <TableCell className="whitespace-nowrap">{planLabel(business.plan)}</TableCell>
+            <TableCell className="whitespace-nowrap">
+              {business.onboarding_done} de {business.onboarding_total}
+            </TableCell>
+            <TableCell>
+              <Badge tone={badgeTones[business.whatsapp]}>{badgeLabels[business.whatsapp]}</Badge>
+            </TableCell>
+            <TableCell className="text-right">{business.leads_last_7_days}</TableCell>
+            <TableCell className="whitespace-nowrap text-muted-foreground">
+              {formatDate(business.created_at)}
             </TableCell>
           </TableRow>
         ))}

@@ -12,6 +12,7 @@ import threading
 from datetime import UTC, datetime
 from types import FrameType
 
+from followup_core.messaging.application.health import health_sweep_job
 from followup_core.messaging.application.pipeline import purge_job
 from followup_core.scheduling.infrastructure.queue import JobRunner, SqlAlchemyJobQueue
 
@@ -40,9 +41,13 @@ def build_runner() -> JobRunner:
 
 
 def schedule_housekeeping() -> None:
-    """Daily jobs; the dedupe key makes every worker start agree on one per day."""
+    """Recurring jobs (daily purge, 6-hourly WhatsApp health); the dedupe keys make every
+    worker start agree on one per period. Each run schedules the next one."""
+    now = datetime.now(UTC)
     with SessionLocal() as session:
-        SqlAlchemyJobQueue(session).enqueue(purge_job(datetime.now(UTC)))
+        queue = SqlAlchemyJobQueue(session)
+        queue.enqueue(purge_job(now))
+        queue.enqueue(health_sweep_job(now))
         session.commit()
 
 
