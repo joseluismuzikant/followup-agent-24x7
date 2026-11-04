@@ -1,10 +1,4 @@
-import {
-  ApiRequestError,
-  errorCode,
-  type AgentSetup,
-  type AgentSetupInput,
-  type AgentVersion,
-} from "@followup/api-client-inmo24x7";
+import { apiError, type AgentSetup, type AgentSetupInput, type AgentVersion } from "@followup/api-client-inmo24x7";
 
 import { apiClient } from "./client";
 
@@ -13,7 +7,7 @@ export async function fetchAgentSetup(): Promise<AgentSetup> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function saveAgentSetup(input: AgentSetupInput): Promise<AgentSetup> {
@@ -21,7 +15,7 @@ export async function saveAgentSetup(input: AgentSetupInput): Promise<AgentSetup
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function fetchAgentVersions(): Promise<AgentVersion[]> {
@@ -29,5 +23,5 @@ export async function fetchAgentVersions(): Promise<AgentVersion[]> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }

@@ -37,6 +37,7 @@ class AuditAction(StrEnum):
     TENANT_SUSPENDED = "tenant_suspended"
     TENANT_REACTIVATED = "tenant_reactivated"
     RECONNECT_LINK_SENT = "reconnect_link_sent"
+    LLM_COST_ALERT = "llm_cost_alert"
 
 
 # Ids, counts, codes, versions and enum-like values only.
@@ -58,6 +59,8 @@ ALLOWED_DETAIL_KEYS = frozenset(
         "phone_number_id",
         "waba_id",
         "import_id",
+        "month",
+        "cost_usd",
     }
 )
 

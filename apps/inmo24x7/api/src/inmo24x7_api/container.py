@@ -33,6 +33,7 @@ from followup_core.conversation.application.threads import (
 from followup_core.conversation.domain.llm import LanguageModel
 from followup_core.conversation.domain.runtime import BusinessContext
 from followup_core.conversation.domain.thread import Channel, Message, Thread
+from followup_core.conversation.domain.usage import LlmUsageRecorder
 from followup_core.conversation.infrastructure.langgraph_runtime import (
     LangGraphRuntime,
     TurnTracing,
@@ -43,6 +44,7 @@ from followup_core.conversation.infrastructure.repositories import (
     SqlAlchemyMessageRepository,
     SqlAlchemyThreadRepository,
 )
+from followup_core.conversation.infrastructure.usage import SqlAlchemyLlmUsageRecorder
 from followup_core.identity.domain.email_confirmation import EmailConfirmation
 from followup_core.identity.domain.token_verifier import TokenVerifier
 from followup_core.identity.infrastructure.dev_verifier import DevTokenVerifier
@@ -151,10 +153,15 @@ from sqlalchemy.orm import Session
 
 from .backoffice.application.overview import GetBusiness, ListBusinesses
 from .backoffice.infrastructure.queries import SqlAlchemyBackofficeQueries
+from .backoffice.infrastructure.sentry_issues import SentryIssuesClient
+from .billing.application.cost_alert import COST_ALERT_JOB, CheckCostAlerts
+from .billing.application.usage import GetTenantUsage, GetUsageReport
+from .billing.infrastructure.prices import load_prices
+from .billing.infrastructure.queries import SqlAlchemyUsageQueries
 from .config import Settings, get_settings
 from .dashboard.application.get_dashboard import GetDashboard
 from .dashboard.infrastructure.queries import SqlAlchemyDashboardQueries
-from .database import get_session
+from .database import UsageSessionLocal, get_session
 from .defaults import build_setup_defaults
 from .leads.application.inbox import (
     CancelVisit,
@@ -362,10 +369,29 @@ def get_trace_ui_url() -> str:
     return tracing.ui_url if tracing else ""
 
 
+@lru_cache
+def get_usage_recorder() -> LlmUsageRecorder:
+    """Every model call, on its own connection (see database.usage_engine)."""
+    return SqlAlchemyLlmUsageRecorder(UsageSessionLocal, load_prices())
+
+
+def warn_if_model_unpriced(settings: Settings) -> None:
+    """A model without a price still works; its calls just have no cost on Consumo."""
+    if settings.llm_model and not load_prices().has_model(settings.llm_model):
+        logger.warning(
+            "llm_model_unpriced",
+            extra={
+                "model": settings.llm_model,
+                "detail": "Add its price to billing/llm_prices.toml; costs stay empty.",
+            },
+        )
+
+
 def agent_runtime(
     session: SessionDep,
     llm: Annotated[LanguageModel, Depends(get_language_model)],
     tracing: Annotated[TurnTracing | None, Depends(get_turn_tracing)],
+    usage: Annotated[LlmUsageRecorder | None, Depends(get_usage_recorder)],
 ) -> LangGraphRuntime:
     # The checkpointer writes on the request's own connection, inside its transaction, so the
     # transcript, the graph state and the thread lock commit or roll back together.
@@ -373,7 +399,7 @@ def agent_runtime(
     if not isinstance(connection, psycopg.Connection):
         raise TypeError("The agent runtime needs a psycopg 3 connection.")
     tools = lead_tools(TenantPropertySearch(SqlAlchemyPropertyRepository(session)))
-    return LangGraphRuntime(get_lead_graph(), PostgresSaver(connection), llm, tracing, tools)
+    return LangGraphRuntime(get_lead_graph(), PostgresSaver(connection), llm, tracing, tools, usage)
 
 
 RuntimeDep = Annotated[LangGraphRuntime, Depends(agent_runtime)]
@@ -717,6 +743,7 @@ def job_handlers(
     llm: LanguageModel,
     tracing: TurnTracing | None = None,
     clock: Callable[[], datetime] = utc_now,
+    usage: LlmUsageRecorder | None = None,
 ) -> JobHandlers:
     """Every job kind and its one handler (the worker builds this per job, on the job's
     own session and transaction)."""
@@ -739,7 +766,7 @@ def job_handlers(
             threads,
             messages,
             lock,
-            agent_runtime(session, llm, tracing),
+            agent_runtime(session, llm, tracing, usage),
             _agent_configs(session),
             _business_context(session),
             clock=clock,
@@ -796,6 +823,18 @@ def job_handlers(
                 ),
             ),
             (PURGE_JOB, PurgePayloads(events, queue, clock)),
+            (
+                COST_ALERT_JOB,
+                CheckCostAlerts(
+                    SqlAlchemyUsageQueries(session),
+                    SqlAlchemyAuditLog(session),
+                    services.email,
+                    settings.support_email,
+                    settings.llm_monthly_cost_alert_usd,
+                    queue,
+                    clock,
+                ),
+            ),
             (LOG_STATUS_JOB, log_status),
             (HANDOFF_EMAIL_JOB, lead_email),
             (IN_PROGRESS_EMAIL_JOB, lead_email),
@@ -864,6 +903,26 @@ def build_lead_actions(
 def lead_actions(session: SessionDep, services: ServicesDep) -> LeadActions:
     """The team's actions on a lead (S6), per request."""
     return build_lead_actions(session, services.settings)
+
+
+def usage_report_use_case(session: SessionDep) -> GetUsageReport:
+    return GetUsageReport(SqlAlchemyUsageQueries(session))
+
+
+def tenant_usage_use_case(session: SessionDep) -> GetTenantUsage:
+    return GetTenantUsage(SqlAlchemyUsageQueries(session))
+
+
+@lru_cache
+def get_sentry_issues() -> SentryIssuesClient:
+    """Built once: its one-minute cache is per process."""
+    settings = get_settings()
+    return SentryIssuesClient(
+        settings.sentry_api_url,
+        settings.sentry_api_token,
+        settings.sentry_org,
+        settings.sentry_projects,
+    )
 
 
 def backoffice_queries(session: SessionDep) -> SqlAlchemyBackofficeQueries:

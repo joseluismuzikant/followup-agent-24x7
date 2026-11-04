@@ -49,7 +49,19 @@ const messages: Record<string, string> = {
 
 export function apiErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiRequestError) {
-    return messages[error.code] ?? fallback;
+    return withReference(messages[error.code], error, fallback);
   }
   return fallback;
+}
+
+/** Unexpected failures (a 5xx, or a code without a message here) carry the request's
+ * "Código de referencia", so a customer can report it and we can find it in the logs. */
+export function withReference(
+  message: string | undefined,
+  error: ApiRequestError,
+  fallback: string,
+): string {
+  const unexpected = error.status >= 500 || message === undefined;
+  const text = message ?? fallback;
+  return unexpected && error.reference ? `${text} Código de referencia: ${error.reference}.` : text;
 }

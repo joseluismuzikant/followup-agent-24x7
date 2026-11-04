@@ -30,6 +30,8 @@ In `apps/inmo24x7/api`:
   lead agent (graph, tools and prompts).
 - **Properties**: the agency's listings, spreadsheet import and validation, and the property
   search the agent uses.
+- **Billing**: LLM prices (a versioned file), the Consumo read model per business and month,
+  and the monthly cost alert. No charging customers yet.
 
 Both product contexts follow the same domain/application/infrastructure layout as core.
 
@@ -520,14 +522,66 @@ It reads every business once per request and filters in Python, which is fine fo
 hundreds of businesses; move the rules into SQL if that grows to thousands. Platform-admin
 tenants are left out. The detail masks the WABA (`•••• 1234`).
 
+## Observability
+
+Three tools, each with its own job, and a hard line on personal data:
+
+| Tool | Gets | Never gets |
+| --- | --- | --- |
+| **Sentry** (SaaS; `SENTRY_DSN`, `VITE_SENTRY_DSN`) | Errors: unhandled exceptions (API, worker), dead jobs, webhook processing failures, WhatsApp connections put in error, LLM failures after the retry, panel crashes and API 5xx seen by the panels. Stack traces without local variables, the request's method and path, release (commit), environment, and ids as tags (`request_id`, `tenant_id`, `job_id`, `job_kind`, `channel`, `service`/`area`); the user as a profile id. | Request or response bodies, query strings, cookies, headers outside `user-agent`/`content-type`/`x-request-id`, emails, message text, names, phones, tokens. Every string also goes through the LangSmith anonymizer plus bearer/JWT patterns (`observability.py`, `@followup/observability`). Expected outcomes (4xx `ApiError`, validation errors, `outside_service_window`) are not sent. No session replay; tracing off unless `SENTRY_TRACES_SAMPLE_RATE`. |
+| **Loki + Grafana** (on our VM; `deploy/observability.md`) | Every JSON log line of api, worker, Caddy (without query strings or headers) and nginx, 14 days. Labels `service`, `environment`, `level`; ids as JSON fields. Dashboard and alert rules provisioned from git. | Nothing leaves the VM. Log lines already never carry message text, phones or emails (a rule since Day 3). |
+| **LangSmith** (optional) | Agent turns, anonymized (see "Tracing"). | — |
+
+- **Log context.** `followup_core/infrastructure/log_context.py` holds the ids of the current
+  request or job: the HTTP middleware opens it with the request id, the tenant dependency binds
+  `tenant_id`, `JobRunner` opens one per job (`job_id`, `job_kind`, and `tenant_id` from the
+  payload), and handlers bind the tenant when they find it. Every log line and every Sentry
+  event reads it. The holder is mutable on purpose (sync dependencies run in a threadpool with
+  a copied context), and the middleware leaves it open when a request fails, so the
+  unhandled-error handler and Sentry still see the request id.
+- **Request ids.** Every response has `X-Request-ID` (exposed through CORS). The panels show
+  its first 8 characters as "Código de referencia" on unexpected errors; Backoffice → Errores
+  finds that prefix in Loki and in Sentry.
+- **Errores in the backoffice** reads Sentry's API with a read-only token (cached one minute;
+  "not configured" or "unavailable" instead of failing). Grafana is only linked, never embedded.
+- **Source maps** are built only in CI with `SENTRY_AUTH_TOKEN` (a BuildKit secret), uploaded
+  for the release and deleted before the image is assembled; the served bundles have none.
+
+## Usage and cost (LLM)
+
+- **Every call is a row** in `llm_usage` (core `conversation` context): tenant, thread,
+  channel, simulator or not, operation (`extract` / `compose_reply`), provider and model,
+  tokens (input total, output, cached input), latency, success, cost and the price version.
+  `MeteredLanguageModel` records each call as it happens, failed ones included.
+- **Outside the turn's transaction.** The provider bills the tokens even when the turn rolls
+  back, so the recorder writes on its own one-connection engine (`database.usage_engine`) and
+  commits at once; the row has no foreign key to the thread. A failure to record is logged
+  (`llm_usage_write_failed`) and never breaks a turn.
+- **Usage from every provider** comes from LangChain's normalised `usage_metadata`
+  (`input_token_details.cache_read` for cached input: Anthropic, OpenAI, DeepSeek, Kimi and
+  MiMo all map to it). No metadata: zeros and `usage_reported = false` ("sin datos").
+- **Prices are versioned in the repo** (`billing/llm_prices.toml`): USD per million input,
+  output and cached input tokens per `provider:model`, from an `effective_from` date, with the
+  source URL. A call is priced at write time with the price in force on its date; a model
+  without a price stores no cost, and Consumo flags it. Changing a price means adding a row;
+  `scripts/recompute_llm_costs.py --from` re-prices past rows (dry run by default). The API
+  and the worker warn at startup when `LLM_MODEL` has no price.
+- **Consumo** (backoffice) aggregates per UTC month: cost, tokens, conversations (threads with
+  an inbound message), cost per conversation, the simulator's share, and WhatsApp template
+  messages Meta accepted (counted, not priced). `LLM_MONTHLY_COST_ALERT_USD` emails support
+  once per business and month (a daily job; the audit event's dedupe key is the guard).
+
 ## Production
 
 ```text
-internet ─▶ Caddy (80/443, Let's Encrypt) ─┬─ api.<domain>   ─▶ api (uvicorn) ─┐
-                                           ├─ app.<domain>   ─▶ web (nginx)    ├─▶ Supabase
-                                           └─ admin.<domain> ─▶ backoffice     │   Postgres + Auth
+internet ─▶ Caddy (80/443, Let's Encrypt) ─┬─ api.<domain>     ─▶ api (uvicorn) ─┐
+                                           ├─ app.<domain>     ─▶ web (nginx)    ├─▶ Supabase
+                                           ├─ admin.<domain>   ─▶ backoffice     │   Postgres + Auth
+                                           └─ grafana.<domain> ─▶ grafana (opt.) │
                                worker (same image, jobs) ───────────────────────┘
                                backup (daily, pg_dump → age → Object Storage)
+                               alloy (Docker logs) ─▶ loki ◀─ grafana   (profile observability)
+       api, worker, panels ─▶ Sentry (errors only, scrubbed)
 ```
 
 - **One VM with Docker Compose** (`deploy/compose.prod.yml`): Oracle Cloud ARM in São Paulo,
@@ -539,7 +593,9 @@ internet ─▶ Caddy (80/443, Let's Encrypt) ─┬─ api.<domain>   ─▶ ap
 - **Database connection:** Supabase's session pooler (port 5432, IPv4) or the direct
   connection; never the transaction pooler (6543), which has no prepared statements: the
   config refuses it. Pools are small and set per process (`DB_POOL_SIZE`,
-  `DB_MAX_OVERFLOW`), because each pooled client holds a server connection.
+  `DB_MAX_OVERFLOW`), because each pooled client holds a server connection. Each process
+  also has a one-connection engine for LLM usage rows (written outside the turn's
+  transaction): API 6+1, worker 5+1, one-offs 2 = 15.
 - **Caddy** adds HSTS, a referrer policy, `nosniff`, and a CSP per host (the panel's allows
   the Facebook SDK for Embedded Signup), compresses responses, limits request bodies to
   6 MB, and passes the webhook through untouched (the signature covers the raw body).

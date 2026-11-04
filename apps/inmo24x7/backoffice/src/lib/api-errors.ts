@@ -29,9 +29,17 @@ const messages: Record<string, string> = {
 
 export function apiErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiRequestError) {
-    const message = messages[error.code] ?? fallback;
+    const known = messages[error.code];
     const metaCode = "metaCode" in error ? error.metaCode : null;
-    return metaCode ? `${message} Código de Meta: ${metaCode}.` : message;
+    let message = known ?? fallback;
+    if (metaCode) {
+      message = `${message} Código de Meta: ${metaCode}.`;
+    }
+    // Unexpected failures carry the request's "Código de referencia" (Errores → Buscar).
+    if ((error.status >= 500 || known === undefined) && error.reference) {
+      message = `${message} Código de referencia: ${error.reference}.`;
+    }
+    return message;
   }
   return fallback;
 }

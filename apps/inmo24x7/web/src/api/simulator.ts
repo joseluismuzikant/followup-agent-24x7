@@ -1,9 +1,4 @@
-import {
-  ApiRequestError,
-  errorCode,
-  type SimulatorReply,
-  type SimulatorState,
-} from "@followup/api-client-inmo24x7";
+import { apiError, type SimulatorReply, type SimulatorState } from "@followup/api-client-inmo24x7";
 
 import { apiClient } from "./client";
 
@@ -12,7 +7,7 @@ export async function fetchSimulator(): Promise<SimulatorState> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function sendSimulatorMessage(
@@ -25,7 +20,7 @@ export async function sendSimulatorMessage(
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function resetSimulator(): Promise<SimulatorState> {
@@ -33,5 +28,5 @@ export async function resetSimulator(): Promise<SimulatorState> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }

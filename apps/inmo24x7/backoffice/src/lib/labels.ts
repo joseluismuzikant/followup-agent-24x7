@@ -55,6 +55,7 @@ const actionLabels: Record<string, string> = {
   tenant_suspended: "Cuenta suspendida",
   tenant_reactivated: "Cuenta reactivada",
   reconnect_link_sent: "Se envió el link para reconectar",
+  llm_cost_alert: "El consumo de LLM del mes pasó el aviso",
 };
 
 export function activityText(event: BusinessActivity): string {
@@ -69,6 +70,7 @@ export function activityText(event: BusinessActivity): string {
   if (details.step) extra.push(`paso ${details.step}`);
   if (details.event) extra.push(String(details.event));
   if (details.source === "manual") extra.push("a mano");
+  if (details.cost_usd) extra.push(`USD ${details.cost_usd} en ${details.month}`);
   return extra.length ? `${label} · ${extra.join(" · ")}` : label;
 }
 
@@ -96,4 +98,52 @@ export function formatAge(seconds: number | null): string {
   if (seconds < 60) return `${Math.round(seconds)} s`;
   if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
   return `${Math.round(seconds / 3600)} h`;
+}
+
+const usd = new Intl.NumberFormat("es-AR", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+const share = new Intl.NumberFormat("es-AR", { style: "percent", maximumFractionDigits: 0 });
+const count = new Intl.NumberFormat("es-AR");
+
+/** API amounts come as decimal strings ("0.012345"). */
+export function formatUsd(value: string | null | undefined): string {
+  return value === null || value === undefined ? "—" : usd.format(Number(value));
+}
+
+/** Every call was of a model without a price: the cost is unknown, not zero. */
+export function costUnknown(item: { llm_calls: number; unpriced_calls: number }): boolean {
+  return item.llm_calls > 0 && item.unpriced_calls === item.llm_calls;
+}
+
+/** A cost, or "—" when no call of `item` had a price. */
+export function formatCost(
+  value: string | null | undefined,
+  item: { llm_calls: number; unpriced_calls: number },
+): string {
+  return costUnknown(item) ? "—" : formatUsd(value);
+}
+
+export function formatShare(value: number | null | undefined): string {
+  return value === null || value === undefined ? "—" : share.format(value);
+}
+
+export function formatCount(value: number): string {
+  return count.format(value);
+}
+
+/** "2026-11" for the current UTC month (Consumo works in UTC months). */
+export function currentMonth(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 7);
+}
+
+export function monthLabel(month: string): string {
+  const [year, number] = month.split("-").map(Number);
+  const name = new Intl.DateTimeFormat("es-AR", { month: "long", timeZone: "UTC" }).format(
+    new Date(Date.UTC(year!, number! - 1, 1)),
+  );
+  return `${name} ${year}`;
 }

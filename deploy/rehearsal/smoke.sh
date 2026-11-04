@@ -134,6 +134,30 @@ bad="$(https -o /dev/null -w '%{http_code}' -X POST https://api.localhost/webhoo
 [[ "$bad" == "401" ]] || fail "a bad signature got $bad"
 ok "a bad signature is refused (401)"
 
+say "Logs in Loki (Alloy → Loki, queried through Grafana)"
+grafana_password="$(setting GRAFANA_ADMIN_PASSWORD)"
+loki_lines() { # LogQL → number of lines in the last 15 minutes
+	compose exec -T grafana curl -fsS -u "admin:$grafana_password" \
+		"http://127.0.0.1:3000/api/datasources/proxy/uid/loki/loki/api/v1/query_range?limit=100&since=15m&query=$(
+			python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1"
+		)" | json 'sum(len(stream["values"]) for stream in data["data"]["result"])'
+}
+for _ in $(seq 1 30); do
+	webhook_lines="$(loki_lines '{environment="production", service="api", level="info"} | json | message="whatsapp_webhook"' || echo 0)"
+	((webhook_lines > 0)) && break
+	sleep 2
+done
+((webhook_lines > 0)) || fail "no whatsapp_webhook line reached Loki within 60 s"
+for _ in $(seq 1 15); do
+	tenant_lines="$(loki_lines "{environment=\"production\", service=\"worker\"} | json | tenant_id=\"$tenant_id\"" || echo 0)"
+	((tenant_lines > 0)) && break
+	sleep 2
+done
+((tenant_lines > 0)) || fail "no worker line carries the tenant_id"
+https -o /dev/null -w '%{http_code}' https://grafana.localhost/login | grep -q 200 ||
+	fail "Grafana is not published at https://grafana.localhost"
+ok "the API's and the worker's lines are in Loki ($tenant_lines for the tenant), Grafana is up"
+
 say "Backup and restore"
 backup_log="$("$DEPLOY_DIR/backup-now.sh" 2>&1)" || fail "backup failed: $backup_log"
 grep -q 'status=ok' <<<"$backup_log" || fail "no status=ok line: $backup_log"

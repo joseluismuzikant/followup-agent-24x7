@@ -3,6 +3,7 @@
 #   COMPOSE_FILES  space-separated compose files, relative to deploy/ (default: compose.prod.yml)
 #   ENV_FILE       the environment file, relative to deploy/ (default: .env.production)
 #   COMPOSE_PROJECT the compose project name (default: inmo24x7)
+#   COMPOSE_PROFILES  compose profiles (default: COMPOSE_PROFILES from the environment file)
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILES="${COMPOSE_FILES:-compose.prod.yml}"
@@ -12,7 +13,33 @@ COMPOSE_PROJECT="${COMPOSE_PROJECT:-inmo24x7}"
 STATE_DIR="$DEPLOY_DIR/state${COMPOSE_PROJECT#inmo24x7}"
 # Compose needs an image tag even for one-off services: default to the deployed one.
 IMAGE_TAG="${IMAGE_TAG:-$(cat "$STATE_DIR/deployed_tag" 2>/dev/null || echo not-deployed)}"
-export ENV_FILE IMAGE_TAG
+
+# One value from the environment file (empty when it is missing).
+env_value() {
+	local file="$DEPLOY_DIR/$ENV_FILE"
+	[[ -f "$file" ]] || return 0
+	sed -n "s/^$1=//p" "$file" | tail -n 1
+}
+
+# COMPOSE_PROFILES=observability in the environment file turns on Loki, Alloy and Grafana.
+COMPOSE_PROFILES="${COMPOSE_PROFILES:-$(env_value COMPOSE_PROFILES)}"
+# Grafana is published by Caddy only when GRAFANA_DOMAIN is set; otherwise an SSH tunnel.
+grafana_domain="$(env_value GRAFANA_DOMAIN)"
+if [[ -n "$grafana_domain" ]]; then
+	CADDY_GRAFANA_SITE="./caddy/grafana.caddy"
+	GRAFANA_ROOT_URL="https://$grafana_domain"
+	GRAFANA_COOKIE_SECURE=true
+else
+	CADDY_GRAFANA_SITE="./caddy/no-grafana.caddy"
+	GRAFANA_ROOT_URL="http://localhost:3000"
+	GRAFANA_COOKIE_SECURE=false
+fi
+export ENV_FILE IMAGE_TAG COMPOSE_PROJECT COMPOSE_PROFILES CADDY_GRAFANA_SITE GRAFANA_ROOT_URL \
+	GRAFANA_COOKIE_SECURE
+
+observability_enabled() {
+	[[ ",$COMPOSE_PROFILES," == *",observability,"* ]]
+}
 
 compose() {
 	local args=(--project-name "$COMPOSE_PROJECT" --project-directory "$DEPLOY_DIR"

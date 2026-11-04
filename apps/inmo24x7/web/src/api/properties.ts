@@ -1,4 +1,4 @@
-import { ApiRequestError, errorCode } from "@followup/api-client-inmo24x7";
+import { apiError, ApiRequestError } from "@followup/api-client-inmo24x7";
 import type {
   ImportReport,
   Property,
@@ -28,7 +28,7 @@ export async function fetchProperties(filters: PropertyFilters = {}): Promise<Pr
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function createProperty(input: PropertyInput): Promise<Property> {
@@ -36,7 +36,7 @@ export async function createProperty(input: PropertyInput): Promise<Property> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function updateProperty(id: string, changes: PropertyChanges): Promise<Property> {
@@ -47,7 +47,7 @@ export async function updateProperty(id: string, changes: PropertyChanges): Prom
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function setPropertyPublished(id: string, published: boolean): Promise<Property> {
@@ -58,12 +58,12 @@ export async function setPropertyPublished(id: string, published: boolean): Prom
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 async function failure(response: Response): Promise<ApiRequestError> {
   const body: unknown = await response.json().catch(() => null);
-  return new ApiRequestError(response.status, errorCode(body));
+  return apiError(response, body);
 }
 
 export async function importProperties(file: File): Promise<ImportReport> {

@@ -1,4 +1,4 @@
-import { ApiRequestError, errorCode } from "@followup/api-client-inmo24x7";
+import { apiError, ApiRequestError, errorCode, REQUEST_ID_HEADER } from "@followup/api-client-inmo24x7";
 import type {
   EmbeddedSignupInput,
   SignupAbandonedInput,
@@ -12,18 +12,28 @@ import { apiClient } from "./client";
 export class SignupRequestError extends ApiRequestError {
   readonly translated: WhatsAppError | null;
 
-  constructor(status: number, code: string, translated: WhatsAppError | null) {
-    super(status, code);
+  constructor(
+    status: number,
+    code: string,
+    translated: WhatsAppError | null,
+    requestId: string | null = null,
+  ) {
+    super(status, code, requestId);
     this.translated = translated;
   }
 }
 
-function signupFailure(status: number, error: unknown): SignupRequestError {
+function signupFailure(response: Response, error: unknown): SignupRequestError {
   const translated =
     typeof error === "object" && error !== null && "error" in error
       ? (error.error as WhatsAppError)
       : null;
-  return new SignupRequestError(status, errorCode(error), translated);
+  return new SignupRequestError(
+    response.status,
+    errorCode(error),
+    translated,
+    response.headers.get(REQUEST_ID_HEADER),
+  );
 }
 
 export async function fetchWhatsAppStatus(): Promise<WhatsAppStatus> {
@@ -31,7 +41,7 @@ export async function fetchWhatsAppStatus(): Promise<WhatsAppStatus> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function completeEmbeddedSignup(input: EmbeddedSignupInput): Promise<WhatsAppStatus> {
@@ -41,7 +51,7 @@ export async function completeEmbeddedSignup(input: EmbeddedSignupInput): Promis
   if (data) {
     return data;
   }
-  throw signupFailure(response.status, error);
+  throw signupFailure(response, error);
 }
 
 export async function retryEmbeddedSignup(): Promise<WhatsAppStatus> {
@@ -49,7 +59,7 @@ export async function retryEmbeddedSignup(): Promise<WhatsAppStatus> {
   if (data) {
     return data;
   }
-  throw signupFailure(response.status, error);
+  throw signupFailure(response, error);
 }
 
 /** CANCEL / ERROR / FINISH_ONLY_WABA: recorded for support. Returns Meta's error code in

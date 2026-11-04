@@ -3,7 +3,9 @@
 #   IMAGE_TAG=sha-<commit> docker compose -f compose.prod.yml --env-file .env.production up -d
 #
 # deploy.sh does that (with the migration first and a rollback); see docs/go-live.md.
-# Only Caddy publishes ports (80 and 443). Everything reads .env.production (chmod 600).
+# Only Caddy publishes ports (80 and 443; Grafana also listens on the VM's 127.0.0.1:3000 for
+# an SSH tunnel). The app reads .env.production (chmod 600); the observability services
+# (profile `observability`, deploy/observability.md) get only the values they need.
 
 name: inmo24x7
 
@@ -21,7 +23,7 @@ services:
     env_file: ${ENV_FILE:-.env.production}
     environment:
       DB_POOL_SIZE: ${API_DB_POOL_SIZE:-5}
-      DB_MAX_OVERFLOW: ${API_DB_MAX_OVERFLOW:-2}
+      DB_MAX_OVERFLOW: ${API_DB_MAX_OVERFLOW:-1}
     restart: unless-stopped
     networks: [internal]
     healthcheck:
@@ -69,8 +71,12 @@ services:
       - "443:443"
       - "443:443/udp"
     env_file: ${ENV_FILE:-.env.production}
+    environment:
+      # Empty means no allowlist (Caddy would otherwise match no address at all).
+      GRAFANA_ALLOWED_IPS: ${GRAFANA_ALLOWED_IPS:-0.0.0.0/0 ::/0}
     volumes:
       - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - ${CADDY_GRAFANA_SITE:-./caddy/no-grafana.caddy}:/etc/caddy/grafana.caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -104,6 +110,94 @@ services:
     networks: [internal]
     logging: *logging
 
+  # --- Logs (profile `observability`): Alloy → Loki → Grafana, all on this VM. ------------
+  loki:
+    image: grafana/loki:3.7.9
+    command: ["-config.file=/etc/loki/config.yaml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION_DAYS: ${LOKI_RETENTION_DAYS:-14}
+    volumes:
+      - ./observability/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    profiles: [observability]
+    restart: unless-stopped
+    # Distroless (no shell): Grafana's healthcheck waits for Loki's /ready instead.
+    mem_limit: 512m
+    networks: [internal]
+    logging: *logging
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy",
+      "/etc/alloy/config.alloy"]
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT:-inmo24x7}
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Read-only: Alloy lists the containers and reads their logs, nothing else.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy
+    profiles: [observability]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/12345 && printf 'GET /-/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 192m
+    networks: [internal]
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    # Refuses to start without GRAFANA_ADMIN_PASSWORD (Grafana would fall back to admin/admin).
+    entrypoint: ["sh", "-c", "test -n \"$$GF_SECURITY_ADMIN_PASSWORD\" || { echo 'Set GRAFANA_ADMIN_PASSWORD in .env.production.' >&2; exit 1; }; exec /run.sh"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+      GF_SECURITY_COOKIE_SECURE: ${GRAFANA_COOKIE_SECURE:-true}
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_LOG_LEVEL: warn
+      # Alerts by email, through the app's SMTP account.
+      GF_SMTP_ENABLED: "true"
+      GF_SMTP_HOST: ${SMTP_HOST:-localhost}:${SMTP_PORT:-587}
+      GF_SMTP_USER: ${SMTP_USERNAME:-}
+      GF_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      GF_SMTP_FROM_ADDRESS: ${ALERTS_EMAIL_FROM:-alertas@localhost}
+      GF_SMTP_FROM_NAME: inmo24x7 alertas
+      # Read by the provisioning files.
+      APP_ENV: ${APP_ENV:-production}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    profiles: [observability]
+    restart: unless-stopped
+    depends_on: [loki]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null && wget -qO- http://loki:3100/ready >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 256m
+    networks: [internal]
+    logging: *logging
+
 networks:
   # No app container publishes a port: requests come in only through Caddy. Outbound
   # traffic (Supabase, Meta, the model, SMTP) works from both networks.
@@ -113,3 +207,6 @@ networks:
 volumes:
   caddy_data: {}
   caddy_config: {}
+  loki_data: {}
+  alloy_data: {}
+  grafana_data: {}

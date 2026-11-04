@@ -1,4 +1,10 @@
 import type {
+  BusinessUsage,
+  ErrorList,
+  SentryIssue,
+  TenantUsage,
+  UsageFigures,
+  UsageReport,
   BusinessDetail,
   BusinessList,
   BusinessRow,
@@ -122,6 +128,94 @@ export function systemHealth(overrides: Partial<SystemHealth> = {}): SystemHealt
     version: "0.7.0",
     commit: "abc1234",
     database: "ok",
+    links: { grafana_url: "", loki_datasource: "", sentry_issues_url: "" },
+    ...overrides,
+  };
+}
+
+export function sentryIssue(overrides: Partial<SentryIssue> = {}): SentryIssue {
+  return {
+    id: "101",
+    title: "RuntimeError: boom",
+    culprit: "inmo24x7_api.leads.router in get_lead",
+    project: "api",
+    first_seen: "2026-11-01T10:00:00Z",
+    last_seen: "2026-11-04T12:00:00Z",
+    count: 12,
+    users: 3,
+    permalink: "https://acme.sentry.io/issues/101/",
+    ...overrides,
+  };
+}
+
+export function errorList(overrides: Partial<ErrorList> = {}): ErrorList {
+  return {
+    configured: true,
+    available: true,
+    issues: [sentryIssue(), sentryIssue({ id: "102", title: "TypeError: x", project: "panel" })],
+    sentry_issues_url: "https://acme.sentry.io/issues/",
+    ...overrides,
+  };
+}
+
+export function usageFigures(overrides: Partial<UsageFigures> = {}): UsageFigures {
+  return {
+    llm_calls: 40,
+    input_tokens: 120_000,
+    output_tokens: 9_000,
+    cost_usd: "0.493000",
+    cost_per_conversation_usd: "0.049300",
+    test_share: 0.25,
+    conversations: 10,
+    template_messages: 3,
+    unpriced_calls: 0,
+    unreported_calls: 0,
+    ...overrides,
+  };
+}
+
+export function businessUsage(overrides: Partial<BusinessUsage> = {}): BusinessUsage {
+  return {
+    tenant_id: "tenant-1",
+    name: "Inmobiliaria Sur",
+    plan: "trial",
+    figures: usageFigures(),
+    ...overrides,
+  };
+}
+
+export function usageReport(overrides: Partial<UsageReport> = {}): UsageReport {
+  return {
+    month: "2026-11",
+    totals: usageFigures({ cost_usd: "0.593000", conversations: 12 }),
+    businesses: [
+      businessUsage(),
+      businessUsage({
+        tenant_id: "tenant-2",
+        name: "Inmobiliaria Norte",
+        figures: usageFigures({ cost_usd: "0.100000", unpriced_calls: 4, conversations: 2 }),
+      }),
+    ],
+    ...overrides,
+  };
+}
+
+export function tenantUsage(overrides: Partial<TenantUsage> = {}): TenantUsage {
+  return {
+    month: "2026-11",
+    business: businessUsage(),
+    daily: [
+      { day: "2026-11-01", cost_usd: "0.100000", conversations: 2 },
+      { day: "2026-11-02", cost_usd: "0.393000", conversations: 8 },
+      { day: "2026-11-03", cost_usd: "0.000000", conversations: 0 },
+    ],
+    by_operation: [
+      { key: "compose_reply", llm_calls: 20, input_tokens: 80_000, output_tokens: 8_000, cost_usd: "0.360000", unpriced_calls: 0 },
+      { key: "extract", llm_calls: 20, input_tokens: 40_000, output_tokens: 1_000, cost_usd: "0.133000", unpriced_calls: 0 },
+    ],
+    by_model: [
+      { key: "anthropic:claude-sonnet-5-5", llm_calls: 40, input_tokens: 120_000, output_tokens: 9_000, cost_usd: "0.493000", unpriced_calls: 0 },
+    ],
     ...overrides,
   };
 }

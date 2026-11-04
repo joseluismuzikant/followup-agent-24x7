@@ -1,4 +1,5 @@
 export { Badge, badgeVariants } from "./components/badge";
+export { BarLineChart, type BarLinePoint } from "./components/bar-line-chart";
 export { Button, buttonVariants } from "./components/button";
 export {
   Card,

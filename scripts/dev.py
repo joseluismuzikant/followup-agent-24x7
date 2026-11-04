@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import time
 
 from _cli import PNPM, ROOT, exit_on_signal, load_env_file, run, spawn, stop
 
 API_DIR = "apps/inmo24x7/api"
+# Where the API's and the worker's output is copied for the local Alloy (--observability).
+DEV_LOGS = ROOT / ".dev-logs"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -14,6 +17,11 @@ def main(argv: list[str] | None = None) -> int:
         description="Run the API, the worker, the panel and the backoffice."
     )
     parser.add_argument("--seed", action="store_true", help="seed the dev accounts after migrating")
+    parser.add_argument(
+        "--observability",
+        action="store_true",
+        help="also start Loki, Alloy and Grafana (http://localhost:3000) with the API's logs",
+    )
     args = parser.parse_args(argv)
     load_env_file(ROOT / ".env")
     signal.signal(signal.SIGTERM, exit_on_signal)
@@ -21,6 +29,13 @@ def main(argv: list[str] | None = None) -> int:
     run(["uv", "sync", "--all-packages"])
     run([*PNPM, "install", "--frozen-lockfile"])
     run(["docker", "compose", "up", "-d", "--wait", "db", "mailpit"])
+    api_log = worker_log = None
+    if args.observability:
+        DEV_LOGS.mkdir(exist_ok=True)
+        api_log, worker_log = DEV_LOGS / "api.log", DEV_LOGS / "worker.log"
+        # Log lines go through a pipe: unbuffered, so they reach Grafana right away.
+        os.environ["PYTHONUNBUFFERED"] = "1"
+        run(["docker", "compose", "--profile", "observability", "up", "-d", "--wait"])
     run(["uv", "run", "alembic", "upgrade", "head"])
     if args.seed:
         run(["uv", "run", "--all-packages", "python", "scripts/seed_dev.py"])
@@ -39,10 +54,14 @@ def main(argv: list[str] | None = None) -> int:
                 "0.0.0.0",
                 "--port",
                 "8001",
-            ]
+            ],
+            tee=api_log,
         ),
         # Background jobs: WhatsApp processing and sending, new-lead emails.
-        spawn(["uv", "--directory", API_DIR, "run", "python", "-m", "inmo24x7_api.worker"]),
+        spawn(
+            ["uv", "--directory", API_DIR, "run", "python", "-m", "inmo24x7_api.worker"],
+            tee=worker_log,
+        ),
         spawn([*PNPM, "--filter", "@inmo24x7/web", "dev"]),
         spawn([*PNPM, "--filter", "@inmo24x7/backoffice", "dev"]),
     ]
@@ -51,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     print("Backoffice: http://localhost:5174", flush=True)
     print("API:        http://localhost:8001/docs", flush=True)
     print("Mailpit:    http://localhost:8025", flush=True)
+    if args.observability:
+        print("Grafana:    http://localhost:3000 (admin / admin)", flush=True)
 
     exit_code = 0
     try:

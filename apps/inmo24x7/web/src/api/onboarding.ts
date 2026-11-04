@@ -1,8 +1,4 @@
-import {
-  ApiRequestError,
-  errorCode,
-  type OnboardingState,
-} from "@followup/api-client-inmo24x7";
+import { apiError, type OnboardingState } from "@followup/api-client-inmo24x7";
 
 import { apiClient } from "./client";
 
@@ -11,7 +7,7 @@ export async function fetchOnboarding(): Promise<OnboardingState> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function advanceOnboarding(toStep: string): Promise<OnboardingState> {
@@ -21,5 +17,5 @@ export async function advanceOnboarding(toStep: string): Promise<OnboardingState
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }

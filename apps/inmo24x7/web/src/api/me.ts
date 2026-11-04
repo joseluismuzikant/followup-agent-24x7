@@ -1,9 +1,6 @@
-import {
-  ApiRequestError,
-  errorCode,
-  type MeResponse,
-  type SignUpResponse,
-} from "@followup/api-client-inmo24x7";
+import { apiError, type MeResponse, type SignUpResponse } from "@followup/api-client-inmo24x7";
+
+import { identify } from "@followup/observability";
 
 import { apiClient } from "./client";
 
@@ -11,10 +8,12 @@ export async function fetchMe(): Promise<MeResponse> {
   const { data, error, response } = await apiClient.GET("/me");
 
   if (data) {
+    // Error reports carry the profile id (never the email) and the business.
+    identify(data.profile.id, data.tenant?.id);
     return data;
   }
 
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function signUp(
@@ -29,5 +28,5 @@ export async function signUp(
     return data;
   }
 
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }

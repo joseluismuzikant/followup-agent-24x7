@@ -1,0 +1,14 @@
+# Loki on the compose network. The uid is what LOKI_DATASOURCE (the backoffice's Explore
+# links) refers to; keep them equal.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    editable: false
+    jsonData:
+      maxLines: 1000

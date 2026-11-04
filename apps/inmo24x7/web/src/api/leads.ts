@@ -1,4 +1,4 @@
-import { ApiRequestError, errorCode } from "@followup/api-client-inmo24x7";
+import { apiError, ApiRequestError, REQUEST_ID_HEADER } from "@followup/api-client-inmo24x7";
 import type {
   InboxTab,
   LeadDetail,
@@ -30,7 +30,7 @@ export async function fetchLeads(filters: LeadFilters = {}): Promise<LeadList> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function fetchLead(id: string): Promise<LeadDetail> {
@@ -40,7 +40,7 @@ export async function fetchLead(id: string): Promise<LeadDetail> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function takeOverLead(id: string): Promise<LeadDetail> {
@@ -50,7 +50,7 @@ export async function takeOverLead(id: string): Promise<LeadDetail> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function releaseLead(id: string): Promise<LeadDetail> {
@@ -60,7 +60,7 @@ export async function releaseLead(id: string): Promise<LeadDetail> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function sendTeamMessage(id: string, text: string): Promise<SimulatorMessage> {
@@ -71,7 +71,7 @@ export async function sendTeamMessage(id: string, text: string): Promise<Simulat
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function confirmVisit(
@@ -89,7 +89,7 @@ export async function confirmVisit(
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function cancelVisit(
@@ -107,7 +107,7 @@ export async function cancelVisit(
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 /** "Exportar CSV": the file needs the session token, so it is fetched and saved as a blob. */
@@ -120,7 +120,7 @@ export async function downloadLeadsCsv(filters: LeadFilters): Promise<void> {
   }
   const response = await authorizedFetch(`/leads/export.csv?${query.toString()}`);
   if (!response.ok) {
-    throw new ApiRequestError(response.status, "export_failed");
+    throw new ApiRequestError(response.status, "export_failed", response.headers.get(REQUEST_ID_HEADER));
   }
   const disposition = response.headers.get("content-disposition") ?? "";
   const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "consultas.csv";

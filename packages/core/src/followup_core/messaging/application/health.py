@@ -81,7 +81,8 @@ class ConnectionHealth:
                 dedupe_key=hourly_key(AuditAction.WHATSAPP_ERROR, connection.tenant_id, code, now),
             )
         )
-        logger.warning(
+        # An error: the number stopped answering until someone reconnects it.
+        logger.error(
             "whatsapp_connection_error",
             extra={"tenant_id": str(connection.tenant_id), "meta_code": code},
         )

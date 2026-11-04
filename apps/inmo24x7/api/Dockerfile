@@ -36,7 +36,7 @@ COPY --from=builder /app/migrations migrations
 COPY --from=builder /app/packages/core packages/core
 COPY --from=builder /app/apps/inmo24x7/api apps/inmo24x7/api
 # One-off admin commands: `docker compose run --rm api python scripts/make_admin.py <email>`.
-COPY scripts/_cli.py scripts/make_admin.py scripts/
+COPY scripts/_cli.py scripts/make_admin.py scripts/recompute_llm_costs.py scripts/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

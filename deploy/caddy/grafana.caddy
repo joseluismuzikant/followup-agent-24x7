@@ -1,0 +1,15 @@
+# Grafana at GRAFANA_DOMAIN (lib.sh mounts this file only when GRAFANA_DOMAIN is set; see
+# deploy/observability.md). GRAFANA_ALLOWED_IPS limits who reaches it (compose sends
+# "0.0.0.0/0 ::/0" when it is empty); Grafana's own login is still required.
+{$GRAFANA_DOMAIN} {
+	import security_headers
+	import access_log
+	header {
+		X-Frame-Options "DENY"
+		X-Robots-Tag "noindex, nofollow"
+	}
+	@denied not remote_ip {$GRAFANA_ALLOWED_IPS}
+	respond @denied 403
+	encode zstd gzip
+	reverse_proxy grafana:3000
+}

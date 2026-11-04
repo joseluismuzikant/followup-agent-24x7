@@ -843,6 +843,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/errors/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Error
+         * @description Fails on purpose (an unhandled error): Sentry gets an issue "SentryTestError" with
+         *     this request's id, and the logs a 500. For go-live and after changing SENTRY_DSN.
+         */
+        post: operations["test_error_admin_errors_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Errors */
+        get: operations["errors_admin_errors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/plans": {
         parameters: {
             query?: never;
@@ -852,6 +890,57 @@ export interface paths {
         };
         /** Plans */
         get: operations["plans_admin_plans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Usage */
+        get: operations["usage_admin_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/usage/export.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Usage Export */
+        get: operations["usage_export_admin_usage_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/usage/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tenant Usage */
+        get: operations["tenant_usage_admin_usage__tenant_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1092,6 +1181,19 @@ export interface components {
              */
             created_at: string;
         };
+        /** BusinessUsageRead */
+        BusinessUsageRead: {
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Name */
+            name: string;
+            /** Plan */
+            plan: string;
+            figures: components["schemas"]["UsageFiguresRead"];
+        };
         /** BusinessWhatsAppRead */
         BusinessWhatsAppRead: {
             /**
@@ -1194,6 +1296,18 @@ export interface components {
             /** Changed At */
             changed_at: string | null;
         };
+        /** DailyUsageRead */
+        DailyUsageRead: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Cost Usd */
+            cost_usd: string;
+            /** Conversations */
+            conversations: number;
+        };
         /** DashboardRead */
         DashboardRead: {
             /** Business Name */
@@ -1231,6 +1345,17 @@ export interface components {
             /** Code */
             code: string;
         };
+        /** ErrorsRead */
+        ErrorsRead: {
+            /** Configured */
+            configured: boolean;
+            /** Available */
+            available: boolean;
+            /** Issues */
+            issues: components["schemas"]["IssueRead"][];
+            /** Sentry Issues Url */
+            sentry_issues_url: string;
+        };
         /** FailedSendsRead */
         FailedSendsRead: {
             /** Code */
@@ -1264,6 +1389,36 @@ export interface components {
             failed: number;
             /** Errors */
             errors: string[];
+        };
+        /** IssueRead */
+        IssueRead: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Culprit */
+            culprit: string;
+            /**
+             * Project
+             * @enum {string}
+             */
+            project: "api" | "panel" | "backoffice";
+            /**
+             * First Seen
+             * Format: date-time
+             */
+            first_seen: string;
+            /**
+             * Last Seen
+             * Format: date-time
+             */
+            last_seen: string;
+            /** Count */
+            count: number;
+            /** Users */
+            users: number;
+            /** Permalink */
+            permalink: string;
         };
         /** JobCountRead */
         JobCountRead: {
@@ -1458,6 +1613,15 @@ export interface components {
             trace_url?: string | null;
             /** Author Name */
             author_name?: string | null;
+        };
+        /** MonitoringLinksRead */
+        MonitoringLinksRead: {
+            /** Grafana Url */
+            grafana_url: string;
+            /** Loki Datasource */
+            loki_datasource: string;
+            /** Sentry Issues Url */
+            sentry_issues_url: string;
         };
         /** OnboardingItemRead */
         OnboardingItemRead: {
@@ -1910,6 +2074,7 @@ export interface components {
              * @enum {string}
              */
             database: "ok" | "unavailable";
+            links: components["schemas"]["MonitoringLinksRead"];
         };
         /** TabCountsRead */
         TabCountsRead: {
@@ -2022,6 +2187,18 @@ export interface components {
              */
             created_at: string;
         };
+        /** TenantUsageRead */
+        TenantUsageRead: {
+            /** Month */
+            month: string;
+            business: components["schemas"]["BusinessUsageRead"];
+            /** Daily */
+            daily: components["schemas"]["DailyUsageRead"][];
+            /** By Operation */
+            by_operation: components["schemas"]["UsageSplitRead"][];
+            /** By Model */
+            by_model: components["schemas"]["UsageSplitRead"][];
+        };
         /** TestMessageRead */
         TestMessageRead: {
             /** Wamid */
@@ -2070,6 +2247,52 @@ export interface components {
              * Format: date-time
              */
             last_activity_at: string;
+        };
+        /** UsageFiguresRead */
+        UsageFiguresRead: {
+            /** Llm Calls */
+            llm_calls: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Cost Usd */
+            cost_usd: string;
+            /** Cost Per Conversation Usd */
+            cost_per_conversation_usd: string | null;
+            /** Test Share */
+            test_share: number | null;
+            /** Conversations */
+            conversations: number;
+            /** Template Messages */
+            template_messages: number;
+            /** Unpriced Calls */
+            unpriced_calls: number;
+            /** Unreported Calls */
+            unreported_calls: number;
+        };
+        /** UsageReportRead */
+        UsageReportRead: {
+            /** Month */
+            month: string;
+            totals: components["schemas"]["UsageFiguresRead"];
+            /** Businesses */
+            businesses: components["schemas"]["BusinessUsageRead"][];
+        };
+        /** UsageSplitRead */
+        UsageSplitRead: {
+            /** Key */
+            key: string;
+            /** Llm Calls */
+            llm_calls: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Cost Usd */
+            cost_usd: string;
+            /** Unpriced Calls */
+            unpriced_calls: number;
         };
         /** UserRead */
         UserRead: {
@@ -3919,6 +4142,65 @@ export interface operations {
             };
         };
     };
+    test_error_admin_errors_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    errors_admin_errors_get: {
+        parameters: {
+            query?: {
+                project?: "all" | "api" | "panel" | "backoffice";
+                period?: "24h" | "7d" | "14d";
+                tenant_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     plans_admin_plans_get: {
         parameters: {
             query?: never;
@@ -3935,6 +4217,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlanSummaryRead"][];
+                };
+            };
+        };
+    };
+    usage_admin_usage_get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM (UTC) */
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageReportRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    usage_export_admin_usage_export_csv_get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM (UTC) */
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tenant_usage_admin_usage__tenant_id__get: {
+        parameters: {
+            query?: {
+                /** @description YYYY-MM (UTC) */
+                month?: string | null;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantUsageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

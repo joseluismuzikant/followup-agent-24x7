@@ -4,6 +4,8 @@ const items = [
   { label: "Negocios", href: "/" },
   { label: "Simulador", href: "/simulador" },
   { label: "Salud del sistema", href: "/sistema" },
+  { label: "Errores", href: "/errores" },
+  { label: "Consumo", href: "/consumo" },
   { label: "Planes", href: "/planes" },
 ];
 

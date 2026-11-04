@@ -1,5 +1,6 @@
 import { ApiRequestError } from "@followup/api-client-inmo24x7";
 import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AppErrorBoundary, initSentry } from "@followup/observability";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
@@ -29,6 +30,14 @@ const queryClient: QueryClient = new QueryClient({
   },
 });
 
+// Errors to Sentry when VITE_SENTRY_DSN was set at build time (off otherwise).
+initSentry({
+  dsn: import.meta.env.VITE_SENTRY_DSN,
+  release: import.meta.env.VITE_RELEASE,
+  environment: import.meta.env.VITE_SENTRY_ENVIRONMENT,
+  area: "panel",
+});
+
 const root = document.getElementById("root");
 
 if (!root) {
@@ -37,10 +46,12 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </QueryClientProvider>
+    </AppErrorBoundary>
   </StrictMode>,
 );

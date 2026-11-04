@@ -30,6 +30,7 @@ Three `A` records to the VM's public IPv4 (TTL 300 while setting up):
 | `api.<domain>` | A | `<vm-ip>` |
 | `app.<domain>` | A | `<vm-ip>` |
 | `admin.<domain>` | A | `<vm-ip>` |
+| `grafana.<domain>` | A | `<vm-ip>` (only if you publish Grafana; section 12b) |
 
 Check: `dig +short app.<domain>` prints the IP. Caddy gets the certificates on the first
 request once DNS resolves and ports 80/443 are open.
@@ -55,9 +56,9 @@ in `/opt/inmo24x7`.
    - The **direct connection** (`db.<ref>.supabase.co:5432`) only works over IPv6 unless you
      buy the IPv4 add-on; use it only if the VM has IPv6.
 3. **Connection math:** the session pooler gives every client connection its own server
-   connection. The defaults use API 5 + 2 overflow, worker 5, and up to 2 one-offs
-   (migration, backup): 14, under the smallest compute's pool of 15 (Database → Settings →
-   Connection pooling shows yours). Raise `API_DB_POOL_SIZE` / `WORKER_DB_POOL_SIZE` only
+   connection. The defaults use API 5 + 1 overflow, worker 5, one more each for LLM usage
+   rows (written outside the turn), and up to 2 one-offs (migration, backup): 15, the
+   smallest compute's pool (Database → Settings → Connection pooling shows yours). Raise `API_DB_POOL_SIZE` / `WORKER_DB_POOL_SIZE` only
    with a bigger plan.
 
 **Auth**
@@ -114,7 +115,11 @@ Repository → Settings → Secrets and variables → Actions → **Variables**:
 | `META_APP_ID` | the Meta app id |
 | `META_EMBEDDED_SIGNUP_CONFIG_ID` | the Embedded Signup configuration id (step 8) |
 
-The `images` job fails on `master` until all six are set. Then push (or re-run CI on)
+Optional, for Sentry in the panels (section 12a): variables `SENTRY_ORG`, `SENTRY_DSN_PANEL`,
+`SENTRY_DSN_BACKOFFICE`, `SENTRY_PROJECT_PANEL`, `SENTRY_PROJECT_BACKOFFICE`, and the
+**secret** `SENTRY_AUTH_TOKEN` (source maps). Without them the panels build without Sentry.
+
+The `images` job fails on `master` until all six required variables are set. Then push (or re-run CI on)
 `master`: it builds `ghcr.io/<owner>/<repo>/inmo24x7-{api,web,backoffice}:sha-<commit>` for
 amd64 and arm64. Note the full commit sha: that is what you deploy.
 
@@ -253,10 +258,68 @@ Repository → Settings → Environments → **production**: secrets `DEPLOY_HOS
 repository variable `DEPLOY_ENABLED=true`. Then Actions → Deploy → Run workflow with the full
 sha. It runs the same `deploy.sh` over SSH.
 
+## 12a. Monitoring: Sentry (errors)
+
+Optional but recommended before the first customer. The free Developer plan is enough to start.
+
+1. **Create three projects** in one organization: `inmo24x7-api` (platform Python/FastAPI;
+   the API and the worker share it), `inmo24x7-panel` and `inmo24x7-backoffice` (React).
+   Note the organization slug (`SENTRY_ORG`) and, if it lives in the EU region, use
+   `SENTRY_API_URL=https://de.sentry.io`.
+2. **Project settings → Security & Privacy:** "Data Scrubber" and "Use Default Scrubbers" ON,
+   "Prevent Storing of IP Addresses" ON. Our own scrubbing runs first; this is the second lock.
+3. **DSNs** (Project → Client Keys): the API's goes in `.env.production` as `SENTRY_DSN`; the
+   panels' go to GitHub variables `SENTRY_DSN_PANEL` and `SENTRY_DSN_BACKOFFICE` (build time).
+   The ingest host of those DSNs (`https://o<id>.ingest.us.sentry.io`) goes in
+   `.env.production` as `SENTRY_INGEST_HOST`, so the CSP lets the panels reach it.
+4. **Source maps:** Settings → Auth Tokens → an *organization* token with `project:releases`
+   and `org:read`, saved as the GitHub **secret** `SENTRY_AUTH_TOKEN`, plus the variables
+   `SENTRY_PROJECT_PANEL=inmo24x7-panel` and `SENTRY_PROJECT_BACKOFFICE=inmo24x7-backoffice`.
+   CI uploads the maps for the release (the commit) and deletes them from the image.
+5. **The backoffice's Errores page:** Settings → Custom Integrations → *Create New
+   Integration* → Internal, permissions **Issue & Event: Read** (nothing else). Its token is
+   `SENTRY_API_TOKEN`; `SENTRY_PROJECTS=api=inmo24x7-api,panel=inmo24x7-panel,backoffice=inmo24x7-backoffice`.
+6. **Alerts** (each project → Alerts → Create alert → Issues): "A new issue is created" →
+   email to the team; and "The issue changes state from resolved to unresolved"
+   (regression) → email. Keep the default "Notify on every new issue" off for noisy projects.
+7. **Check end to end:** redeploy, then Backoffice → Errores → **Enviar errores de prueba**.
+   Within a minute Sentry shows `SentryTestError` (api) with the request id as a tag, and
+   "Error de prueba del panel" (backoffice). Resolve both.
+8. **Privacy policy:** Sentry receives operational data (stack traces, URLs without query
+   strings, browser and OS, profile and business ids), never message text, names, phones or
+   emails. Name it in the privacy policy as a processor (and its region). Loki and Grafana stay
+   on our VM.
+
+## 12b. Monitoring: logs (Loki + Alloy + Grafana on the VM)
+
+On by default (`COMPOSE_PROFILES=observability`); about 1 GB of RAM and 1 GB of disk at MVP
+traffic. Details, disk math and LogQL in `deploy/observability.md`.
+
+1. In `.env.production`: `GRAFANA_ADMIN_PASSWORD` (long, random), `ALERTS_EMAIL_FROM` (a plain
+   address of your SMTP domain), `LOKI_RETENTION_DAYS=14`, and either
+   `GRAFANA_DOMAIN=grafana.<domain>` (plus its DNS record, and optionally
+   `GRAFANA_ALLOWED_IPS` with your office/home IPs) or empty to use an SSH tunnel
+   (`ssh -L 3000:127.0.0.1:3000 deploy@<vm-ip>` → http://localhost:3000).
+2. `GRAFANA_URL=https://grafana.<domain>` (or empty to hide the backoffice's links) and
+   `LOKI_DATASOURCE=loki`.
+3. Deploy (`./deploy.sh <sha>` starts loki, alloy and grafana too).
+4. **First login** at Grafana as `admin` with `GRAFANA_ADMIN_PASSWORD`, then change it
+   (Profile → Change password) and keep it in the password manager.
+5. **Check:** Dashboards → inmo24x7 → *inmo24x7 — operación* shows API requests and the
+   panels; Explore → `{service="api"}` has lines from the last minutes. Alerting → Alert rules
+   lists four rules (errors, dead jobs, signature rejections, no webhooks for 6 h), all
+   *Normal*; Contact points → *soporte* → **Test** delivers an email to `SUPPORT_EMAIL`.
+6. Optional: `LLM_MONTHLY_COST_ALERT_USD` (for example `20`) emails `SUPPORT_EMAIL` when a
+   business's LLM cost passes it in a month (Backoffice → Consumo shows the numbers). Fill in
+   the real prices in `billing/llm_prices.toml` first, or costs stay empty.
+
 ## After go-live
 
-- Health: Backoffice → Salud del sistema (jobs, webhooks, failed sends by Meta code).
-- Logs: `docker compose --project-name inmo24x7 --env-file .env.production -f compose.prod.yml logs -f api worker`.
+- Health: Backoffice → Salud del sistema (jobs, webhooks, failed sends by Meta code, recent
+  errors). Errors: Backoffice → Errores, or Sentry. Costs: Backoffice → Consumo.
+- A customer reports "Código de referencia: 1a2b3c4d": Backoffice → Errores → Buscar por código
+  de referencia (logs in Grafana, errors in Sentry).
+- Logs: Grafana, or `docker compose --project-name inmo24x7 --env-file .env.production -f compose.prod.yml logs -f api worker`.
 - Rollback to the previous version: `./deploy.sh <previous sha>` (`state/previous_tag`).
   Migrations stay applied, which is why they must be backward compatible.
 

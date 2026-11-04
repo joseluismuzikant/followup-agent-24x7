@@ -1,0 +1,44 @@
+// Development: scripts/dev.py --observability writes the API's and the worker's output to
+// .dev-logs/ (they run on the host, not in Docker); this tails those files into Loki.
+
+local.file_match "dev" {
+	path_targets = [
+		{"__path__" = "/dev-logs/api.log", "service" = "api"},
+		{"__path__" = "/dev-logs/worker.log", "service" = "worker"},
+	]
+}
+
+loki.source.file "dev" {
+	targets    = local.file_match.dev.targets
+	forward_to = [loki.process.dev.receiver]
+}
+
+loki.process "dev" {
+	stage.static_labels {
+		values = {
+			environment = "development",
+		}
+	}
+
+	// Uvicorn's startup banner and reloader lines are not JSON and count as info.
+	stage.json {
+		expressions = {level = "level"}
+	}
+
+	stage.template {
+		source   = "level"
+		template = "{{ if .Value }}{{ ToLower .Value }}{{ else }}info{{ end }}"
+	}
+
+	stage.labels {
+		values = {level = ""}
+	}
+
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

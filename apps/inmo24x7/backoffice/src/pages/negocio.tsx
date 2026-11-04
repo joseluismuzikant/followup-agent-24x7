@@ -18,12 +18,16 @@ import { Link, useLocation, useParams } from "react-router";
 
 import {
   fetchBusiness,
+  fetchErrors,
+  fetchSystemHealth,
+  fetchTenantUsage,
   reactivateBusiness,
   retrySignup,
   sendReconnectLink,
   suspendBusiness,
 } from "../api/backoffice";
 import { RequireAdmin } from "../components/RequireAdmin";
+import { IssueList, errorsUnavailableText } from "../components/monitoring/IssueList";
 import { WhatsAppConnectionPanel } from "../components/WhatsAppConnection";
 import { apiErrorMessage } from "../lib/api-errors";
 import {
@@ -32,11 +36,15 @@ import {
   badgeLabels,
   badgeTones,
   formatDate,
+  currentMonth,
+  formatCount,
+  formatCost,
   formatDateTime,
   onboardingLabels,
   planLabel,
   roleLabels,
 } from "../lib/labels";
+import { grafanaExploreUrl, tenantLogsQuery } from "../lib/monitoring";
 import { navItems } from "../lib/nav";
 
 const verificationLabels: Record<string, string> = {
@@ -123,6 +131,7 @@ function Detail({ business, queryKey }: DetailProps) {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         <div className="flex flex-col gap-6">
           <WhatsAppCard business={business} queryKey={queryKey} />
+          <BusinessErrorsCard tenantId={business.id} />
           <ActivityCard business={business} />
         </div>
         <div className="flex flex-col gap-6">
@@ -145,6 +154,7 @@ function Detail({ business, queryKey }: DetailProps) {
               </ul>
             </CardContent>
           </Card>
+          <UsageCard tenantId={business.id} />
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Plan</CardTitle>
@@ -307,6 +317,92 @@ function WhatsAppCard({ business, queryKey }: DetailProps) {
           </p>
         ) : null}
         {manual ? <WhatsAppConnectionPanel tenantId={business.id} onSaved={refresh} /> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Sentry issues tagged with this business in the last 7 days, and its logs in Grafana. */
+function BusinessErrorsCard({ tenantId }: { tenantId: string }) {
+  const errors = useQuery({
+    queryKey: ["errors", "all", "7d", tenantId],
+    queryFn: () => fetchErrors({ period: "7d", tenantId, limit: 25 }),
+  });
+  const system = useQuery({ queryKey: ["system"], queryFn: fetchSystemHealth });
+  const logs = grafanaExploreUrl(system.data?.links, tenantLogsQuery(tenantId));
+  const list = errors.data;
+  const unavailable = list ? errorsUnavailableText(list) : null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3">
+        <div className="flex flex-col gap-1.5">
+          <CardTitle className="text-base">
+            Errores de este negocio (7 días)
+            {list && !unavailable ? ` · ${list.issues.length}` : ""}
+          </CardTitle>
+          <CardDescription>Los últimos cinco, de Sentry.</CardDescription>
+        </div>
+        {logs ? (
+          <Button asChild variant="outline" size="sm">
+            <a href={logs} target="_blank" rel="noreferrer">
+              Ver logs
+            </a>
+          </Button>
+        ) : null}
+      </CardHeader>
+      <CardContent>
+        {errors.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {apiErrorMessage(errors.error, "No pudimos leer los errores.")}
+          </p>
+        ) : null}
+        {unavailable ? <p className="text-sm text-muted-foreground">{unavailable}</p> : null}
+        {list && !unavailable ? (
+          <IssueList issues={list.issues.slice(0, 5)} empty="Sin errores en los últimos 7 días." />
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** This month's LLM cost (UTC) with a link to its Consumo detail. */
+function UsageCard({ tenantId }: { tenantId: string }) {
+  const month = currentMonth();
+  const query = useQuery({
+    queryKey: ["usage", month, tenantId],
+    queryFn: () => fetchTenantUsage(tenantId, month),
+  });
+  const figures = query.data?.business.figures;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Consumo este mes</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2 text-sm">
+        {query.isError ? (
+          <p className="text-destructive" role="alert">
+            {apiErrorMessage(query.error, "No pudimos leer el consumo.")}
+          </p>
+        ) : null}
+        {figures ? (
+          <>
+            <p>
+              Costo del LLM: <strong>{formatCost(figures.cost_usd, figures)}</strong>
+              {figures.unpriced_calls ? (
+                <Badge tone="warning" className="ml-2">
+                  sin precio
+                </Badge>
+              ) : null}
+            </p>
+            <p>Conversaciones: {formatCount(figures.conversations)}</p>
+            <p>Por conversación: {formatCost(figures.cost_per_conversation_usd, figures)}</p>
+          </>
+        ) : null}
+        <Button asChild variant="outline" size="sm" className="self-start">
+          <Link to={`/consumo?negocio=${tenantId}&mes=${month}`}>Ver el detalle</Link>
+        </Button>
       </CardContent>
     </Card>
   );

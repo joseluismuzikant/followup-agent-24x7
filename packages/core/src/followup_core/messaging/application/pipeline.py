@@ -26,6 +26,7 @@ from followup_core.conversation.domain.thread import (
     Message,
     ThreadKey,
 )
+from followup_core.infrastructure import log_context
 from followup_core.scheduling.domain.jobs import Job, JobQueue, NewJob, Reschedule, RetryLater
 
 from ..domain.connection import ConnectionStatus, WhatsAppConnection
@@ -237,6 +238,7 @@ class ProcessInbound:
         event = self._events.get(UUID(job.payload["event_id"]))
         if event is None or event.tenant_id is None or event.status is not EventStatus.PENDING:
             return None
+        log_context.bind(tenant_id=event.tenant_id, channel=Channel.WHATSAPP.value)
         key = ThreadKey(event.tenant_id, Channel.WHATSAPP, event.wa_id)
         # The same per-thread lock as every turn: two jobs of one conversation run in order.
         self._lock.acquire(key)
@@ -322,6 +324,7 @@ class SendQueued:
         if not parts:
             return None
         tenant_id = self._outbound.tenant_of(parts[0].message_id)
+        log_context.bind(tenant_id=tenant_id, channel=Channel.WHATSAPP.value)
         connection = self._connections.get_by_tenant(tenant_id) if tenant_id else None
         now = self._clock()
         if tenant_id is not None and not self._is_active(tenant_id):

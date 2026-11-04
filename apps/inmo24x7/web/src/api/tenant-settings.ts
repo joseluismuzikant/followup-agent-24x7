@@ -1,9 +1,4 @@
-import {
-  ApiRequestError,
-  errorCode,
-  type TenantSettings,
-  type TenantSettingsInput,
-} from "@followup/api-client-inmo24x7";
+import { apiError, type TenantSettings, type TenantSettingsInput } from "@followup/api-client-inmo24x7";
 
 import { apiClient } from "./client";
 
@@ -12,7 +7,7 @@ export async function fetchTenantSettings(): Promise<TenantSettings> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function saveTenantSettings(
@@ -24,5 +19,5 @@ export async function saveTenantSettings(
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }

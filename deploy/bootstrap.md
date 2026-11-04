@@ -34,8 +34,9 @@ It is safe to run again. It:
 - allows only 22, 80 and 443 with UFW, and inserts ACCEPT rules for 80/443 ahead of the
   REJECT rule Oracle's Ubuntu images ship in iptables (saved with `netfilter-persistent`);
 - turns on unattended security upgrades, and adds a 2 GB swap file when RAM < 8 GB;
-- creates `/opt/inmo24x7` (owned by `deploy`) with the compose file, Caddyfile, scripts and
-  the backup image's sources, and installs the backup timer (enabled once
+- creates `/opt/inmo24x7` (owned by `deploy`) with the compose file, Caddyfile, scripts,
+  the backup image's sources and the logs stack's configuration (`caddy/`, `observability/`),
+  and installs the backup timer (enabled once
   `.env.production` exists).
 
 From now on, connect as `deploy`: `ssh deploy@<vm-ip>`.
