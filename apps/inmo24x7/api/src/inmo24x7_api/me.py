@@ -4,6 +4,8 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
+from fastapi.security import HTTPAuthorizationCredentials
+from followup_core.identity.domain.email_confirmation import EmailConfirmation
 from followup_core.identity.domain.profile import Profile
 from followup_core.identity.domain.token_verifier import VerifiedToken
 from followup_core.tenancy.application.get_tenant import GetTenant
@@ -18,7 +20,7 @@ from followup_core.tenancy.domain.errors import (
 from followup_core.tenancy.domain.tenant import Tenant
 from pydantic import BaseModel, Field
 
-from .auth import current_identity, current_profile, current_profile_any_status
+from .auth import BearerDep, current_identity, current_profile, current_profile_any_status
 from .http_errors import ApiError
 
 SignUpFactory = Callable[..., SignUp]
@@ -84,10 +86,16 @@ def _tenant_read(tenant: Tenant) -> TenantSummaryRead:
     )
 
 
+def _token(credentials: HTTPAuthorizationCredentials | None) -> str:
+    # current_identity already rejected a request without a bearer token.
+    return credentials.credentials if credentials is not None else ""
+
+
 def build_me_router(
     sign_up_factory: SignUpFactory,
     get_tenant_factory: GetTenantFactory,
     support_email: str,
+    email_confirmation_factory: Callable[..., EmailConfirmation],
 ) -> APIRouter:
     router = APIRouter(tags=["me"])
 
@@ -96,14 +104,18 @@ def build_me_router(
         payload: SignUpRequest,
         identity: Annotated[VerifiedToken, Depends(current_identity)],
         use_case: Annotated[SignUp, Depends(sign_up_factory)],
+        confirmation: Annotated[EmailConfirmation, Depends(email_confirmation_factory)],
+        credentials: BearerDep,
         response: Response,
     ) -> SignUpResponse:
+        token = _token(credentials)
         try:
             result = use_case.execute(
                 user_id=identity.user_id,
                 email=identity.email,
                 business_name=payload.business_name,
                 business_type=payload.business_type,
+                email_confirmed=lambda: confirmation.is_confirmed(token, identity.email),
             )
         except DuplicateTenantSlugError as error:
             raise ApiError(409, "tenant_slug_taken") from error

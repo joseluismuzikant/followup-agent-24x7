@@ -16,7 +16,7 @@ from followup_core.messaging.application.health import health_sweep_job
 from followup_core.messaging.application.pipeline import purge_job
 from followup_core.scheduling.infrastructure.queue import JobRunner, SqlAlchemyJobQueue
 
-from .config import get_settings
+from .config import ConfigurationError, Settings, get_settings
 from .container import (
     get_language_model,
     get_messaging_services,
@@ -62,9 +62,21 @@ def work(runner: JobRunner, stop: threading.Event) -> None:
             stop.wait(5)
 
 
+def check_pool(settings: Settings) -> None:
+    """Each job thread holds a connection, plus one for claiming and housekeeping."""
+    needed = settings.worker_concurrency + 1
+    if settings.db_pool_size + settings.db_max_overflow < needed:
+        raise ConfigurationError(
+            f"The worker needs DB_POOL_SIZE + DB_MAX_OVERFLOW >= WORKER_CONCURRENCY + 1 ({needed})."
+        )
+
+
 def main() -> int:
     configure_logging()
     settings = get_settings()
+    check_pool(settings)
+    if settings.rehearsal:
+        logger.warning("rehearsal_mode", extra={"detail": "Fake model and log sender."})
     stop = threading.Event()
 
     def request_stop(signum: int, _frame: FrameType | None) -> None:

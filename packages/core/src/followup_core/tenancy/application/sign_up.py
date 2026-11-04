@@ -1,3 +1,5 @@
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
@@ -15,6 +17,12 @@ from ..domain.owner_claims import OwnerClaimRepository
 from ..domain.tenant import Tenant
 from ..domain.tenant_repository import TenantRepository
 from .defaults import SetupDefaults
+
+logger = logging.getLogger("followup.tenancy")
+
+
+def _not_confirmed() -> bool:
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +57,11 @@ class SignUp:
         email: str,
         business_name: str,
         business_type: str,
+        email_confirmed: Callable[[], bool] = _not_confirmed,
     ) -> SignUpResult:
+        """`email_confirmed` is asked only when an admin created a business for this email:
+        joining it needs a proven email. Without proof, sign-up creates a new business as
+        usual and the claim stays open."""
         existing_profile = self._profile_repository.get_by_id(user_id)
         if existing_profile is not None:
             tenant = self._tenant_repository.get_by_id(existing_profile.tenant_id)
@@ -63,7 +75,9 @@ class SignUp:
 
         claim = self._claims.get_open(email) if self._claims is not None else None
         if claim is not None:
-            return self._claim(user_id, email, claim.tenant_id)
+            if email_confirmed():
+                return self._claim(user_id, email, claim.tenant_id)
+            logger.warning("owner_claim_skipped_unconfirmed_email", extra={"user_id": str(user_id)})
 
         parsed_type = BusinessType.parse(business_type)
         tenant = self._with_free_slug(Tenant.create(business_name))

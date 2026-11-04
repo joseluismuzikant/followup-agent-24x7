@@ -43,10 +43,15 @@ from followup_core.conversation.infrastructure.repositories import (
     SqlAlchemyMessageRepository,
     SqlAlchemyThreadRepository,
 )
+from followup_core.identity.domain.email_confirmation import EmailConfirmation
 from followup_core.identity.domain.token_verifier import TokenVerifier
 from followup_core.identity.infrastructure.dev_verifier import DevTokenVerifier
 from followup_core.identity.infrastructure.models import ProfileModel
 from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
+from followup_core.identity.infrastructure.supabase_email import (
+    DevEmailConfirmation,
+    SupabaseEmailConfirmation,
+)
 from followup_core.identity.infrastructure.supabase_verifier import SupabaseJwtVerifier
 from followup_core.messaging.application.connections import (
     ConnectionDefaults,
@@ -210,6 +215,17 @@ def get_token_verifier() -> TokenVerifier:
         secret=settings.supabase_jwt_secret or None,
         jwks_url=settings.supabase_jwks_url or None,
         issuer=_issuer(settings.supabase_url),
+    )
+
+
+@lru_cache
+def get_email_confirmation() -> EmailConfirmation:
+    """Proof that an email is confirmed, asked only when a sign-up matches an owner claim."""
+    settings = get_settings()
+    if settings.auth_mode == "dev":
+        return DevEmailConfirmation()
+    return SupabaseEmailConfirmation(
+        settings.supabase_server_url or settings.supabase_url, settings.supabase_anon_key
     )
 
 

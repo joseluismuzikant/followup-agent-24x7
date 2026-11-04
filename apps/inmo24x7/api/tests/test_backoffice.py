@@ -12,7 +12,7 @@ from inmo24x7_api.backoffice.domain.rules import (
     needs_help,
     whatsapp_badge,
 )
-from inmo24x7_api.container import get_messaging_services
+from inmo24x7_api.container import get_email_confirmation, get_messaging_services
 from inmo24x7_api.main import app
 from test_setup_endpoints import Account, _body
 from whatsapp_fakes import (
@@ -185,7 +185,48 @@ def test_the_detail_masks_the_waba_and_shows_activity_usage_and_users(world: Wor
     assert [item["done"] for item in detail["onboarding"]] == [True, True, False, False, False]
 
 
+class Confirmation:
+    """Supabase Auth's answer about the email, as the test decides."""
+
+    def __init__(self, confirmed: bool) -> None:
+        self.confirmed = confirmed
+        self.asked: list[tuple[str, str]] = []
+
+    def is_confirmed(self, access_token: str, email: str) -> bool:
+        self.asked.append((access_token, email))
+        return self.confirmed
+
+
+def _sign_up(client, auth, email: str, name: str = "Lo que escriba"):
+    token = auth.register(uuid4(), email=email)
+    return client.post(
+        "/me/sign-up",
+        json={"business_name": name, "business_type": "inmobiliaria"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+
+def test_an_unconfirmed_email_gets_its_own_business_and_the_claim_waits(
+    world: World, client, auth
+) -> None:
+    confirmation = Confirmation(confirmed=False)
+    app.dependency_overrides[get_email_confirmation] = lambda: confirmation
+    created = world.admin_post(
+        "/admin/tenants", {"business_name": "Palermo Propiedades", "owner_email": "d@p.test"}
+    )
+
+    joined = _sign_up(client, auth, "d@p.test", "Mía")
+
+    assert joined.status_code == 201
+    assert joined.json()["tenant"]["name"] == "Mía"
+    assert [email for _, email in confirmation.asked] == ["d@p.test"]
+    assert world.admin_get(f"/admin/tenants/{created.json()['id']}").json()["owner_pending"]
+    app.dependency_overrides.pop(get_email_confirmation, None)
+
+
 def test_an_admin_creates_a_business_that_its_owner_claims(world: World, client, auth) -> None:
+    confirmation = Confirmation(confirmed=True)
+    app.dependency_overrides[get_email_confirmation] = lambda: confirmation
     created = world.admin_post(
         "/admin/tenants", {"business_name": "Palermo Propiedades", "owner_email": "Duenia@P.test"}
     )
@@ -200,15 +241,12 @@ def test_an_admin_creates_a_business_that_its_owner_claims(world: World, client,
     )
     assert (again.status_code, again.json()) == (409, {"code": "owner_email_taken"})
 
-    user_id = uuid4()
-    token = auth.register(user_id, email="duenia@p.test")
-    joined = client.post(
-        "/me/sign-up",
-        json={"business_name": "Lo que escriba", "business_type": "inmobiliaria"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    joined = _sign_up(client, auth, "duenia@p.test")
 
     assert joined.status_code == 201
+    # The user's own token went to Supabase Auth for the check.
+    assert confirmation.asked[0][0].startswith("tok-")
+    app.dependency_overrides.pop(get_email_confirmation, None)
     assert joined.json()["tenant"]["name"] == "Palermo Propiedades"
     detail = world.admin_get(f"/admin/tenants/{created.json()['id']}").json()
     assert detail["owner_pending"] is False

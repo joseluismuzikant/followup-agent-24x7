@@ -1,0 +1,45 @@
+name: Deploy
+
+# Manual deploy of one commit's images to the production VM over SSH. Off until the
+# repository variable DEPLOY_ENABLED is "true" and the production environment has its
+# secrets (docs/go-live.md, "Optional: deploy from GitHub").
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full commit sha whose images CI built (sha-<commit> tags)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check the sha
+        env:
+          SHA: ${{ inputs.sha }}
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Pass the full 40-character sha."; exit 1; }
+      - name: Deploy over SSH
+        env:
+          SHA: ${{ inputs.sha }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" "/opt/inmo24x7/deploy.sh '$SHA'"

@@ -224,7 +224,11 @@ production in under 10 minutes. **inmo24x7 MVP is demo-ready.**
 
 **Stretch:** test link / QR at the end of the wizard; cross-tenant Conversaciones viewer.
 
-**Status: 7A done; 7B (deploy, backups, go-live) next.** 7A shipped Embedded Signup v4 with
+**Status: 7A done; 7B ready to deploy** (the deploy files, backups, the local production
+rehearsal and `docs/go-live.md`; the rehearsal passes locally). Day 7 is done once the
+Done-when passes in production.
+
+**7A:** 7A shipped Embedded Signup v4 with
 resumable steps, Meta errors in Spanish, connection health (auth errors stop sending, replies
 wait and resume on reconnect, a 6-hour check, `account_update` events), the Tenancy audit
 log, suspension, read-only plans, and the S8/S9 backoffice with Salud del sistema and

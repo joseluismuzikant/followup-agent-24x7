@@ -20,3 +20,16 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Deploy secrets and the rehearsal's generated files
+deploy/.env.production
+deploy/state*/
+deploy/rehearsal/.env.rehearsal
+deploy/rehearsal/backup.agekey
+deploy/rehearsal/.supabase_url
+deploy/rehearsal/.supabase_anon_key
+caddy-rehearsal-root.crt
+
+# Supabase CLI local state
+supabase/.branches/
+supabase/.temp/

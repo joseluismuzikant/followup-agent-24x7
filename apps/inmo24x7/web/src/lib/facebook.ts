@@ -92,8 +92,24 @@ export interface SignupEvent {
   };
 }
 
+/** Meta's popup posts from https://www.facebook.com (or another facebook.com subdomain).
+ * The hostname must be facebook.com itself or end in ".facebook.com": a plain suffix check
+ * would let https://evilfacebook.com through. */
+export function isFacebookOrigin(origin: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") {
+    return false;
+  }
+  return url.hostname === "facebook.com" || url.hostname.endsWith(".facebook.com");
+}
+
 export function parseSignupMessage(origin: string, raw: unknown): SignupEvent | null {
-  if (!origin.endsWith("facebook.com")) {
+  if (!isFacebookOrigin(origin)) {
     return null;
   }
   try {

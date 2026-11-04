@@ -115,7 +115,7 @@ describe("ConnectWhatsApp (S4)", () => {
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
-          origin: "https://evil.example.com",
+          origin: "https://evilfacebook.com",
           data: JSON.stringify({ type: "WA_EMBEDDED_SIGNUP", event: "CANCEL", data: {} }),
         }),
       );

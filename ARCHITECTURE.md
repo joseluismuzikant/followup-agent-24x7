@@ -80,6 +80,16 @@ There is one database, one root `alembic.ini`, and one Alembic version table.
 - Run `uv run alembic upgrade head` from the repository root to apply all locations.
 - API integration tests build their schema by running these migrations.
 - The API image contains the root configuration, so deployments run `alembic upgrade head` once in a one-off container before starting the new API version.
+- **Row level security on every table.** Supabase publishes the `public` schema through its
+  Data API with the anon key, which is public in the panel bundle. Core `0011` (and the
+  `inmo_0007` merge, which runs after every product table exists) enables RLS on every table
+  with no policies and revokes everything from `anon` and `authenticated` where those roles
+  exist; the API connects as the table owner, which RLS does not restrict. A migration that
+  creates a table must also run `ALTER TABLE … ENABLE ROW LEVEL SECURITY`:
+  `tests/test_rls.py` fails otherwise.
+- **Backward compatible.** A failed deploy rolls the images back but never the database, so
+  every migration must work with the previous version of the code: add first (nullable
+  columns, new tables), switch the code, and remove in a later deploy.
 
 ## Auth modes
 
@@ -494,7 +504,11 @@ failures carry an hourly dedupe key. S9 "Actividad" shows the latest 20.
   No enforcement and no billing yet.
 - **"Dar de alta un negocio"** creates the tenant, its settings and onboarding, and an owner
   claim for an email. The first sign-up with that email joins the business as owner instead of
-  creating another one.
+  creating another one, **only if the email is confirmed**. The access token does not say
+  so (Supabase documents no such claim), so the API asks Supabase Auth (`GET
+  /auth/v1/user` with the user's own token and the public anon key) for
+  `email_confirmed_at`, only when a claim matches. Unconfirmed, another email, or Supabase
+  unreachable: a new business as usual, and the claim keeps waiting.
 
 ### Backoffice (S8, S9)
 
@@ -505,4 +519,33 @@ WhatsApp badge, "Necesitan ayuda" (WhatsApp in error, onboarding unfinished for 
 It reads every business once per request and filters in Python, which is fine for the MVP's
 hundreds of businesses; move the rules into SQL if that grows to thousands. Platform-admin
 tenants are left out. The detail masks the WABA (`•••• 1234`).
+
+## Production
+
+```text
+internet ─▶ Caddy (80/443, Let's Encrypt) ─┬─ api.<domain>   ─▶ api (uvicorn) ─┐
+                                           ├─ app.<domain>   ─▶ web (nginx)    ├─▶ Supabase
+                                           └─ admin.<domain> ─▶ backoffice     │   Postgres + Auth
+                               worker (same image, jobs) ───────────────────────┘
+                               backup (daily, pg_dump → age → Object Storage)
+```
+
+- **One VM with Docker Compose** (`deploy/compose.prod.yml`): Oracle Cloud ARM in São Paulo,
+  or any Linux VM (the images are amd64 + arm64). Only Caddy publishes ports. Images are
+  pinned by `IMAGE_TAG=sha-<commit>`; the worker and the one-off `migrate` use the API image.
+- **Deploy** (`deploy/deploy.sh <sha>`): pull, `alembic upgrade head` once (a failure stops
+  there), start, wait for `/health/ready` to report that commit, and put the previous
+  images back if it never does (migrations stay; see "Migrations"). Idempotent.
+- **Database connection:** Supabase's session pooler (port 5432, IPv4) or the direct
+  connection; never the transaction pooler (6543), which has no prepared statements: the
+  config refuses it. Pools are small and set per process (`DB_POOL_SIZE`,
+  `DB_MAX_OVERFLOW`), because each pooled client holds a server connection.
+- **Caddy** adds HSTS, a referrer policy, `nosniff`, and a CSP per host (the panel's allows
+  the Facebook SDK for Embedded Signup), compresses responses, limits request bodies to
+  6 MB, and passes the webhook through untouched (the signature covers the raw body).
+- **Backups** are ours, not only Supabase's: a daily `pg_dump` of the `public` schema,
+  encrypted to an age public key, in Object Storage (14 daily, 8 weekly), with a restore
+  script and drill (`deploy/restore.md`).
+- **The rehearsal** (`deploy/rehearsal.md`) runs all of it locally with `APP_ENV=production`;
+  `REHEARSAL=true` is the only way production accepts the fake model and the log sender.
 

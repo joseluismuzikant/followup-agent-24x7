@@ -24,6 +24,7 @@ from .container import (
     get_agent_setup_use_case,
     get_business_use_case,
     get_dashboard_use_case,
+    get_email_confirmation,
     get_language_model,
     get_lead_use_case,
     get_onboarding_use_case,
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
             sign_up_use_case,
             get_tenant_use_case,
             settings.support_email,
+            get_email_confirmation,
         )
     )
     application.include_router(
@@ -193,6 +195,11 @@ def create_app() -> FastAPI:
         dependencies=[Depends(require_platform_admin)],
     )
 
+    if settings.rehearsal:
+        logger.warning(
+            "rehearsal_mode",
+            extra={"detail": "Local production rehearsal: fake model and log sender."},
+        )
     logger.info(
         "application_configured",
         extra={"app_env": settings.app_env, "version": settings.version},

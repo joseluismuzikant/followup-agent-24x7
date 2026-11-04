@@ -213,6 +213,20 @@ README.md (Images, Production migrations, env tables), ARCHITECTURE.md, the thre
 Dockerfiles, .github/workflows/ci.yml, apps/inmo24x7/api/src/inmo24x7_api/{config,
 database,container,main,worker}.py, migrations/env.py, alembic.ini, scripts/.
 
+PART 0 — 7A follow-ups (do these first)
+0.1 apps/inmo24x7/web/src/lib/facebook.ts accepts any origin that ends with "facebook.com",
+    so https://evilfacebook.com passes. Parse the origin with URL and accept only https with
+    hostname facebook.com or a subdomain of it (hostname === "facebook.com" or ends with
+    ".facebook.com"). Tests for both accepted forms and for look-alikes (evilfacebook.com,
+    facebook.com.evil.com, http://www.facebook.com).
+0.2 Owner claims: the first sign-up with an email joins the business an admin created for
+    it, so that email must be proven. Read which claims Supabase access tokens carry for a
+    confirmed email (check the current Supabase docs; do not guess) and only honour a claim
+    when the token shows a confirmed email; otherwise sign-up creates a new business as
+    usual. Tests with the fake verifier for confirmed and unconfirmed tokens. In the go-live
+    runbook, require "Confirm email" on and password sign-ups off in Supabase Auth (we only
+    offer Google and magic link).
+
 TARGET
 - One Oracle Cloud ARM VM (Ubuntu, São Paulo), Docker + Compose, images from GHCR (CI
   already builds amd64 + arm64 on master). Services: api, worker, web, backoffice and a
@@ -283,6 +297,25 @@ BACKUPS
 - deploy/restore.md + restore.sh: restore a chosen dump into a scratch database and run a
   smoke query; include a "restore drill" I run once after go-live.
 
+LOCAL PRODUCTION REHEARSAL (deploy/rehearsal.md + a script)
+Before the first real deploy I run the production setup on my own machine, so deploy,
+migration and proxy problems show up there first:
+- the same deploy/compose.prod.yml with an override file that adds a local Postgres 17
+  service (standing in for Supabase), Mailpit for SMTP, and Caddy with `tls internal` on
+  api.localhost, app.localhost and admin.localhost;
+- images built locally from the current tree for my machine's architecture, tagged like CI
+  (sha-<commit>), with the production VITE_ build args pointing at the .localhost hosts;
+- AUTH_MODE=supabase cannot work without Supabase, so the rehearsal uses the local Supabase
+  CLI stack from Day 4 for auth (document the values), or, if that is not running, stops
+  with a clear message: never AUTH_MODE=dev under APP_ENV=production;
+- WHATSAPP_SENDER=log, the fake LLM allowed only through a REHEARSAL=true flag that the
+  production config otherwise refuses (and that is never set in .env.production.example);
+- the script runs deploy/deploy.sh against it, then a smoke test: /health/ready over HTTPS,
+  the panel and backoffice load, the RLS migration applied, a signed simulated webhook
+  answered by the worker, a backup + restore into a scratch database;
+- a teardown command that removes the rehearsal containers and volumes.
+Document how to trust Caddy's local CA in the browser, or to accept the warning.
+
 GO-LIVE RUNBOOK (docs/go-live.md)
 Ordered checklist I follow, with the exact values to set: DNS records; VM bootstrap; Supabase
 project settings (Data API off, Auth URLs, Google, SMTP, JWKS); GitHub variables for the
@@ -311,9 +344,11 @@ DOCS
   note "7B ready to deploy".
 
 PROCESS
-1. Plan first (use plan mode): file list, the database connection decision, the RLS
-   migration, the deploy and rollback flow, backups, CI changes, open questions. Wait for my OK.
-2. Implement, then run every check you can locally.
+1. Plan first (use plan mode): Part 0, file list, the database connection decision, the RLS
+   migration, the deploy and rollback flow, backups, the rehearsal, CI changes, open
+   questions. Wait for my OK.
+2. Implement Part 0 first, then run every check you can locally, including the rehearsal if
+   Docker is available (say what you could not run).
 3. Finish with what changed, the go-live steps I must do in order, what you could not
    validate, and the suggested commit split. Do not commit.
 ```

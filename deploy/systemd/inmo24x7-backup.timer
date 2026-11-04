@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the inmo24x7 backup every day at 06:00 UTC (03:00 in Buenos Aires)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

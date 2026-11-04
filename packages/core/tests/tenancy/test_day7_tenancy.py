@@ -132,7 +132,9 @@ def test_the_owner_claims_the_business_an_admin_created() -> None:
     tenants, profiles, claims, audit, create, sign_up = _world()
     tenant = create.execute(uuid4(), "Palermo Propiedades", "inmobiliaria", "Duenia@Palermo.test")
 
-    result = sign_up.execute(uuid4(), "duenia@palermo.test", "Otro nombre", "inmobiliaria")
+    result = sign_up.execute(
+        uuid4(), "duenia@palermo.test", "Otro nombre", "inmobiliaria", lambda: True
+    )
 
     assert result.tenant.id == tenant.id and result.tenant.name == "Palermo Propiedades"
     assert result.profile.role is Role.OWNER
@@ -144,11 +146,38 @@ def test_the_owner_claims_the_business_an_admin_created() -> None:
 def test_a_second_sign_up_after_the_claim_creates_its_own_business() -> None:
     tenants, _profiles, _claims, _audit, create, sign_up = _world()
     create.execute(uuid4(), "Palermo Propiedades", "inmobiliaria", "duenia@palermo.test")
-    sign_up.execute(uuid4(), "duenia@palermo.test", "x", "inmobiliaria")
+    sign_up.execute(uuid4(), "duenia@palermo.test", "x", "inmobiliaria", lambda: True)
 
     other = sign_up.execute(uuid4(), "otra@palermo.test", "Otra", "inmobiliaria")
 
     assert other.tenant.name == "Otra" and len(tenants.tenants) == 2
+
+
+def test_an_unconfirmed_email_never_joins_the_business_it_names() -> None:
+    tenants, _profiles, claims, audit, create, sign_up = _world()
+    tenant = create.execute(uuid4(), "Palermo Propiedades", "inmobiliaria", "duenia@palermo.test")
+    asked: list[bool] = []
+
+    def not_confirmed() -> bool:
+        asked.append(True)
+        return False
+
+    result = sign_up.execute(uuid4(), "duenia@palermo.test", "Mía", "inmobiliaria", not_confirmed)
+
+    assert asked == [True]
+    assert result.tenant.id != tenant.id and result.tenant.name == "Mía"
+    assert len(tenants.tenants) == 2
+    assert claims.get_open("duenia@palermo.test") is not None  # still waiting for its owner
+    assert audit.actions() == ["tenant_created_by_admin", "sign_up"]
+
+
+def test_without_a_claim_the_email_is_never_checked() -> None:
+    _tenants, _profiles, _claims, _audit, _create, sign_up = _world()
+
+    def fail() -> bool:
+        raise AssertionError("no claim, no check")
+
+    assert sign_up.execute(uuid4(), "otra@x.test", "Otra", "inmobiliaria", fail).created
 
 
 def test_an_email_with_an_account_or_a_claim_cannot_get_another_business() -> None:

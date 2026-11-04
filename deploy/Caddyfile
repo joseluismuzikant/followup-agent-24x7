@@ -1,0 +1,70 @@
+# inmo24x7: three hosts with automatic HTTPS (Let's Encrypt). The values come from
+# .env.production: APP_DOMAIN, ADMIN_DOMAIN, API_DOMAIN, ACME_EMAIL and SUPABASE_URL.
+{
+	email {$ACME_EMAIL}
+	# Empty in production. The local rehearsal sets CADDY_GLOBAL_OPTIONS=local_certs.
+	{$CADDY_GLOBAL_OPTIONS}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Server
+	}
+}
+
+(spa_cache) {
+	# Vite's hashed assets never change; index.html must always be fresh.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@html not path /assets/*
+	header @html Cache-Control "no-cache"
+}
+
+{$API_DOMAIN} {
+	import security_headers
+	header {
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+	}
+	encode zstd gzip
+	# Property imports go up to 5 MB plus the multipart overhead.
+	request_body {
+		max_size 6MB
+	}
+	# Meta's webhook: passed through untouched (the signature covers the raw body).
+	handle /webhooks/* {
+		reverse_proxy api:8001
+	}
+	handle {
+		reverse_proxy api:8001
+	}
+}
+
+{$APP_DOMAIN} {
+	import security_headers
+	import spa_cache
+	header {
+		# The Facebook SDK (Embedded Signup) loads from connect.facebook.net, opens its popup
+		# and iframes on facebook.com, and the panel talks to the API and Supabase Auth.
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://connect.facebook.net; frame-src https://*.facebook.com; connect-src 'self' https://{$API_DOMAIN} {$SUPABASE_URL} https://*.facebook.com https://graph.facebook.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+	}
+	encode zstd gzip
+	reverse_proxy web:80
+}
+
+{$ADMIN_DOMAIN} {
+	import security_headers
+	import spa_cache
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self' https://{$API_DOMAIN} {$SUPABASE_URL}; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+		X-Robots-Tag "noindex, nofollow"
+	}
+	encode zstd gzip
+	reverse_proxy backoffice:80
+}

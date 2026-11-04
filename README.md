@@ -62,7 +62,8 @@ Open the gallery HTML files in a browser to browse every screen. Behavior, API, 
 
 ## Architecture
 
-Dashed components and edges are planned.
+Dashed components and edges are planned. Production runs on one VM with Docker and
+Supabase ([docs/go-live.md](docs/go-live.md)).
 
 ```mermaid
 flowchart TB
@@ -109,9 +110,13 @@ flowchart TB
     LLM["LLM port<br/>Anthropic · OpenAI · DeepSeek · Kimi · MiMo"]
 
     subgraph Data["Data and identity"]
-        POSTGRES["Postgres<br/>local development"]
-        SUPABASE["Postgres on Supabase<br/>(planned)"]
+        POSTGRES["Postgres<br/>Supabase in production · local in development"]
         AUTH["Supabase Auth<br/>(or dev sign-in locally)"]
+    end
+
+    subgraph Deploy["Production: one VM with Docker"]
+        CADDY["Caddy<br/>HTTPS · api. · app. · admin."]
+        BACKUPS["Daily encrypted pg_dump<br/>Object Storage"]
     end
 
     ARCA["ARCA<br/>(planned)"]
@@ -167,14 +172,16 @@ flowchart TB
     CHECKPOINTER --> POSTGRES
     CONVERSATION --> POSTGRES
     TENANCY --> POSTGRES
-    POSTGRES -.-> SUPABASE
     IDENTITY --> AUTH
-    AUTH -.-> SUPABASE
+    CADDY --> API
+    CADDY --> WEB
+    CADDY --> BACKOFFICE
+    BACKUPS --> POSTGRES
     CC_API -.-> ARCA
     CC_API -.-> MERCADO_PAGO
 
     classDef planned fill:#ffffff,stroke:#8b8b8b,stroke-width:1px,stroke-dasharray: 5 5,color:#666666;
-    class CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,SUPABASE,ARCA,MERCADO_PAGO planned;
+    class CC_WEB,CC_BACKOFFICE,CC_CLIENT,CC_API,ARCA,MERCADO_PAGO planned;
 ```
 
 The same context layers apply to every bounded context. Dependencies point inward, and the domain has no outward imports.
@@ -473,28 +480,13 @@ corepack pnpm --filter @inmo24x7/backoffice dev
 
 One root `alembic.ini` loads every version location against one database and one version table. Core revisions live in `packages/core/migrations`; product revisions live in each product API. Product revision chains start from the current core head.
 
-### Production migrations
+### Production
 
-Run migrations once as a one-off container from the API image before starting the new API version:
-
-```bash
-docker run --rm \
-  -e APP_ENV=production \
-  -e DATABASE_URL=postgresql+psycopg://user:password@host:5432/database \
-  -e CORS_ORIGINS=https://app.example.com \
-  ghcr.io/owner/repository/inmo24x7-api:sha-<commit> \
-  alembic upgrade head
-```
-
-The API image contains the root Alembic configuration and runs from `/app`. Start the new API only after the migration exits successfully.
-
-The same image runs the job worker (WhatsApp processing and sending, new-lead emails) with
-another command; run at least one next to the API, with the same environment:
-
-```bash
-docker run -d --env-file production.env ghcr.io/owner/repository/inmo24x7-api:sha-<commit> \
-  python -m inmo24x7_api.worker
-```
+Production is one Linux VM with Docker (Oracle Cloud ARM in São Paulo, or any other) behind
+Caddy, with Supabase for Postgres and Auth. Everything to run it is in `deploy/`
+(`compose.prod.yml`, `Caddyfile`, `deploy.sh` with migrations and rollback, backups and
+restore, the VM bootstrap), and the ordered checklist is [docs/go-live.md](docs/go-live.md).
+Before the first deploy, run the local production rehearsal (`deploy/rehearsal.md`).
 
 ## Environment variables
 
@@ -547,6 +539,10 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `META_APP_ID`, `META_EMBEDDED_SIGNUP_CONFIG_ID` | *(empty)* | API | Embedded Signup: the app id (public) and the Facebook Login for Business configuration id. The code exchange also uses `META_APP_SECRET`. Required in production; empty locally (manual fallback). |
 | `VITE_META_APP_ID`, `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID`, `VITE_META_GRAPH_API_VERSION` | *(empty)*, *(empty)*, `v26.0` | Web | The same ids for the Facebook SDK in the panel (build time). Without them "Conectar WhatsApp" is disabled. |
 | `SUPPORT_EMAIL` | `soporte@inmo24x7.local` | API | Shown on the suspended-account screen. Required in production. |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | `5`, `2` | API, worker | Database connections per process. Supabase's session pooler gives each its own server connection, so keep the total under the plan's pool (docs/go-live.md has the math). The worker needs at least `WORKER_CONCURRENCY + 1`. A `DATABASE_URL` on port 6543 (the transaction pooler) is refused. |
+| `SUPABASE_ANON_KEY` | *(empty)* | API | The public anon / publishable key. The API asks Supabase Auth whether an email is confirmed before a sign-up joins a business an admin created for it. Required in production. |
+| `SUPABASE_SERVER_URL` | *(empty: `SUPABASE_URL`)* | API | Where the API reaches Supabase Auth when that differs from the token issuer. Only the local rehearsal needs it. |
+| `REHEARSAL` | `false` | API, worker | Only for the local production rehearsal (`deploy/rehearsal.md`): with `APP_ENV=production`, allows the fake model and the log sender. Never set on a server. |
 | `VITE_PANEL_URL` | `http://localhost:5173` | Backoffice | Panel origin, used to open sample property links from the backoffice simulator. Optional Docker build argument. |
 | `APP_VERSION` | `0.1.0` | API, Docker | Version returned by readiness. Passed as a Docker build argument. |
 | `GIT_COMMIT` | `unknown` | API, Docker | Commit returned by readiness. Passed as a Docker build argument. |
@@ -668,22 +664,12 @@ supabase                           local Supabase CLI configuration (auth only)
 
 ## Images
 
-On every push to the repository's default branch, after tests pass, CI builds and pushes amd64 + arm64 images for the API, web, and backoffice to GitHub Container Registry. Images use `latest` and `sha-<commit>` tags. The API receives `APP_VERSION`, `GIT_COMMIT`, and `BUILD_DATE`; the panels receive `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (public by design), and `VITE_API_URL` from the `INMO24X7_API_URL` repository variable (or the `INMO24X7_API_URL` secret). If neither is set, CI falls back to `http://localhost:8001`; set it to the production API URL before deploying.
-
-Run the API image with `APP_ENV=production`, `DATABASE_URL`, `CORS_ORIGINS`, `SUPABASE_URL`, and `SUPABASE_JWT_SECRET` (or `SUPABASE_JWKS_URL`) set at runtime (`docker run -e` or an env file). Never pass Supabase secrets as build arguments.
-
-Local multi-architecture build:
-
-```bash
-docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-arg APP_VERSION=0.1.0 \
-  --build-arg GIT_COMMIT="$(git rev-parse HEAD)" \
-  --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  -f apps/inmo24x7/api/Dockerfile \
-  -t my-registry/inmo24x7-api:latest --push .
-```
-
-Use the same pattern with the `web` and `backoffice` Dockerfiles. Both require `--build-arg VITE_API_URL=https://api.example.com`; the build fails without it.
+On every push to `master`, after the tests, CI builds amd64 + arm64 images for the API, web
+and backoffice and pushes them to GitHub Container Registry as `sha-<commit>` (and
+`latest`). The panel builds embed only public values (`VITE_API_URL`, the Supabase URL and
+anon key, the Meta app and Embedded Signup ids) from repository variables; the job fails
+when any is missing. Secrets are runtime environment only. Deploying is
+`deploy/deploy.sh <commit>` on the VM: see [docs/go-live.md](docs/go-live.md).
 
 ## License
 
