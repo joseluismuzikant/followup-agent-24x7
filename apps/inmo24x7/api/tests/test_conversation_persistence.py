@@ -22,7 +22,7 @@ from test_setup_endpoints import Account
 def _send(engine: Engine, account: Account, text: str, llm: FakeLanguageModel) -> dict:
     with Session(engine) as session:
         use_case = send_simulator_message_use_case(
-            session, agent_runtime(session, llm, tracing=None), daily_limit=300
+            session, agent_runtime(session, llm, tracing=None, usage=None), daily_limit=300
         )
         turn = use_case.execute(account.tenant_id, account.user_id, text)
         session.commit()

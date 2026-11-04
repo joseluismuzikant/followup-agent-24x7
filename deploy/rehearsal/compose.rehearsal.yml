@@ -53,6 +53,11 @@ services:
       - "${REHEARSAL_HTTP_PORT:-80}:80"
       - "${REHEARSAL_HTTPS_PORT:-443}:443"
 
+  grafana:
+    # Not 3000: the development stack's Grafana may be running.
+    ports: !override
+      - "127.0.0.1:53000:3000"
+
   backup:
     # The local "bucket" is a volume; root writes to it (production runs as postgres).
     user: root

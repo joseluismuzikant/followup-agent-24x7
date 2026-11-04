@@ -480,13 +480,29 @@ corepack pnpm --filter @inmo24x7/backoffice dev
 
 One root `alembic.ini` loads every version location against one database and one version table. Core revisions live in `packages/core/migrations`; product revisions live in each product API. Product revision chains start from the current core head.
 
+### Monitoring locally (logs, errors and LLM cost)
+
+- **Logs in Grafana:** `uv run --all-packages python scripts/dev.py --observability` also starts
+  Loki, Alloy and Grafana (http://localhost:3000, admin / admin) and copies the API's and the
+  worker's output to `.dev-logs/`. Dashboard *inmo24x7 — operación*, environment
+  `development`; or Explore with `{environment="development"} | json | tenant_id="<id>"`.
+- **Sentry:** set `SENTRY_DSN` (API and worker) and `VITE_SENTRY_DSN` (panels) to a test
+  project's DSNs, then Backoffice → Errores → "Enviar errores de prueba". Without DSNs nothing
+  is sent and the button says so.
+- **LLM cost:** every model call is a row in `llm_usage`; Backoffice → Consumo shows them. The
+  fake model costs USD 0 and reports no tokens ("sin datos"). Prices live in
+  `apps/inmo24x7/api/src/inmo24x7_api/billing/llm_prices.toml`; after fixing one, recompute
+  with `uv run --all-packages python scripts/recompute_llm_costs.py --from 2026-11-01`
+  (dry run; add `--apply`).
+
 ### Production
 
 Production is one Linux VM with Docker (Oracle Cloud ARM in São Paulo, or any other) behind
 Caddy, with Supabase for Postgres and Auth. Everything to run it is in `deploy/`
 (`compose.prod.yml`, `Caddyfile`, `deploy.sh` with migrations and rollback, backups and
-restore, the VM bootstrap), and the ordered checklist is [docs/go-live.md](docs/go-live.md).
-Before the first deploy, run the local production rehearsal (`deploy/rehearsal.md`).
+restore, the VM bootstrap, the Loki + Alloy + Grafana logs stack), and the ordered checklist
+is [docs/go-live.md](docs/go-live.md), with Sentry and Grafana under "Monitoring". Before the
+first deploy, run the local production rehearsal (`deploy/rehearsal.md`).
 
 ## Environment variables
 
@@ -539,10 +555,19 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `META_APP_ID`, `META_EMBEDDED_SIGNUP_CONFIG_ID` | *(empty)* | API | Embedded Signup: the app id (public) and the Facebook Login for Business configuration id. The code exchange also uses `META_APP_SECRET`. Required in production; empty locally (manual fallback). |
 | `VITE_META_APP_ID`, `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID`, `VITE_META_GRAPH_API_VERSION` | *(empty)*, *(empty)*, `v26.0` | Web | The same ids for the Facebook SDK in the panel (build time). Without them "Conectar WhatsApp" is disabled. |
 | `SUPPORT_EMAIL` | `soporte@inmo24x7.local` | API | Shown on the suspended-account screen. Required in production. |
-| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | `5`, `2` | API, worker | Database connections per process. Supabase's session pooler gives each its own server connection, so keep the total under the plan's pool (docs/go-live.md has the math). The worker needs at least `WORKER_CONCURRENCY + 1`. A `DATABASE_URL` on port 6543 (the transaction pooler) is refused. |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | `5`, `1` | API, worker | Database connections per process. Supabase's session pooler gives each its own server connection, so keep the total under the plan's pool (docs/go-live.md has the math). The worker needs at least `WORKER_CONCURRENCY + 1`. A `DATABASE_URL` on port 6543 (the transaction pooler) is refused. |
 | `SUPABASE_ANON_KEY` | *(empty)* | API | The public anon / publishable key. The API asks Supabase Auth whether an email is confirmed before a sign-up joins a business an admin created for it. Required in production. |
 | `SUPABASE_SERVER_URL` | *(empty: `SUPABASE_URL`)* | API | Where the API reaches Supabase Auth when that differs from the token issuer. Only the local rehearsal needs it. |
 | `REHEARSAL` | `false` | API, worker | Only for the local production rehearsal (`deploy/rehearsal.md`): with `APP_ENV=production`, allows the fake model and the log sender. Never set on a server. |
+| `SENTRY_DSN` | *(empty: off)* | API, worker | Sends errors to Sentry (unhandled exceptions, dead jobs, WhatsApp connections in error, LLM failures after the retry). No bodies, query strings, cookies or personal data: see ARCHITECTURE.md, "Observability". |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0` | API, worker | Fraction of requests traced for performance (0 to 1). Off by default. |
+| `SENTRY_API_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECTS`, `SENTRY_API_URL` | *(empty)*, *(empty)*, *(empty)*, `https://sentry.io` | API | The backoffice's Errores page reads open issues with a read-only token. `SENTRY_PROJECTS` is `api=<slug>,panel=<slug>,backoffice=<slug>`; `SENTRY_API_URL` is `https://de.sentry.io` for EU organizations. Without them the page says Sentry is not configured. |
+| `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT` | *(empty)*, `production` | Web, backoffice | The panel's own Sentry DSN (build time; CI uses `SENTRY_DSN_PANEL` / `SENTRY_DSN_BACKOFFICE`). Empty: off. The release is the commit (`GIT_COMMIT`). |
+| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT_PANEL`, `SENTRY_PROJECT_BACKOFFICE` | *(CI only)* | CI | Uploads the panels' source maps to Sentry and deletes them from the image. Without the secret no source maps are built. |
+| `SENTRY_INGEST_HOST` | *(empty)* | Caddy | The panels' Sentry host, allowed in the CSP's `connect-src` (`https://o<id>.ingest.us.sentry.io`). |
+| `GRAFANA_URL`, `LOKI_DATASOURCE` | *(empty)*, `loki` | API | The backoffice's "Ver logs" and "Buscar por código de referencia" links into Grafana Explore. Empty: the links are hidden. |
+| `COMPOSE_PROFILES`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_DOMAIN`, `GRAFANA_ALLOWED_IPS`, `LOKI_RETENTION_DAYS`, `ALERTS_EMAIL_FROM` | *(production only)* | Loki, Alloy, Grafana | The self-hosted logs stack on the VM (`deploy/observability.md`). |
+| `LLM_MONTHLY_COST_ALERT_USD` | *(empty: off)* | Worker | A daily job emails `SUPPORT_EMAIL` once per business and month when its LLM cost reaches this many USD. |
 | `VITE_PANEL_URL` | `http://localhost:5173` | Backoffice | Panel origin, used to open sample property links from the backoffice simulator. Optional Docker build argument. |
 | `APP_VERSION` | `0.1.0` | API, Docker | Version returned by readiness. Passed as a Docker build argument. |
 | `GIT_COMMIT` | `unknown` | API, Docker | Commit returned by readiness. Passed as a Docker build argument. |
@@ -634,7 +659,10 @@ All routes below need an access token (Supabase, or `dev:<email>` with `AUTH_MOD
 | `GET /admin/tenants?filter=all\|needs_help\|trial&q=&page=` | S8: businesses with plan, onboarding "N de 5", WhatsApp badge, inquiries in 7 days, and the four KPIs. |
 | `POST /admin/tenants` `{business_name, owner_email}` | "Dar de alta un negocio": the owner joins it when they sign up with that email. `409 owner_email_taken`. |
 | `GET /admin/tenants/{id}`, `POST .../suspend {reason}`, `.../reactivate` | S9: WhatsApp diagnosis (WABA masked), activity (audit log), onboarding, plan usage, users; suspension. |
-| `GET /admin/system`, `GET /admin/plans` | Salud del sistema (jobs, webhooks, signature rejections, failed sends by Meta code, version, database) and Planes. |
+| `GET /admin/system`, `GET /admin/plans` | Salud del sistema (jobs, webhooks, signature rejections, failed sends by Meta code, version, database, monitoring links) and Planes. |
+| `GET /admin/errors?project=all\|api\|panel\|backoffice&period=24h\|7d\|14d&tenant_id=` | Errores: open Sentry issues (cached one minute). `{configured: false}` without the Sentry settings, `{available: false}` when Sentry fails; never a 500. |
+| `POST /admin/errors/test` | Fails on purpose (500, `SentryTestError`) to check Sentry end to end. |
+| `GET /admin/usage?month=YYYY-MM`, `GET /admin/usage/{tenant_id}?month=`, `GET /admin/usage/export.csv?month=` | Consumo (UTC months): LLM cost, tokens, conversations, cost per conversation, simulator share and WhatsApp templates per business; one business's daily series and split by task and model; the table as CSV. |
 | `GET /leads/{id}` | The same plus answers (the configured questions, in order), status history, visits, the transcript (system events, team authors, delivery), who controls the conversation and the WhatsApp 24-hour window. `404 lead_not_found`. |
 
 Errors return stable codes instead of user-facing text:
@@ -655,6 +683,7 @@ apps/cuentas-claras                second product scope
 packages/core                      shared domain, application, adapters, core migrations
 packages/ui                        shared React components (@followup/ui)
 packages/api-client-inmo24x7       generated OpenAPI types and typed client
+packages/observability             Sentry setup, PII scrubbing and error boundary for the panels
 alembic.ini                        single migration configuration
 migrations                         root Alembic environment
 scripts                            local startup, dev seed, make_admin and type generation

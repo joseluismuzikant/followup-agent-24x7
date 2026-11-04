@@ -72,7 +72,7 @@ APP_ENV=production
 REHEARSAL=true
 DATABASE_URL=postgresql+psycopg://postgres:rehearsal@db:5432/postgres
 API_DB_POOL_SIZE=5
-API_DB_MAX_OVERFLOW=2
+API_DB_MAX_OVERFLOW=1
 WORKER_DB_POOL_SIZE=5
 WORKER_CONCURRENCY=4
 CORS_ORIGINS=https://app.localhost,https://admin.localhost
@@ -104,6 +104,13 @@ BACKUP_AGE_RECIPIENT=$recipient
 BACKUP_REMOTE=:local:/backups
 BACKUP_KEEP_DAILY=14
 BACKUP_KEEP_WEEKLY=8
+COMPOSE_PROFILES=observability
+LOKI_RETENTION_DAYS=14
+GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 12)
+GRAFANA_DOMAIN=grafana.localhost
+ALERTS_EMAIL_FROM=alertas@rehearsal.localhost
+GRAFANA_URL=https://grafana.localhost
+LOKI_DATASOURCE=loki
 ENV
 	# Read by the panel builds below.
 	echo "$api_url" >"$here/.supabase_url"
@@ -143,10 +150,11 @@ up() {
 	IMAGE_TAG="sha-$sha" compose up -d --wait db mailpit
 	"$DEPLOY_DIR/deploy.sh" "$sha" --local-images
 	say "Up. Panel https://app.localhost  Backoffice https://admin.localhost  Mail http://127.0.0.1:58025"
+	say "Logs: https://grafana.localhost (admin / GRAFANA_ADMIN_PASSWORD in rehearsal/.env.rehearsal)"
 }
 
 down() {
-	compose --profile tools down --volumes --remove-orphans || true
+	compose --profile tools --profile observability down --volumes --remove-orphans || true
 	rm -f "$env_path" "$key_path" "$here/.supabase_url" "$here/.supabase_anon_key"
 	rm -rf "$DEPLOY_DIR/state-rehearsal"
 	say "Rehearsal removed (images stay; 'docker image prune' clears them)."

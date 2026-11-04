@@ -3,3 +3,4 @@ packages:
   - apps/inmo24x7/backoffice
   - packages/ui
   - packages/api-client-inmo24x7
+  - packages/observability

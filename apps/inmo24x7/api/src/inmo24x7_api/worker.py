@@ -16,16 +16,20 @@ from followup_core.messaging.application.health import health_sweep_job
 from followup_core.messaging.application.pipeline import purge_job
 from followup_core.scheduling.infrastructure.queue import JobRunner, SqlAlchemyJobQueue
 
+from .billing.application.cost_alert import cost_alert_job
 from .config import ConfigurationError, Settings, get_settings
 from .container import (
     get_language_model,
     get_messaging_services,
     get_tracing,
     get_turn_tracing,
+    get_usage_recorder,
     job_handlers,
+    warn_if_model_unpriced,
 )
 from .database import SessionLocal
 from .logging import configure_logging
+from .observability import init_sentry
 from .tracing import flush
 
 IDLE_SECONDS = 0.5
@@ -37,17 +41,22 @@ def build_runner() -> JobRunner:
     services = get_messaging_services()
     llm = get_language_model()
     tracing = get_turn_tracing()
-    return JobRunner(SessionLocal, lambda session: job_handlers(session, services, llm, tracing))
+    usage = get_usage_recorder()
+    return JobRunner(
+        SessionLocal,
+        lambda session: job_handlers(session, services, llm, tracing, usage=usage),
+    )
 
 
 def schedule_housekeeping() -> None:
-    """Recurring jobs (daily purge, 6-hourly WhatsApp health); the dedupe keys make every
-    worker start agree on one per period. Each run schedules the next one."""
+    """Recurring jobs (daily purge and LLM cost alert, 6-hourly WhatsApp health); the dedupe
+    keys make every worker start agree on one per period. Each run schedules the next one."""
     now = datetime.now(UTC)
     with SessionLocal() as session:
         queue = SqlAlchemyJobQueue(session)
         queue.enqueue(purge_job(now))
         queue.enqueue(health_sweep_job(now))
+        queue.enqueue(cost_alert_job(now))
         session.commit()
 
 
@@ -74,7 +83,9 @@ def check_pool(settings: Settings) -> None:
 def main() -> int:
     configure_logging()
     settings = get_settings()
+    init_sentry(settings, "worker")
     check_pool(settings)
+    warn_if_model_unpriced(settings)
     if settings.rehearsal:
         logger.warning("rehearsal_mode", extra={"detail": "Fake model and log sender."})
     stop = threading.Event()

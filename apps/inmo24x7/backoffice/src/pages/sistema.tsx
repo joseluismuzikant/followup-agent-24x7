@@ -15,9 +15,10 @@ import {
   TableRow,
 } from "@followup/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 
-import { fetchSystemHealth } from "../api/backoffice";
+import { fetchErrors, fetchSystemHealth } from "../api/backoffice";
+import { IssueList, errorsUnavailableText } from "../components/monitoring/IssueList";
 import { RequireAdmin } from "../components/RequireAdmin";
 import { apiErrorMessage } from "../lib/api-errors";
 import { formatAge } from "../lib/labels";
@@ -123,6 +124,7 @@ export function SistemaPage() {
                 </CardContent>
               </Card>
             </div>
+            <RecentErrorsCard />
             <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
               <Badge tone={system.database === "ok" ? "success" : "danger"}>
                 Base de datos {system.database === "ok" ? "OK" : "no disponible"}
@@ -135,5 +137,47 @@ export function SistemaPage() {
         ) : null}
       </PanelLayout>
     </RequireAdmin>
+  );
+}
+
+/** The 10 most recent open Sentry issues (all projects, last 24 hours). */
+function RecentErrorsCard() {
+  const query = useQuery({
+    queryKey: ["errors", "all", "24h", 10],
+    queryFn: () => fetchErrors({ period: "24h", limit: 10 }),
+    refetchInterval: 60_000,
+  });
+  const list = query.data;
+  const unavailable = list ? errorsUnavailableText(list) : null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">Errores recientes (24 h)</CardTitle>
+        <div className="flex gap-2">
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/errores">Ver la lista</Link>
+          </Button>
+          {list?.sentry_issues_url ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={list.sentry_issues_url} target="_blank" rel="noreferrer">
+                Ver todos en Sentry
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {query.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {apiErrorMessage(query.error, "No pudimos leer los errores.")}
+          </p>
+        ) : null}
+        {unavailable ? <p className="text-sm text-muted-foreground">{unavailable}</p> : null}
+        {list && !unavailable ? (
+          <IssueList issues={list.issues} empty="Ningún error abierto en las últimas 24 horas." />
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

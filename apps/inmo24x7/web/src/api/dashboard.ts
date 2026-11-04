@@ -1,4 +1,4 @@
-import { ApiRequestError, errorCode, type Dashboard } from "@followup/api-client-inmo24x7";
+import { apiError, type Dashboard } from "@followup/api-client-inmo24x7";
 
 import { apiClient } from "./client";
 
@@ -7,5 +7,5 @@ export async function fetchDashboard(): Promise<Dashboard> {
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }

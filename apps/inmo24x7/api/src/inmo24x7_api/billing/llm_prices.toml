@@ -1,0 +1,30 @@
+# LLM prices for the usage and cost screens (backoffice → Consumo).
+#
+# USD per 1 million tokens, per model as written in LLM_MODEL ("provider:model"). A row
+# applies from effective_from (a UTC date) until the next row of the same model, so a price
+# change is a NEW row: keep the old one, or past months are re-priced by the recompute script.
+#
+# Empty strings mean "not priced yet": calls of that model store no cost and the screen flags
+# them. Never guess a price: copy it from the provider's pricing page and put that URL in
+# `source`. cached_input_per_mtok may stay empty when the provider has no cache discount.
+#
+# After fixing a price, recompute past rows (dry run first):
+#   uv run --all-packages python scripts/recompute_llm_costs.py --from 2026-11-01
+#   uv run --all-packages python scripts/recompute_llm_costs.py --from 2026-11-01 --apply
+#
+# Example (made-up numbers, not a real price):
+# [[price]]
+# model = "provider:model-name"
+# effective_from = 2026-01-01
+# input_per_mtok = "3.00"
+# output_per_mtok = "15.00"
+# cached_input_per_mtok = "0.30"
+# source = "https://provider.example/pricing"
+
+[[price]]
+model = "anthropic:claude-sonnet-5-5"
+effective_from = 2026-11-01
+input_per_mtok = ""
+output_per_mtok = ""
+cached_input_per_mtok = ""
+source = ""

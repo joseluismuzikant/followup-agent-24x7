@@ -25,5 +25,55 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: "1"
       MP_SMTP_AUTH_ALLOW_INSECURE: "1"
 
+  # Logs, like production (deploy/observability.md): `scripts/dev.py --observability` or
+  # `docker compose --profile observability up -d`. The API and the worker run on the host,
+  # so dev.py copies their output to .dev-logs/ and Alloy tails those files.
+  loki:
+    image: grafana/loki:3.7.9
+    command: ["-config.file=/etc/loki/config.yaml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION_DAYS: "7"
+    volumes:
+      - ./deploy/observability/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    profiles: [observability]
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./deploy/observability/alloy/config.local.alloy:/etc/alloy/config.alloy:ro
+      - ./.dev-logs:/dev-logs:ro
+    profiles: [observability]
+    depends_on: [loki]
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    environment:
+      # Development only: admin / admin, no SMTP.
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      APP_ENV: development
+      SUPPORT_EMAIL: soporte@inmo24x7.local
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    profiles: [observability]
+    depends_on: [loki]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   postgres_data:
+  loki_data:
+  grafana_data:

@@ -241,6 +241,31 @@ links with neutral copy. The S4 test message is the customer writing to their ow
 agent's reply is the test), not a message we send. The wa.me link / QR stretch and the
 Conversaciones viewer stay out.
 
+### Day 7C: error monitoring, log search and LLM cost per business
+
+Moved forward from Day 12 so production does not start blind.
+
+- **Sentry** for the API, the worker and both panels: scrubbed of bodies, query strings and
+  personal data. Errors are tagged with the request, business and job. The panels show a
+  "Código de referencia" on unexpected errors.
+- **Loki + Alloy + Grafana** on the VM (compose profile `observability`): JSON logs with
+  `request_id` and `tenant_id`, a provisioned dashboard, and email alerts for errors, dead
+  jobs, signature spikes and webhook silence.
+- **Backoffice Errores:** issues from Sentry's API, search by reference code, and per-business
+  errors and "Ver logs" on S9.
+- **LLM usage per call** (`llm_usage`, written outside the turn), versioned prices with a
+  recompute script, backoffice **Consumo** (per business and UTC month, daily chart, CSV,
+  WhatsApp template counts), and a monthly cost alert.
+
+**Status: done locally.** All checks pass; the stack ran locally and in the rehearsal setup.
+It goes live with 7B. You still need to:
+
+- create the Sentry projects;
+- fill in the real prices in `billing/llm_prices.toml`.
+
+**Out of scope:** charging for usage, ARS conversion, Meta template prices, self-hosted
+Sentry, Grafana Cloud, metrics and traces backends, session replay.
+
 ---
 
 ## Days 8–12: Cuentas Claras
@@ -301,7 +326,8 @@ shows failed sends with a working retry.
 
 ### Day 12: hardening, monitoring and launch kit
 
-- Error monitoring and alerts on failed webhooks and failed reminders.
+- Alerts on failed reminders (Cuentas Claras); error monitoring and the webhook alerts moved
+  to Day 7C.
 - Full fresh-account test of both products from sign-up, with a stopwatch.
 - Landing page per product with the pitch and a sign-up button.
 - Pilot kit: demo video for Cuentas Claras, outreach message, list of the first 10 prospects

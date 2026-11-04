@@ -345,7 +345,7 @@ def test_pool_sizes_have_small_defaults_and_can_be_set(monkeypatch) -> None:
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.delenv("DB_POOL_SIZE", raising=False)
     monkeypatch.delenv("DB_MAX_OVERFLOW", raising=False)
-    assert (get_settings().db_pool_size, get_settings().db_max_overflow) == (5, 2)
+    assert (get_settings().db_pool_size, get_settings().db_max_overflow) == (5, 1)
 
     get_settings.cache_clear()
     monkeypatch.setenv("DB_POOL_SIZE", "8")
@@ -419,3 +419,79 @@ def test_the_production_env_example_never_enables_the_rehearsal() -> None:
     assert "REHEARSAL" not in names
     assert {"APP_ENV", "DATABASE_URL", "SUPABASE_JWKS_URL", "SUPABASE_ANON_KEY"} <= names
     assert ":6543/" not in example.read_text(encoding="utf-8")
+
+
+MONITORING = (
+    "SENTRY_DSN",
+    "SENTRY_TRACES_SAMPLE_RATE",
+    "SENTRY_API_TOKEN",
+    "SENTRY_ORG",
+    "SENTRY_PROJECTS",
+    "SENTRY_API_URL",
+    "GRAFANA_URL",
+    "LOKI_DATASOURCE",
+    "LLM_MONTHLY_COST_ALERT_USD",
+)
+
+
+def test_production_runs_without_any_monitoring_setting(monkeypatch) -> None:
+    _production_env(
+        monkeypatch, database_url="postgresql+psycopg://db/app", cors="https://app.example.com"
+    )
+    for name in MONITORING:
+        monkeypatch.delenv(name, raising=False)
+
+    settings = get_settings()
+
+    assert (settings.sentry_dsn, settings.sentry_traces_sample_rate) == ("", 0.0)
+    assert (settings.sentry_api_token, settings.sentry_org, dict(settings.sentry_projects)) == (
+        "",
+        "",
+        {},
+    )
+    assert settings.sentry_api_url == "https://sentry.io"
+    assert (settings.grafana_url, settings.loki_datasource) == ("", "loki")
+    assert settings.llm_monthly_cost_alert_usd is None
+
+
+def test_monitoring_settings_are_read(monkeypatch) -> None:
+    monkeypatch.setenv("SENTRY_DSN", "https://key@o1.ingest.us.sentry.io/2")
+    monkeypatch.setenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")
+    monkeypatch.setenv(
+        "SENTRY_PROJECTS", "api=inmo24x7-api, panel=inmo24x7-panel,backoffice=inmo24x7-bo"
+    )
+    monkeypatch.setenv("SENTRY_API_URL", "https://de.sentry.io/")
+    monkeypatch.setenv("GRAFANA_URL", "https://grafana.example.com/")
+    monkeypatch.setenv("LLM_MONTHLY_COST_ALERT_USD", "25.50")
+
+    settings = get_settings()
+
+    assert settings.sentry_traces_sample_rate == 0.1
+    assert dict(settings.sentry_projects) == {
+        "api": "inmo24x7-api",
+        "panel": "inmo24x7-panel",
+        "backoffice": "inmo24x7-bo",
+    }
+    assert settings.sentry_api_url == "https://de.sentry.io"
+    assert settings.grafana_url == "https://grafana.example.com"
+    assert str(settings.llm_monthly_cost_alert_usd) == "25.50"
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("SENTRY_TRACES_SAMPLE_RATE", "2", "between 0 and 1"),
+        ("SENTRY_TRACES_SAMPLE_RATE", "mucho", "must be a number"),
+        ("SENTRY_PROJECTS", "worker=inmo24x7-worker", "SENTRY_PROJECTS"),
+        ("SENTRY_PROJECTS", "api=", "SENTRY_PROJECTS"),
+        ("LLM_MONTHLY_COST_ALERT_USD", "veinte", "USD"),
+        ("LLM_MONTHLY_COST_ALERT_USD", "0", "greater than zero"),
+    ],
+)
+def test_bad_monitoring_values_stop_startup(
+    monkeypatch, name: str, value: str, message: str
+) -> None:
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ConfigurationError, match=message):
+        get_settings()

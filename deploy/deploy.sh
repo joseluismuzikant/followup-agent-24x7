@@ -32,13 +32,16 @@ state_dir="$STATE_DIR"
 mkdir -p "$state_dir"
 current="$(cat "$state_dir/deployed_tag" 2>/dev/null || true)"
 services=(api worker web backoffice caddy)
+if observability_enabled; then
+	services+=(loki alloy grafana)
+fi
 
 export IMAGE_TAG="$tag"
 say "Deploying $tag (running now: ${current:-nothing})"
 
 if [[ "$local_images" == false ]]; then
 	say "Pulling images"
-	compose pull api worker web backoffice caddy
+	compose pull "${services[@]}"
 fi
 
 say "Migrating the database (alembic upgrade head)"

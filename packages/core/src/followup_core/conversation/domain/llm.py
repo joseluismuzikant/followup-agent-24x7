@@ -40,12 +40,20 @@ class ReplyIntent(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class TokenUsage:
+    # All input tokens, cached ones included (LangChain's normalised count).
     input_tokens: int = 0
     output_tokens: int = 0
+    # Input tokens served from the provider's prompt cache (cheaper), when it says so.
+    cached_input_tokens: int = 0
+    # False when the provider returned no usage at all: the zeros mean "unknown".
+    reported: bool = False
 
     def __add__(self, other: "TokenUsage") -> "TokenUsage":
         return TokenUsage(
-            self.input_tokens + other.input_tokens, self.output_tokens + other.output_tokens
+            self.input_tokens + other.input_tokens,
+            self.output_tokens + other.output_tokens,
+            self.cached_input_tokens + other.cached_input_tokens,
+            self.reported or other.reported,
         )
 
 

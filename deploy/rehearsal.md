@@ -13,6 +13,7 @@ What is different from production:
 | Let's Encrypt on your domains | Caddy's own CA on `api.localhost`, `app.localhost`, `admin.localhost` |
 | GHCR images from CI | images built from your working tree, tagged `sha-<HEAD>` (`-dirty` with uncommitted changes) |
 | SMTP provider | Mailpit (http://127.0.0.1:58025) |
+| Grafana at `grafana.<domain>` | the same Loki + Alloy + Grafana at https://grafana.localhost (admin / `GRAFANA_ADMIN_PASSWORD` in `rehearsal/.env.rehearsal`) |
 | Oracle Object Storage | a local volume (`BACKUP_REMOTE=:local:/backups`) |
 | a real model, the Cloud API | the fake model and the log sender, allowed only by `REHEARSAL=true` |
 
@@ -49,7 +50,9 @@ to the URLs).
    and an unconfirmed one never does;
 5. a signed webhook goes through Caddy, the worker answers with the agent's reply, and a bad
    signature gets 401;
-6. a backup runs and `restore.sh latest` restores it into a scratch database.
+6. the API's webhook line and the worker's lines for that business (by `tenant_id`) reach
+   Loki through Alloy, and Grafana answers at https://grafana.localhost;
+7. a backup runs and `restore.sh latest` restores it into a scratch database.
 
 ## In the browser
 

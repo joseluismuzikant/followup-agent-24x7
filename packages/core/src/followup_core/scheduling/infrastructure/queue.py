@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from ...infrastructure import log_context
 from ..domain.jobs import (
     Job,
     JobError,
@@ -152,18 +153,26 @@ class JobRunner:
             session.commit()
         if job is None:
             return False
+        # Log lines (and error reports) of this job carry its id and kind; handlers add the
+        # tenant once they know it.
+        with log_context.scope(
+            job_id=job.id, job_kind=job.kind, tenant_id=job.payload.get("tenant_id")
+        ):
+            self._run(job)
+        return True
 
+    def _run(self, job: Job) -> None:
         try:
             with self._sessions() as session:
                 result = self._handlers(session).get(job.kind)(job)
                 session.commit()
         except Exception as error:
             self._record_failure(job, error)
-            return True
+            return
 
         if isinstance(result, RetryLater):
             self._record_failure(job, JobError(result.code))
-            return True
+            return
         with self._sessions() as session:
             queue = SqlAlchemyJobQueue(session, self._clock)
             if isinstance(result, Reschedule):
@@ -171,7 +180,6 @@ class JobRunner:
             else:
                 queue.complete(job, self._clock())
             session.commit()
-        return True
 
     def run_due(self, limit: int = 1000) -> int:
         """Runs due jobs until none is left (tests and scripts). Returns how many ran."""

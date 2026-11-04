@@ -1,10 +1,14 @@
-import { createApiClient } from "@followup/api-client-inmo24x7";
+import { createApiClient, serverErrorInfo } from "@followup/api-client-inmo24x7";
+import { reportServerError } from "@followup/observability";
 
 import { getAccessToken } from "../lib/auth-adapter";
 
 const baseUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8001";
 
-export const apiClient = createApiClient(baseUrl, { getAccessToken });
+export const apiClient = createApiClient(baseUrl, {
+  getAccessToken,
+  onServerError: reportServerError,
+});
 
 /** For requests openapi-fetch does not cover well: file uploads and CSV downloads. */
 export async function authorizedFetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -13,5 +17,10 @@ export async function authorizedFetch(path: string, init: RequestInit = {}): Pro
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  return fetch(`${baseUrl.replace(/\/$/, "")}${path}`, { ...init, headers });
+  const request = new Request(`${baseUrl.replace(/\/$/, "")}${path}`, { ...init, headers });
+  const response = await fetch(request);
+  if (response.status >= 500) {
+    reportServerError(serverErrorInfo(request, response));
+  }
+  return response;
 }

@@ -96,6 +96,12 @@ for file in compose.prod.yml Caddyfile lib.sh deploy.sh restore.sh backup-now.sh
 done
 chmod 750 "$app_dir/deploy.sh" "$app_dir/restore.sh" "$app_dir/backup-now.sh"
 cp -r "$here/backup" "$app_dir/" && chown -R deploy:deploy "$app_dir/backup"
+# Read inside the Loki, Alloy, Grafana and Caddy containers (their own users): world-readable,
+# no secrets in them.
+for dir in caddy observability; do
+	cp -r "$here/$dir" "$app_dir/" && chown -R deploy:deploy "$app_dir/$dir"
+	chmod -R a+rX "$app_dir/$dir"
+done
 install -m 644 "$here/systemd/inmo24x7-backup.service" /etc/systemd/system/
 install -m 644 "$here/systemd/inmo24x7-backup.timer" /etc/systemd/system/
 systemctl daemon-reload

@@ -1,7 +1,9 @@
 """Backoffice (platform admins only): S8 Negocios with KPIs and filters, "Dar de alta un
-negocio", S9 Detalle del negocio with suspend / reactivate, Salud del sistema and Planes."""
+negocio", S9 Detalle del negocio with suspend / reactivate, Salud del sistema, Errores (from
+Sentry) and Planes."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from math import ceil
 from typing import Annotated, Literal
@@ -29,6 +31,7 @@ from ..whatsapp import WhatsAppConnectionRead, connection_read
 from .application.overview import PAGE_SIZE, GetBusiness, ListBusinesses, TenantDetail
 from .domain.rules import TenantFilter, TenantRow, mask, needs_help, whatsapp_badge
 from .infrastructure.queries import SqlAlchemyBackofficeQueries
+from .infrastructure.sentry_issues import Period, SentryIssuesClient
 
 AdminDep = Annotated[Profile, Depends(require_platform_admin)]
 Badge = Literal["connected", "verification_pending", "action_required", "not_connected"]
@@ -136,6 +139,19 @@ class FailedSendsRead(BaseModel):
     count: int
 
 
+class MonitoringLinksRead(BaseModel):
+    # Empty when not configured: the backoffice hides the links.
+    grafana_url: str
+    loki_datasource: str
+    sentry_issues_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class MonitoringLinks:
+    grafana_url: str
+    loki_datasource: str
+
+
 class SystemRead(BaseModel):
     jobs: list[JobCountRead]
     dead_last_24h: int
@@ -146,6 +162,31 @@ class SystemRead(BaseModel):
     version: str
     commit: str
     database: Literal["ok", "unavailable"]
+    links: MonitoringLinksRead
+
+
+class IssueRead(BaseModel):
+    id: str
+    title: str
+    culprit: str
+    project: Literal["api", "panel", "backoffice"]
+    first_seen: datetime
+    last_seen: datetime
+    count: int
+    users: int
+    permalink: str
+
+
+class ErrorsRead(BaseModel):
+    # False: Sentry's API settings are missing. available False: Sentry did not answer.
+    configured: bool
+    available: bool
+    issues: list[IssueRead]
+    sentry_issues_url: str
+
+
+class SentryTestError(RuntimeError):
+    """Raised on purpose by POST /admin/errors/test, to check Sentry end to end."""
 
 
 class PlanSummaryRead(BaseModel):
@@ -223,6 +264,8 @@ def build_backoffice_router(
     queries_factory: Callable[..., SqlAlchemyBackofficeQueries],
     version: tuple[str, str],
     clock: Clock,
+    issues_factory: Callable[..., SentryIssuesClient],
+    links: MonitoringLinks,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin", tags=["backoffice"])
 
@@ -317,6 +360,7 @@ def build_backoffice_router(
     def system(
         _admin: AdminDep,
         queries: Annotated[SqlAlchemyBackofficeQueries, Depends(queries_factory)],
+        issues: Annotated[SentryIssuesClient, Depends(issues_factory)],
     ) -> SystemRead:
         numbers = queries.system(clock())
         return SystemRead(
@@ -332,6 +376,47 @@ def build_backoffice_router(
             version=version[0],
             commit=version[1],
             database="ok" if numbers.database_ok else "unavailable",
+            links=MonitoringLinksRead(
+                grafana_url=links.grafana_url,
+                loki_datasource=links.loki_datasource if links.grafana_url else "",
+                sentry_issues_url=issues.issues_url,
+            ),
+        )
+
+    @router.post("/errors/test", status_code=204, responses={500: {}})
+    def test_error(_admin: AdminDep) -> None:
+        """Fails on purpose (an unhandled error): Sentry gets an issue "SentryTestError" with
+        this request's id, and the logs a 500. For go-live and after changing SENTRY_DSN."""
+        raise SentryTestError("Error de prueba del backoffice (no es un problema real).")
+
+    @router.get("/errors", response_model=ErrorsRead)
+    def errors(
+        _admin: AdminDep,
+        issues: Annotated[SentryIssuesClient, Depends(issues_factory)],
+        project: Literal["all", "api", "panel", "backoffice"] = "all",
+        period: Period = "24h",
+        tenant_id: UUID | None = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    ) -> ErrorsRead:
+        result = issues.recent(None if project == "all" else project, period, tenant_id, limit)
+        return ErrorsRead(
+            configured=result.configured,
+            available=result.available,
+            issues=[
+                IssueRead(
+                    id=issue.id,
+                    title=issue.title,
+                    culprit=issue.culprit,
+                    project=issue.area,  # type: ignore[arg-type]
+                    first_seen=issue.first_seen,
+                    last_seen=issue.last_seen,
+                    count=issue.count,
+                    users=issue.users,
+                    permalink=issue.permalink,
+                )
+                for issue in result.issues
+            ],
+            sentry_issues_url=issues.issues_url,
         )
 
     @router.get("/plans", response_model=list[PlanSummaryRead])

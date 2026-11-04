@@ -9,12 +9,15 @@ Graph contract:
   exposed as the state snapshot.
 
 Tracing (LangSmith) is optional and observability only: with `tracing=None` the turn runs
-with tracing forced off, whatever the environment says.
+with tracing forced off, whatever the environment says. With a `usage` recorder, every model
+call of the turn is recorded (tokens, latency, success) as it happens.
 """
 
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 from langchain_core.runnables import RunnableConfig
@@ -23,12 +26,22 @@ from langgraph.graph import StateGraph
 from langsmith import Client, traceable, tracing_context
 from langsmith.address import AgentAddress
 
-from ..domain.llm import Extraction, ExtractionRequest, LanguageModel, Reply, ReplyRequest
+from ..domain.llm import (
+    Extraction,
+    ExtractionRequest,
+    LanguageModel,
+    Reply,
+    ReplyRequest,
+    TokenUsage,
+)
 from ..domain.runtime import AgentTurn, OutboundMessage, TurnInput, TurnMetrics
-from ..domain.thread import Author, Thread, ThreadKey
+from ..domain.thread import Author, Channel, Thread, ThreadKey
 from ..domain.tools import Tool, ToolRegistry
+from ..domain.usage import LlmCall, LlmOperation, LlmUsageRecorder
 
 TRANSIENT_KEYS = frozenset({"inbound", "outbox"})
+
+_Result = TypeVar("_Result", Extraction, Reply)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,15 +74,24 @@ def _without_self(inputs: dict[str, Any]) -> dict[str, Any]:
 
 
 class MeteredLanguageModel:
-    """Adds each call's token usage to the turn's metrics.
+    """Adds each call's token usage to the turn's metrics, and records every call (failed
+    ones too) with the usage recorder when there is one.
 
     Each call is also a child run ("llm.extract", "llm.compose_reply") when the turn is
     traced; otherwise `traceable` does nothing.
     """
 
-    def __init__(self, inner: LanguageModel, metrics: TurnMetrics) -> None:
+    def __init__(
+        self,
+        inner: LanguageModel,
+        metrics: TurnMetrics,
+        thread: Thread | None = None,
+        usage: LlmUsageRecorder | None = None,
+    ) -> None:
         self._inner = inner
         self._metrics = metrics
+        self._thread = thread
+        self._usage = usage
 
     @property
     def model_name(self) -> str:
@@ -79,17 +101,45 @@ class MeteredLanguageModel:
     def prompt_versions(self) -> Mapping[str, str]:
         return self._inner.prompt_versions
 
+    def _metered(self, operation: LlmOperation, call: Callable[[], _Result]) -> _Result:
+        started = time.perf_counter()
+        try:
+            result = call()
+        except Exception:
+            self._record(operation, TokenUsage(), started, succeeded=False)
+            raise
+        self._metrics.usage = self._metrics.usage + result.usage
+        self._record(operation, result.usage, started, succeeded=True)
+        return result
+
+    def _record(
+        self, operation: LlmOperation, usage: TokenUsage, started: float, *, succeeded: bool
+    ) -> None:
+        thread = self._thread
+        if self._usage is None or thread is None:
+            return
+        self._usage.record(
+            LlmCall(
+                tenant_id=thread.tenant_id,
+                thread_id=thread.id,
+                channel=thread.channel.value,
+                is_test=thread.channel is Channel.SIMULATOR,
+                operation=operation,
+                model=self._inner.model_name,
+                usage=usage,
+                latency_ms=round((time.perf_counter() - started) * 1000),
+                succeeded=succeeded,
+                created_at=datetime.now(UTC),
+            )
+        )
+
     @traceable(name="llm.extract", run_type="chain", process_inputs=_without_self)
     def extract(self, request: ExtractionRequest) -> Extraction:
-        result = self._inner.extract(request)
-        self._metrics.usage = self._metrics.usage + result.usage
-        return result
+        return self._metered(LlmOperation.EXTRACT, lambda: self._inner.extract(request))
 
     @traceable(name="llm.compose_reply", run_type="chain", process_inputs=_without_self)
     def compose_reply(self, request: ReplyRequest) -> Reply:
-        result = self._inner.compose_reply(request)
-        self._metrics.usage = self._metrics.usage + result.usage
-        return result
+        return self._metered(LlmOperation.COMPOSE_REPLY, lambda: self._inner.compose_reply(request))
 
 
 def _config(key: ThreadKey) -> RunnableConfig:
@@ -108,10 +158,12 @@ class LangGraphRuntime:
         llm: LanguageModel,
         tracing: TurnTracing | None = None,
         tools: ToolRegistry | None = None,
+        usage: LlmUsageRecorder | None = None,
     ) -> None:
         self._graph = graph.compile(checkpointer=checkpointer)
         self._llm = llm
         self._tracing = tracing
+        self._usage = usage
         self._tools = (tools or ToolRegistry()).wrapped(_traced_tool)
 
     def _traced_config(
@@ -140,7 +192,9 @@ class LangGraphRuntime:
             model=self._llm.model_name, prompt_versions=dict(self._llm.prompt_versions)
         )
         context = GraphContext(
-            turn=turn, llm=MeteredLanguageModel(self._llm, metrics), tools=self._tools
+            turn=turn,
+            llm=MeteredLanguageModel(self._llm, metrics, thread, self._usage),
+            tools=self._tools,
         )
         config, run_id = self._traced_config(thread, turn, metrics)
         tracing = self._tracing

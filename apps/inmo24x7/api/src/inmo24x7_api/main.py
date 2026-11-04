@@ -9,7 +9,8 @@ from followup_core.tenancy.infrastructure.router import build_tenancy_router
 
 from .agent_setup import build_agent_setup_router
 from .auth import require_platform_admin
-from .backoffice.router import build_backoffice_router
+from .backoffice.router import MonitoringLinks, build_backoffice_router
+from .billing.router import build_usage_router
 from .config import get_settings
 from .container import (
     advance_onboarding_use_case,
@@ -28,6 +29,7 @@ from .container import (
     get_language_model,
     get_lead_use_case,
     get_onboarding_use_case,
+    get_sentry_issues,
     get_simulator_use_case,
     get_tenant_settings_use_case,
     get_tenant_use_case,
@@ -55,8 +57,11 @@ from .container import (
     sign_up_use_case,
     signup_state,
     tenant_suspension_use_case,
+    tenant_usage_use_case,
     update_property_use_case,
     update_tenant_settings_use_case,
+    usage_report_use_case,
+    warn_if_model_unpriced,
     webhook_counters,
 )
 from .dashboard.router import build_dashboard_router
@@ -67,6 +72,7 @@ from .leads.router import build_leads_router
 from .logging import configure_logging
 from .me import build_me_router
 from .middleware import RequestContextMiddleware
+from .observability import init_sentry
 from .onboarding import build_onboarding_router
 from .properties.router import build_properties_router
 from .simulator import build_simulator_router
@@ -77,6 +83,7 @@ from .whatsapp import build_whatsapp_router
 
 configure_logging()
 settings = get_settings()
+init_sentry(settings, "api")
 logger = logging.getLogger("inmo24x7.app")
 
 
@@ -99,6 +106,8 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # The panels show its first characters as "Código de referencia" on errors.
+        expose_headers=["X-Request-ID"],
     )
     application.add_middleware(RequestContextMiddleware)
     register_error_handlers(application)
@@ -106,6 +115,7 @@ def create_app() -> FastAPI:
     get_token_verifier()
     get_language_model()
     get_tracing()
+    warn_if_model_unpriced(settings)
 
     application.include_router(build_health_router(get_session, settings))
     application.include_router(
@@ -185,7 +195,12 @@ def create_app() -> FastAPI:
             backoffice_queries,
             (settings.version, settings.commit),
             utc_now,
+            get_sentry_issues,
+            MonitoringLinks(settings.grafana_url, settings.loki_datasource),
         )
+    )
+    application.include_router(
+        build_usage_router(usage_report_use_case, tenant_usage_use_case, utc_now)
     )
     application.include_router(
         build_tenancy_router(

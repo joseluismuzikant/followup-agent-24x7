@@ -1,0 +1,2 @@
+# Grafana is not published (GRAFANA_DOMAIN is empty): reach it through an SSH tunnel to
+# 127.0.0.1:3000 on the VM (deploy/observability.md).

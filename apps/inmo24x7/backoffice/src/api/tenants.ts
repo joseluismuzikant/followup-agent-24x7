@@ -1,8 +1,4 @@
-import {
-  ApiRequestError,
-  errorCode,
-  type TenantPage,
-} from "@followup/api-client-inmo24x7";
+import { apiError, type TenantPage } from "@followup/api-client-inmo24x7";
 
 import { apiClient } from "./client";
 
@@ -15,5 +11,5 @@ export async function fetchTenants(page: number, limit: number): Promise<TenantP
     return data;
   }
 
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }

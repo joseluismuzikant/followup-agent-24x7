@@ -7,6 +7,7 @@ from followup_core.identity.domain.errors import InvalidTokenError
 from followup_core.identity.domain.profile import Profile, Role
 from followup_core.identity.domain.token_verifier import TokenVerifier, VerifiedToken
 from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
+from followup_core.infrastructure import log_context
 from followup_core.tenancy.domain.tenant import TenantStatus
 from followup_core.tenancy.infrastructure.models import TenantModel
 from sqlalchemy.orm import Session
@@ -41,6 +42,10 @@ def current_profile_any_status(
     profile = SqlAlchemyProfileRepository(session).get_by_id(identity.user_id)
     if profile is None:
         raise ApiError(404, "profile_not_found")
+    if not profile.is_platform_admin:
+        # Logs and error reports of this request name the business (an admin's own tenant
+        # says nothing about which business they are looking at).
+        log_context.bind(tenant_id=profile.tenant_id)
     return profile
 
 

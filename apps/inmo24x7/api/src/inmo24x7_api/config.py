@@ -1,5 +1,7 @@
 import os
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 
 from followup_core.conversation.infrastructure.llm_providers import parse_model_spec
@@ -23,7 +25,11 @@ DEFAULT_GRAPH_API_VERSION = "v26.0"
 DEFAULT_PANEL_URL = "http://localhost:5173"
 DEFAULT_SUPPORT_EMAIL = "soporte@inmo24x7.local"
 DEFAULT_DB_POOL_SIZE = 5
-DEFAULT_DB_MAX_OVERFLOW = 2
+DEFAULT_DB_MAX_OVERFLOW = 1
+DEFAULT_SENTRY_API_URL = "https://sentry.io"
+DEFAULT_LOKI_DATASOURCE = "loki"
+# The areas the backoffice's Errores page knows, each one a Sentry project.
+SENTRY_AREAS = ("api", "panel", "backoffice")
 # Supabase's transaction pooler: no prepared statements or pipelining, which psycopg and the
 # LangGraph checkpointer use. The session pooler (5432) or the direct connection work.
 TRANSACTION_POOLER_PORT = 6543
@@ -94,6 +100,19 @@ class Settings:
     # The local production rehearsal (deploy/rehearsal): APP_ENV=production with the fake
     # model and the log sender. Never set on a real server.
     rehearsal: bool = False
+    # Error reporting (empty DSN = off). The API token, org and projects feed the
+    # backoffice's Errores page (read-only).
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0
+    sentry_api_token: str = ""
+    sentry_org: str = ""
+    sentry_projects: Mapping[str, str] = field(default_factory=dict)
+    sentry_api_url: str = DEFAULT_SENTRY_API_URL
+    # Links from the backoffice to Grafana Explore (empty = hidden).
+    grafana_url: str = ""
+    loki_datasource: str = DEFAULT_LOKI_DATASOURCE
+    # Monthly LLM cost per business that emails SUPPORT_EMAIL (None = off).
+    llm_monthly_cost_alert_usd: Decimal | None = None
 
     @property
     def is_production(self) -> bool:
@@ -241,6 +260,48 @@ def _database_url(production: bool) -> str:
     return url
 
 
+def _fraction(name: str) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return 0.0
+    try:
+        value = float(raw)
+    except ValueError as error:
+        raise ConfigurationError(f"{name} must be a number.") from error
+    if not 0 <= value <= 1:
+        raise ConfigurationError(f"{name} must be between 0 and 1.")
+    return value
+
+
+def _sentry_projects() -> dict[str, str]:
+    """SENTRY_PROJECTS: "api=inmo24x7-api,panel=inmo24x7-panel,backoffice=..."."""
+    projects: dict[str, str] = {}
+    for item in os.getenv("SENTRY_PROJECTS", "").split(","):
+        if not item.strip():
+            continue
+        area, _, slug = item.partition("=")
+        area, slug = area.strip(), slug.strip()
+        if area not in SENTRY_AREAS or not slug:
+            raise ConfigurationError(
+                "SENTRY_PROJECTS must look like 'api=<slug>,panel=<slug>,backoffice=<slug>'."
+            )
+        projects[area] = slug
+    return projects
+
+
+def _optional_amount(name: str) -> Decimal | None:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as error:
+        raise ConfigurationError(f"{name} must be a number (USD).") from error
+    if value <= 0:
+        raise ConfigurationError(f"{name} must be greater than zero.")
+    return value
+
+
 def _rehearsal(production: bool) -> bool:
     """REHEARSAL=true: only for the local production rehearsal, never on a server."""
     enabled = _flag("REHEARSAL", default=False)
@@ -328,6 +389,16 @@ def get_settings() -> Settings:
         db_pool_size=int(_positive_number("DB_POOL_SIZE", DEFAULT_DB_POOL_SIZE)),
         db_max_overflow=int(_non_negative("DB_MAX_OVERFLOW", DEFAULT_DB_MAX_OVERFLOW)),
         rehearsal=rehearsal,
+        sentry_dsn=os.getenv("SENTRY_DSN", "").strip(),
+        sentry_traces_sample_rate=_fraction("SENTRY_TRACES_SAMPLE_RATE"),
+        sentry_api_token=os.getenv("SENTRY_API_TOKEN", "").strip(),
+        sentry_org=os.getenv("SENTRY_ORG", "").strip(),
+        sentry_projects=_sentry_projects(),
+        sentry_api_url=os.getenv("SENTRY_API_URL", "").strip().rstrip("/")
+        or DEFAULT_SENTRY_API_URL,
+        grafana_url=os.getenv("GRAFANA_URL", "").strip().rstrip("/"),
+        loki_datasource=os.getenv("LOKI_DATASOURCE", "").strip() or DEFAULT_LOKI_DATASOURCE,
+        llm_monthly_cost_alert_usd=_optional_amount("LLM_MONTHLY_COST_ALERT_USD"),
         **_messaging_settings(production, rehearsal),  # type: ignore[arg-type]
         **_email_settings(app_env == "production"),  # type: ignore[arg-type]
     )

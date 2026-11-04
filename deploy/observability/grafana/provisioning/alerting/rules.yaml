@@ -1,0 +1,124 @@
+# Grafana-managed alert rules on Loki, emailed to SUPPORT_EMAIL (contact-points.yaml).
+# No environment matcher: this Loki only holds this VM's logs.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: inmo24x7
+    folder: inmo24x7
+    interval: 1m
+    rules:
+      - uid: inmo-errors
+        title: Errores en la API o el worker
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: "Más de 5 errores en 5 minutos en la API o el worker. Mirá Sentry y el dashboard inmo24x7 — operación."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: 'sum(count_over_time({service=~"api|worker", level=~"error|critical"} [5m])) or vector(0)'
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [5] }
+      - uid: inmo-dead-jobs
+        title: Jobs muertos
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: "Un job agotó sus intentos (un mensaje sin enviar, un email sin salir). Backoffice → Salud del sistema."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: 'sum(count_over_time({service="worker"} | json | message="job_dead" [5m])) or vector(0)'
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+      - uid: inmo-signature-spike
+        title: Firmas de webhook rechazadas
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: "Más de 20 webhooks con firma inválida en 15 minutos: ¿cambió META_APP_SECRET, o alguien está probando el endpoint?"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: 'sum(count_over_time({service="api"} | json | message="whatsapp_signature_rejected" [15m])) or vector(0)'
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [20] }
+      - uid: inmo-webhook-silence
+        title: Sin webhooks de Meta
+        condition: D
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: "Hace 6 horas que no llega ningún webhook de Meta y hay números conectados. Revisá la suscripción del webhook en la app de Meta y el dominio de la API."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 21600, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              queryType: instant
+              expr: 'sum(count_over_time({service="api"} | json | message="whatsapp_webhook" [6h])) or vector(0)'
+          - refId: B
+            relativeTimeRange: { from: 25200, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: B
+              queryType: instant
+              # The 6-hourly health sweep logs how many Cloud connections it checked.
+              expr: 'max(max_over_time({service="worker"} | json | message="whatsapp_health_sweep" | unwrap connections [7h])) or vector(0)'
+          - refId: RA
+            datasourceUid: __expr__
+            model: { refId: RA, type: reduce, expression: A, reducer: last }
+          - refId: RB
+            datasourceUid: __expr__
+            model: { refId: RB, type: reduce, expression: B, reducer: last }
+          - refId: D
+            datasourceUid: __expr__
+            model: { refId: D, type: math, expression: "$RA == 0 && $RB > 0" }

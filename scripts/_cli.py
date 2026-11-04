@@ -4,8 +4,10 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 from collections.abc import Sequence
 from pathlib import Path
+from typing import IO
 
 ROOT = Path(__file__).resolve().parents[1]
 PNPM = ["corepack", "pnpm"]
@@ -37,16 +39,33 @@ def run(command: Sequence[str]) -> None:
         subprocess.run(command, check=True, cwd=ROOT)
 
 
-def spawn(command: Sequence[str]) -> subprocess.Popen:
+def _copy_lines(source: IO[str], log_path: Path) -> None:
+    with log_path.open("a", encoding="utf-8") as log:
+        for line in source:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            log.write(line)
+            log.flush()
+
+
+def spawn(command: Sequence[str], tee: Path | None = None) -> subprocess.Popen:
+    """Starts a long-running process. With `tee`, its output also goes to that file (for the
+    local Grafana: scripts/dev.py --observability)."""
     command = list(command)
+    output = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True} if tee else {}
     if os.name == "nt":
-        return subprocess.Popen(
+        process = subprocess.Popen(
             subprocess.list2cmdline(command),
             shell=True,
             cwd=ROOT,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            **output,
         )
-    return subprocess.Popen(command, cwd=ROOT, start_new_session=True)
+    else:
+        process = subprocess.Popen(command, cwd=ROOT, start_new_session=True, **output)
+    if tee and process.stdout is not None:
+        threading.Thread(target=_copy_lines, args=(process.stdout, tee), daemon=True).start()
+    return process
 
 
 def stop(processes: Sequence[subprocess.Popen]) -> None:

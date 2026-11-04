@@ -200,7 +200,8 @@ def build_simulator_router(
         except SimulatorLimitReachedError as error:
             raise ApiError(429, "simulator_limit_reached") from error
         except LlmUnavailableError as error:
-            logger.warning(
+            # An error (and a Sentry issue): the provider failed after LangChain's retry.
+            logger.error(
                 "agent_turn_failed",
                 extra={
                     "tenant_id": str(tenant_id),

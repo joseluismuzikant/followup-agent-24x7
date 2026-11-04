@@ -4,12 +4,16 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
-import { fetchPlans, fetchSystemHealth } from "../api/backoffice";
-import { systemHealth } from "../test-fixtures";
+import { fetchErrors, fetchPlans, fetchSystemHealth } from "../api/backoffice";
+import { errorList, systemHealth } from "../test-fixtures";
 import { PlanesPage } from "./planes";
 import { SistemaPage } from "./sistema";
 
-vi.mock("../api/backoffice", () => ({ fetchSystemHealth: vi.fn(), fetchPlans: vi.fn() }));
+vi.mock("../api/backoffice", () => ({
+  fetchSystemHealth: vi.fn(),
+  fetchPlans: vi.fn(),
+  fetchErrors: vi.fn(),
+}));
 vi.mock("../components/RequireAdmin", () => ({
   RequireAdmin: ({ children }: { children: ReactNode }) => children,
 }));
@@ -24,8 +28,33 @@ function renderWith(page: ReactNode) {
 }
 
 describe("Salud del sistema and Planes", () => {
+  it("shows the recent errors from Sentry with a link to all of them", async () => {
+    vi.mocked(fetchSystemHealth).mockResolvedValue(systemHealth());
+    vi.mocked(fetchErrors).mockResolvedValue(errorList());
+    renderWith(<SistemaPage />);
+
+    expect(await screen.findByText("RuntimeError: boom")).toBeTruthy();
+    expect(fetchErrors).toHaveBeenCalledWith({ period: "24h", limit: 10 });
+    expect(screen.getByRole("link", { name: "RuntimeError: boom" }).getAttribute("href")).toBe(
+      "https://acme.sentry.io/issues/101/",
+    );
+    expect(screen.getAllByText("12 veces")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "Ver todos en Sentry" }).getAttribute("href")).toBe(
+      "https://acme.sentry.io/issues/",
+    );
+  });
+
+  it("says when Sentry does not answer", async () => {
+    vi.mocked(fetchSystemHealth).mockResolvedValue(systemHealth());
+    vi.mocked(fetchErrors).mockResolvedValue(errorList({ available: false, issues: [] }));
+    renderWith(<SistemaPage />);
+
+    expect(await screen.findByText(/Sentry no respondió/)).toBeTruthy();
+  });
+
   it("shows jobs, webhooks, failed sends by Meta code, version and database", async () => {
     vi.mocked(fetchSystemHealth).mockResolvedValue(systemHealth());
+    vi.mocked(fetchErrors).mockResolvedValue(errorList({ issues: [] }));
     renderWith(<SistemaPage />);
 
     expect((await screen.findByLabelText("Webhooks (última hora)")).textContent).toContain("42");

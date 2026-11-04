@@ -1,4 +1,4 @@
-import { ApiRequestError, errorCode } from "@followup/api-client-inmo24x7";
+import { ApiRequestError, errorCode, REQUEST_ID_HEADER } from "@followup/api-client-inmo24x7";
 import type {
   WhatsAppConnection,
   WhatsAppConnectionInput,
@@ -10,18 +10,23 @@ import { apiClient } from "./client";
 export class WhatsAppRequestError extends ApiRequestError {
   readonly metaCode: string | null;
 
-  constructor(status: number, code: string, metaCode: string | null) {
-    super(status, code);
+  constructor(status: number, code: string, metaCode: string | null, requestId: string | null = null) {
+    super(status, code, requestId);
     this.metaCode = metaCode;
   }
 }
 
-function failure(status: number, error: unknown): WhatsAppRequestError {
+function failure(response: Response, error: unknown): WhatsAppRequestError {
   const metaCode =
     typeof error === "object" && error !== null && "meta_code" in error
       ? String(error.meta_code)
       : null;
-  return new WhatsAppRequestError(status, errorCode(error), metaCode);
+  return new WhatsAppRequestError(
+    response.status,
+    errorCode(error),
+    metaCode,
+    response.headers.get(REQUEST_ID_HEADER),
+  );
 }
 
 const path = (tenantId: string) => ({ params: { path: { tenant_id: tenantId } } });
@@ -34,7 +39,7 @@ export async function fetchConnection(tenantId: string): Promise<WhatsAppConnect
   if (data) {
     return data;
   }
-  throw failure(response.status, error);
+  throw failure(response, error);
 }
 
 export async function saveConnection(
@@ -48,7 +53,7 @@ export async function saveConnection(
   if (data) {
     return data;
   }
-  throw failure(response.status, error);
+  throw failure(response, error);
 }
 
 export type ConnectionAction = "test" | "subscribe" | "disconnect";
@@ -66,7 +71,7 @@ export async function runConnectionAction(
   if (data && "status" in data) {
     return data;
   }
-  throw failure(response.status, error);
+  throw failure(response, error);
 }
 
 export async function sendTestMessage(tenantId: string, to: string): Promise<string> {
@@ -77,5 +82,5 @@ export async function sendTestMessage(tenantId: string, to: string): Promise<str
   if (data && "wamid" in data) {
     return data.wamid;
   }
-  throw failure(response.status, error);
+  throw failure(response, error);
 }

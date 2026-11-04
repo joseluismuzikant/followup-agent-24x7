@@ -1,0 +1,20 @@
+# Alerts go by email to SUPPORT_EMAIL, through the app's SMTP account (GF_SMTP_* in compose).
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: soporte
+    receivers:
+      - uid: soporte-email
+        type: email
+        settings:
+          addresses: ${SUPPORT_EMAIL}
+          singleEmail: true
+
+policies:
+  - orgId: 1
+    receiver: soporte
+    group_by: ["alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

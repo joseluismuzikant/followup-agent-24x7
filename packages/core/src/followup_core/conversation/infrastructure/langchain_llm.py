@@ -40,8 +40,20 @@ class PromptFile:
 
 
 def _usage(message: AIMessage) -> TokenUsage:
-    usage = message.usage_metadata or {}
-    return TokenUsage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
+    """LangChain normalises every provider's usage into `usage_metadata`: input_tokens is the
+    total (cached included) and cached reads are `input_token_details.cache_read` (Anthropic's
+    cache_read_input_tokens, OpenAI-compatible cached_tokens, DeepSeek's
+    prompt_cache_hit_tokens). No metadata at all = not reported."""
+    usage = message.usage_metadata
+    if not usage:
+        return TokenUsage()
+    details = usage.get("input_token_details") or {}
+    return TokenUsage(
+        input_tokens=usage.get("input_tokens", 0) or 0,
+        output_tokens=usage.get("output_tokens", 0) or 0,
+        cached_input_tokens=details.get("cache_read", 0) or 0,
+        reported=True,
+    )
 
 
 def _content(message: AIMessage) -> str:

@@ -1,9 +1,4 @@
-import {
-  ApiRequestError,
-  errorCode,
-  type SimulatorReply,
-  type SimulatorState,
-} from "@followup/api-client-inmo24x7";
+import { apiError, type SimulatorReply, type SimulatorState } from "@followup/api-client-inmo24x7";
 
 import { apiClient } from "./client";
 
@@ -17,7 +12,7 @@ export async function fetchTenantSimulator(tenantId: string): Promise<SimulatorS
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function sendTenantSimulatorMessage(
@@ -32,7 +27,7 @@ export async function sendTenantSimulatorMessage(
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }
 
 export async function resetTenantSimulator(tenantId: string): Promise<SimulatorState> {
@@ -43,5 +38,5 @@ export async function resetTenantSimulator(tenantId: string): Promise<SimulatorS
   if (data) {
     return data;
   }
-  throw new ApiRequestError(response.status, errorCode(error));
+  throw apiError(response, error);
 }

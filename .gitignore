@@ -34,3 +34,4 @@ caddy-rehearsal-root.crt
 # Supabase CLI local state
 supabase/.branches/
 supabase/.temp/
+.dev-logs/

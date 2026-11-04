@@ -1,0 +1,73 @@
+// Production: ship the Docker logs of inmo24x7's containers to Loki.
+//
+// Labels stay few (service, environment, level) so Loki's index stays small; request_id,
+// tenant_id, job_id and job_kind are JSON fields of each line, queried with `| json`.
+// The Docker socket is mounted read-only; Alloy only lists containers and reads their logs.
+
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "15s"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT")]
+	}
+}
+
+discovery.relabel "containers" {
+	targets = []
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		regex         = "api|worker|web|backoffice|caddy"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+}
+
+loki.source.docker "containers" {
+	host          = "unix:///var/run/docker.sock"
+	targets       = discovery.docker.containers.targets
+	relabel_rules = discovery.relabel.containers.rules
+	forward_to    = [loki.process.app.receiver]
+}
+
+loki.process "app" {
+	// The API's own Docker healthcheck every 10 s: noise, not traffic.
+	stage.drop {
+		expression = "\"message\": \"request_completed\".*\"path\": \"/health/"
+	}
+
+	stage.static_labels {
+		values = {
+			environment = sys.env("APP_ENV"),
+		}
+	}
+
+	// api and worker write "INFO"/"WARNING"/"ERROR"; Caddy writes "info"/"error"; nginx lines
+	// are not JSON and count as info.
+	stage.json {
+		expressions = {level = "level"}
+	}
+
+	stage.template {
+		source   = "level"
+		template = "{{ if .Value }}{{ ToLower .Value }}{{ else }}info{{ end }}"
+	}
+
+	stage.labels {
+		values = {level = ""}
+	}
+
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

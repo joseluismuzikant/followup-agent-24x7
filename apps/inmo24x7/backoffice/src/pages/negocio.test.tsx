@@ -7,16 +7,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchBusiness,
+  fetchErrors,
+  fetchSystemHealth,
+  fetchTenantUsage,
   reactivateBusiness,
   retrySignup,
   sendReconnectLink,
   suspendBusiness,
 } from "../api/backoffice";
-import { businessDetail } from "../test-fixtures";
+import {
+  businessDetail,
+  errorList,
+  sentryIssue,
+  systemHealth,
+  tenantUsage,
+  usageFigures,
+} from "../test-fixtures";
 import { NegocioPage } from "./negocio";
 
 vi.mock("../api/backoffice", () => ({
   fetchBusiness: vi.fn(),
+  fetchErrors: vi.fn(),
+  fetchSystemHealth: vi.fn(),
+  fetchTenantUsage: vi.fn(),
   suspendBusiness: vi.fn(),
   reactivateBusiness: vi.fn(),
   sendReconnectLink: vi.fn(),
@@ -47,6 +60,56 @@ describe("Detalle del negocio (S9)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchBusiness).mockResolvedValue(businessDetail());
+    vi.mocked(fetchErrors).mockResolvedValue(errorList({ issues: [] }));
+    vi.mocked(fetchSystemHealth).mockResolvedValue(systemHealth());
+    vi.mocked(fetchTenantUsage).mockResolvedValue(tenantUsage());
+  });
+
+  it("shows this business's errors, its logs link and this month's consumption", async () => {
+    vi.mocked(fetchErrors).mockResolvedValue(
+      errorList({
+        issues: Array.from({ length: 6 }, (_, index) =>
+          sentryIssue({ id: String(index), title: `Error ${index}` }),
+        ),
+      }),
+    );
+    vi.mocked(fetchSystemHealth).mockResolvedValue(
+      systemHealth({
+        links: {
+          grafana_url: "https://grafana.example.com",
+          loki_datasource: "loki",
+          sentry_issues_url: "https://acme.sentry.io/issues/",
+        },
+      }),
+    );
+    vi.mocked(fetchTenantUsage).mockResolvedValue(
+      tenantUsage({ business: { ...tenantUsage().business, figures: usageFigures({ unpriced_calls: 2 }) } }),
+    );
+    renderPage();
+
+    expect(await screen.findByText("Errores de este negocio (7 días) · 6")).toBeTruthy();
+    expect(screen.getByText("Error 4")).toBeTruthy();
+    expect(screen.queryByText("Error 5")).toBeNull();
+    const id = businessDetail().id;
+    expect(fetchErrors).toHaveBeenCalledWith({ period: "7d", tenantId: id, limit: 25 });
+    const logs = screen.getByRole("link", { name: "Ver logs" }).getAttribute("href") ?? "";
+    expect(logs.startsWith("https://grafana.example.com/explore?")).toBe(true);
+    expect(decodeURIComponent(logs)).toContain(`| json | tenant_id=\\"${id}\\"`);
+
+    expect(await screen.findByText("Consumo este mes")).toBeTruthy();
+    expect(screen.getByText(/Costo del LLM/).textContent).toContain("0,49");
+    expect(screen.getByText("sin precio")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Ver el detalle" }).getAttribute("href")).toMatch(
+      new RegExp(`^/consumo\\?negocio=${id}&mes=\\d{4}-\\d{2}$`),
+    );
+  });
+
+  it("hides the logs link without Grafana and explains an unconfigured Sentry", async () => {
+    vi.mocked(fetchErrors).mockResolvedValue(errorList({ configured: false, available: false, issues: [] }));
+    renderPage();
+
+    expect(await screen.findByText(/Sentry no está configurado/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Ver logs" })).toBeNull();
   });
 
   it("shows the WhatsApp diagnosis with the masked WABA and the Meta code", async () => {

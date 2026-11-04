@@ -81,14 +81,30 @@ jobs:
         working-directory: deploy
         run: |
           IMAGE_TAG=sha-0000000 ENV_FILE=.env.production.example docker compose \
-            --env-file .env.production.example -f compose.prod.yml --profile tools config --quiet
-      - name: Caddyfile
+            --env-file .env.production.example -f compose.prod.yml \
+            --profile tools --profile observability config --quiet
+      - name: Caddyfile (with and without Grafana)
         run: |
-          docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            -e APP_DOMAIN=app.example.com -e ADMIN_DOMAIN=admin.example.com \
-            -e API_DOMAIN=api.example.com -e ACME_EMAIL=ops@example.com \
-            -e SUPABASE_URL=https://ref.supabase.co \
-            caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          for site in grafana no-grafana; do
+            docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+              -v "$PWD/deploy/caddy/$site.caddy:/etc/caddy/grafana.caddy:ro" \
+              -e APP_DOMAIN=app.example.com -e ADMIN_DOMAIN=admin.example.com \
+              -e API_DOMAIN=api.example.com -e ACME_EMAIL=ops@example.com \
+              -e SUPABASE_URL=https://ref.supabase.co \
+              -e SENTRY_INGEST_HOST=https://o1.ingest.us.sentry.io \
+              -e GRAFANA_DOMAIN=grafana.example.com -e "GRAFANA_ALLOWED_IPS=0.0.0.0/0 ::/0" \
+              caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          done
+      - name: Loki and Alloy configs
+        working-directory: deploy/observability
+        run: |
+          docker run --rm -v "$PWD/loki/config.yaml:/etc/loki/config.yaml:ro" grafana/loki:3.7.9 \
+            -config.file=/etc/loki/config.yaml -config.expand-env=true -verify-config
+          for config in config.alloy config.local.alloy; do
+            docker run --rm -e COMPOSE_PROJECT=inmo24x7 -e APP_ENV=production \
+              -v "$PWD/alloy/$config:/etc/alloy/$config:ro" grafana/alloy:v1.21.3 \
+              validate "/etc/alloy/$config"
+          done
 
   images:
     if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
@@ -105,10 +121,15 @@ jobs:
         include:
           - image: inmo24x7-api
             dockerfile: apps/inmo24x7/api/Dockerfile
+          # Each panel has its own Sentry project and DSN (optional; docs/go-live.md).
           - image: inmo24x7-web
             dockerfile: apps/inmo24x7/web/Dockerfile
+            sentry_dsn_var: SENTRY_DSN_PANEL
+            sentry_project_var: SENTRY_PROJECT_PANEL
           - image: inmo24x7-backoffice
             dockerfile: apps/inmo24x7/backoffice/Dockerfile
+            sentry_dsn_var: SENTRY_DSN_BACKOFFICE
+            sentry_project_var: SENTRY_PROJECT_BACKOFFICE
     env:
       INMO24X7_API_URL: ${{ vars.INMO24X7_API_URL }}
       INMO24X7_PANEL_URL: ${{ vars.INMO24X7_PANEL_URL }}
@@ -161,5 +182,12 @@ jobs:
             VITE_PANEL_URL=${{ env.INMO24X7_PANEL_URL }}
             VITE_META_APP_ID=${{ env.META_APP_ID }}
             VITE_META_EMBEDDED_SIGNUP_CONFIG_ID=${{ env.META_EMBEDDED_SIGNUP_CONFIG_ID }}
+            VITE_SENTRY_DSN=${{ matrix.sentry_dsn_var && vars[matrix.sentry_dsn_var] || '' }}
+            SENTRY_ORG=${{ vars.SENTRY_ORG }}
+            SENTRY_PROJECT=${{ matrix.sentry_project_var && vars[matrix.sentry_project_var] || '' }}
+          # Source maps are uploaded to Sentry only when this secret exists (then deleted from
+          # the image). A BuildKit secret never lands in a layer.
+          secrets: |
+            sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
