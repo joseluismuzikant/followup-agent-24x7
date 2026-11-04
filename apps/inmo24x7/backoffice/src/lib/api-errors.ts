@@ -18,6 +18,13 @@ const messages: Record<string, string> = {
   tenant_slug_invalid: "El nombre del negocio no es válido.",
   tenant_slug_taken: "Ya existe un negocio con ese nombre.",
   validation_error: "Revisá los datos ingresados.",
+  owner_email_taken: "Ese email ya tiene una cuenta o ya tiene un negocio esperándolo.",
+  business_type_invalid: "Elegí un tipo de negocio válido.",
+  suspension_reason_invalid: "Escribí el motivo de la suspensión (hasta 500 caracteres).",
+  whatsapp_signup_restart:
+    "No hay una conexión con Meta a medio terminar para reintentar: el cliente tiene que volver a conectar.",
+  whatsapp_signup_failed: "Meta rechazó un paso de la configuración.",
+  tenant_has_no_owner: "Este negocio todavía no tiene dueño a quien mandarle el link.",
 };
 
 export function apiErrorMessage(error: unknown, fallback: string): string {

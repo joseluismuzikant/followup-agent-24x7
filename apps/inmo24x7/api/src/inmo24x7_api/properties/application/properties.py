@@ -6,6 +6,13 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from followup_core.conversation.application.threads import Clock, utc_now
+from followup_core.tenancy.domain.audit import (
+    ActorKind,
+    AuditAction,
+    AuditEvent,
+    AuditLog,
+    NoAuditLog,
+)
 
 from ..domain.errors import (
     ImportNotFoundError,
@@ -119,11 +126,13 @@ class ImportProperties:
         imports: PropertyImportRepository,
         reader: SpreadsheetReader,
         clock: Clock = utc_now,
+        audit: AuditLog | None = None,
     ) -> None:
         self._properties = properties
         self._imports = imports
         self._reader = reader
         self._clock = clock
+        self._audit = audit or NoAuditLog()
 
     def execute(
         self,
@@ -168,6 +177,21 @@ class ImportProperties:
             created_at=now,
         )
         self._imports.add(record)
+        self._audit.record(
+            AuditEvent(
+                tenant_id,
+                now,
+                ActorKind.USER,
+                AuditAction.PROPERTIES_IMPORTED,
+                {
+                    "import_id": str(record.id),
+                    "created": created,
+                    "updated": updated,
+                    "failed": len(failed),
+                },
+                actor_profile_id=profile_id,
+            )
+        )
         return record
 
     def _upsert(self, tenant_id: UUID, fields: PropertyFields, now: datetime) -> bool:

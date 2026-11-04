@@ -10,12 +10,17 @@ import {
   Input,
 } from "@followup/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router";
 
 import { fetchMe } from "../api/me";
 import { fetchTenantSettings, saveTenantSettings } from "../api/tenant-settings";
+import { fetchWhatsAppStatus } from "../api/whatsapp";
 import { NotificationEmailsField } from "../components/NotificationEmailsField";
 import { TeamHoursField } from "../components/TeamHoursField";
+import { WhatsAppStatusCard } from "../components/WhatsAppStatusCard";
+import { ConnectionErrorBanner } from "../components/whatsapp/ConnectionErrorBanner";
+import { ConnectWhatsApp } from "../components/whatsapp/ConnectWhatsApp";
 import { apiErrorMessage } from "../lib/api-errors";
 import { useAuth } from "../lib/auth";
 import { businessTypes, canEditSetup, parseEmails, trialDaysLeft } from "../lib/setup";
@@ -36,6 +41,7 @@ export function ConfiguracionPage() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
+      <WhatsAppSection canConnect={canEditSetup(profile.role)} />
       <SettingsForm
         key={JSON.stringify(settingsQuery.data)}
         settings={settingsQuery.data}
@@ -176,6 +182,49 @@ function SettingsForm({
             </Button>
           )}
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+/** Configuración → WhatsApp (the reconnect email links to #whatsapp). */
+function WhatsAppSection({ canConnect }: { canConnect: boolean }) {
+  const location = useLocation();
+  const statusQuery = useQuery({
+    queryKey: ["whatsapp"],
+    queryFn: fetchWhatsAppStatus,
+    retry: false,
+  });
+  const status = statusQuery.data;
+
+  useEffect(() => {
+    if (location.hash === "#whatsapp" && status) {
+      document.getElementById("whatsapp")?.scrollIntoView?.({ block: "start" });
+    }
+  }, [location.hash, status]);
+
+  return (
+    <Card id="whatsapp">
+      <CardHeader>
+        <CardTitle>WhatsApp</CardTitle>
+        <CardDescription>El número por el que tu agente responde a los interesados.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {canConnect ? (
+          <ConnectWhatsApp status={status} />
+        ) : status ? (
+          <div className="flex flex-col gap-4">
+            <ConnectionErrorBanner status={status} />
+            {status.status === "not_connected" ? (
+              <p className="text-sm text-muted-foreground">
+                Todavía no hay un número conectado. Pedile al dueño de la cuenta que lo conecte.
+              </p>
+            ) : (
+              <WhatsAppStatusCard status={status} />
+            )}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

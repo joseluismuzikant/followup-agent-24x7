@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -19,7 +20,7 @@ _HTTP_CODES = {
 
 
 def error_response(
-    status_code: int, code: str, details: dict[str, str] | None = None
+    status_code: int, code: str, details: Mapping[str, object] | None = None
 ) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={"code": code, **(details or {})})
 

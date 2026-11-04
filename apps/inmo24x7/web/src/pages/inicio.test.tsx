@@ -9,7 +9,7 @@ import { fetchDashboard } from "../api/dashboard";
 import { fetchOnboarding } from "../api/onboarding";
 import { fetchWhatsAppStatus } from "../api/whatsapp";
 import { isOnboardingDeferred, deferOnboarding } from "../lib/onboarding-deferred";
-import { onboardingState } from "../test-fixtures";
+import { onboardingState, whatsappStatus } from "../test-fixtures";
 import { InicioPage } from "./inicio";
 
 vi.mock("../api/onboarding", () => ({ fetchOnboarding: vi.fn() }));
@@ -101,6 +101,29 @@ describe("Inicio setup checklist", () => {
     renderInicio();
 
     expect(await screen.findByText("Agente activo · +54 9 11 5555-0100")).toBeTruthy();
+  });
+
+  it("shows a red banner with the translated error while WhatsApp fails", async () => {
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("done"));
+    vi.mocked(fetchWhatsAppStatus).mockResolvedValue(
+      whatsappStatus({
+        status: "error",
+        error: {
+          code: "token_revoked",
+          title: "El permiso de Meta venció",
+          message: "Tu agente no puede responder en WhatsApp.",
+          action: "Tocá Volver a conectar.",
+        },
+      }),
+    );
+    renderInicio();
+
+    const banner = await screen.findByRole("alert");
+    expect(banner.textContent).toContain("El permiso de Meta venció");
+    expect(screen.getByRole("link", { name: "Volver a conectar" }).getAttribute("href")).toBe(
+      "/configuracion#whatsapp",
+    );
+    expect(screen.queryByText(/Agente activo/)).toBeNull();
   });
 
   it("hides the badge when WhatsApp is not connected", async () => {

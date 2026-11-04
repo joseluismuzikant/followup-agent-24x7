@@ -12,10 +12,11 @@ import threading
 from datetime import UTC, datetime
 from types import FrameType
 
+from followup_core.messaging.application.health import health_sweep_job
 from followup_core.messaging.application.pipeline import purge_job
 from followup_core.scheduling.infrastructure.queue import JobRunner, SqlAlchemyJobQueue
 
-from .config import get_settings
+from .config import ConfigurationError, Settings, get_settings
 from .container import (
     get_language_model,
     get_messaging_services,
@@ -40,9 +41,13 @@ def build_runner() -> JobRunner:
 
 
 def schedule_housekeeping() -> None:
-    """Daily jobs; the dedupe key makes every worker start agree on one per day."""
+    """Recurring jobs (daily purge, 6-hourly WhatsApp health); the dedupe keys make every
+    worker start agree on one per period. Each run schedules the next one."""
+    now = datetime.now(UTC)
     with SessionLocal() as session:
-        SqlAlchemyJobQueue(session).enqueue(purge_job(datetime.now(UTC)))
+        queue = SqlAlchemyJobQueue(session)
+        queue.enqueue(purge_job(now))
+        queue.enqueue(health_sweep_job(now))
         session.commit()
 
 
@@ -57,9 +62,21 @@ def work(runner: JobRunner, stop: threading.Event) -> None:
             stop.wait(5)
 
 
+def check_pool(settings: Settings) -> None:
+    """Each job thread holds a connection, plus one for claiming and housekeeping."""
+    needed = settings.worker_concurrency + 1
+    if settings.db_pool_size + settings.db_max_overflow < needed:
+        raise ConfigurationError(
+            f"The worker needs DB_POOL_SIZE + DB_MAX_OVERFLOW >= WORKER_CONCURRENCY + 1 ({needed})."
+        )
+
+
 def main() -> int:
     configure_logging()
     settings = get_settings()
+    check_pool(settings)
+    if settings.rehearsal:
+        logger.warning("rehearsal_mode", extra={"detail": "Fake model and log sender."})
     stop = threading.Event()
 
     def request_stop(signum: int, _frame: FrameType | None) -> None:

@@ -4,19 +4,27 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from followup_core.conversation.application.threads import utc_now
 from followup_core.tenancy.infrastructure.router import build_tenancy_router
 
 from .agent_setup import build_agent_setup_router
 from .auth import require_platform_admin
+from .backoffice.router import build_backoffice_router
 from .config import get_settings
 from .container import (
     advance_onboarding_use_case,
+    audit_log,
+    backoffice_queries,
+    create_business_use_case,
     create_property_use_case,
     create_tenant_use_case,
     delivery_statuses,
+    embedded_signup_use_case,
     export_leads_use_case,
     get_agent_setup_use_case,
+    get_business_use_case,
     get_dashboard_use_case,
+    get_email_confirmation,
     get_language_model,
     get_lead_use_case,
     get_onboarding_use_case,
@@ -33,18 +41,23 @@ from .container import (
     ingest_webhook_use_case,
     lead_actions,
     list_agent_versions_use_case,
+    list_businesses_use_case,
     list_leads_use_case,
     list_properties_use_case,
     list_tenants_use_case,
     manage_connection_use_case,
+    reconnect_link_use_case,
     reset_simulator_use_case,
     save_agent_setup_use_case,
     save_connection_use_case,
     send_simulator_message_use_case,
     set_property_status_use_case,
     sign_up_use_case,
+    signup_state,
+    tenant_suspension_use_case,
     update_property_use_case,
     update_tenant_settings_use_case,
+    webhook_counters,
 )
 from .dashboard.router import build_dashboard_router
 from .database import get_session
@@ -99,6 +112,8 @@ def create_app() -> FastAPI:
         build_me_router(
             sign_up_use_case,
             get_tenant_use_case,
+            settings.support_email,
+            get_email_confirmation,
         )
     )
     application.include_router(
@@ -147,10 +162,29 @@ def create_app() -> FastAPI:
         )
     )
     application.include_router(build_dashboard_router(get_dashboard_use_case))
-    application.include_router(build_webhook_router(ingest_webhook_use_case, get_webhook_secrets))
+    application.include_router(
+        build_webhook_router(ingest_webhook_use_case, get_webhook_secrets, webhook_counters)
+    )
     application.include_router(
         build_whatsapp_router(
-            save_connection_use_case, manage_connection_use_case, get_tenant_use_case
+            save_connection_use_case,
+            manage_connection_use_case,
+            get_tenant_use_case,
+            embedded_signup_use_case,
+            signup_state,
+            audit_log,
+            reconnect_link_use_case,
+        )
+    )
+    application.include_router(
+        build_backoffice_router(
+            list_businesses_use_case,
+            get_business_use_case,
+            create_business_use_case,
+            tenant_suspension_use_case,
+            backoffice_queries,
+            (settings.version, settings.commit),
+            utc_now,
         )
     )
     application.include_router(
@@ -161,6 +195,11 @@ def create_app() -> FastAPI:
         dependencies=[Depends(require_platform_admin)],
     )
 
+    if settings.rehearsal:
+        logger.warning(
+            "rehearsal_mode",
+            extra={"detail": "Local production rehearsal: fake model and log sender."},
+        )
     logger.info(
         "application_configured",
         extra={"app_env": settings.app_env, "version": settings.version},

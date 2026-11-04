@@ -24,6 +24,8 @@ TABLES = (
     "visits",
     "conversation_messages",
     "whatsapp_outbound",
+    "audit_events",
+    "tenant_owner_claims",
 )
 
 
@@ -44,9 +46,11 @@ def test_seed_creates_the_dev_accounts_and_running_it_twice_changes_nothing(db_s
     seed_dev.seed(db_session)
 
     assert _snapshot(db_session) == first
-    assert first["tenants"] == 2 and first["profiles"] == 2
-    assert first["properties"] == 20 and first["property_imports"] == 1
-    assert first["whatsapp_connections"] == 1
+    # Plataforma, Inmobiliaria Sur and the five S8 businesses (one waits for its owner).
+    assert first["tenants"] == 7 and first["profiles"] == 6
+    assert first["properties"] == 60 and first["property_imports"] == 3
+    assert first["whatsapp_connections"] == 3
+    assert first["tenant_owner_claims"] == 1
     admin = db_session.execute(
         text("SELECT id, is_platform_admin FROM profiles WHERE email = 'admin@local.test'")
     ).one()
@@ -146,3 +150,38 @@ def test_the_seed_refuses_production(monkeypatch, capsys) -> None:
 
     assert seed_dev.main([]) == 2
     assert "APP_ENV=production" in capsys.readouterr().err
+
+
+def test_the_seed_gives_the_backoffice_one_business_per_state(db_session) -> None:
+    from datetime import UTC, datetime
+
+    from inmo24x7_api.backoffice.domain.rules import needs_help, whatsapp_badge
+    from inmo24x7_api.backoffice.infrastructure.queries import SqlAlchemyBackofficeQueries
+
+    seed_dev.seed(db_session)
+    now = datetime.now(UTC)
+    rows = {row.name: row for row in SqlAlchemyBackofficeQueries(db_session).tenants(now)}
+
+    def badge(name: str) -> str:
+        return whatsapp_badge(rows[name].whatsapp_status, rows[name].business_verification).value
+
+    assert badge("Inmobiliaria Sur") == "connected"
+    assert badge("Palermo Propiedades") == "verification_pending"
+    assert badge("Caballito Inmuebles") == "action_required"
+    assert badge("Belgrano Hogar") == "not_connected"
+    assert rows["Belgrano Hogar"].onboarding.done == 2
+    assert needs_help(rows["Belgrano Hogar"], now) and needs_help(rows["Caballito Inmuebles"], now)
+    assert rows["Norte Bienes Raíces"].suspended
+    assert rows["Villa Urquiza Propiedades"].owner_pending
+    failing = db_session.execute(
+        text(
+            "SELECT w.last_error_code, w.failing_since < now() - interval '25 hours' "
+            "FROM whatsapp_connections w JOIN tenants t ON t.id = w.tenant_id "
+            "WHERE t.name = 'Caballito Inmuebles'"
+        )
+    ).one()
+    assert tuple(failing) == ("190", True)
+    actions = {
+        row.action for row in db_session.execute(text("SELECT DISTINCT action FROM audit_events"))
+    }
+    assert {"sign_up", "whatsapp_error", "tenant_suspended", "tenant_created_by_admin"} <= actions

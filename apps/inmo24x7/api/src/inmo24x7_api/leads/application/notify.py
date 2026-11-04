@@ -8,6 +8,7 @@ keys), to the tenant's notification emails:
 
 import html
 import logging
+from collections.abc import Callable
 from datetime import timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -66,14 +67,18 @@ class SendLeadEmail:
         settings: BusinessSettingsRepository,
         sender: EmailSender,
         panel_url: str,
+        is_active: Callable[[UUID], bool] = lambda _tenant_id: True,
     ) -> None:
         self._get_lead = get_lead
         self._settings = settings
         self._sender = sender
         self._panel_url = panel_url.rstrip("/")
+        self._is_active = is_active
 
     def __call__(self, job: Job) -> None:
         tenant_id = UUID(job.payload["tenant_id"])
+        if not self._is_active(tenant_id):
+            return  # a suspended business gets no emails
         detail = self._get_lead.execute(tenant_id, UUID(job.payload["lead_id"]))
         lead = detail.lead
         if lead.is_test:

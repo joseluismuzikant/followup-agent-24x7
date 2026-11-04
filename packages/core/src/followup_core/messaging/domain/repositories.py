@@ -17,6 +17,12 @@ class ConnectionRepository(Protocol):
 
     def mark_inbound(self, connection_id: UUID, at: datetime) -> None: ...
 
+    def get_by_waba_id(self, waba_id: str) -> WhatsAppConnection | None: ...
+
+    def cloud_connections(self) -> Sequence[WhatsAppConnection]:
+        """Connections that talk to Meta (the health check reads them)."""
+        ...
+
 
 class InboundEventRepository(Protocol):
     def add(self, event: InboundEvent, payload: Mapping[str, Any] | None) -> bool:
@@ -44,6 +50,14 @@ class OutboundRepository(Protocol):
     def mark_sent(self, part_id: UUID, wamid: str, at: datetime) -> None: ...
 
     def mark_failed(self, part_id: UUID, code: str, at: datetime) -> None: ...
+
+    def mark_waiting(self, part_ids: Sequence[UUID], code: str, at: datetime) -> None: ...
+
+    def waiting_messages(self, tenant_id: UUID) -> Sequence[UUID]:
+        """Messages with parts waiting for the connection, in conversation order."""
+        ...
+
+    def requeue(self, message_ids: Sequence[UUID], at: datetime) -> None: ...
 
     def apply_status(
         self, wamid: str, status: DeliveryStatus, error_code: str | None, at: datetime

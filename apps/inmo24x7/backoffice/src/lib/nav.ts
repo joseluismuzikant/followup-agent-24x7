@@ -3,12 +3,17 @@ import type { PanelNavItem } from "@followup/ui";
 const items = [
   { label: "Negocios", href: "/" },
   { label: "Simulador", href: "/simulador" },
+  { label: "Salud del sistema", href: "/sistema" },
+  { label: "Planes", href: "/planes" },
 ];
 
 export function navItems(pathname: string): PanelNavItem[] {
   return items.map((item) => ({
     ...item,
-    active: item.href === "/" ? pathname === "/" : pathname.startsWith(item.href),
+    active:
+      item.href === "/"
+        ? pathname === "/" || pathname.startsWith("/negocios")
+        : pathname.startsWith(item.href),
   }));
 }
 

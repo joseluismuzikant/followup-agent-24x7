@@ -104,6 +104,50 @@ def parse_webhook(
     return messages, statuses
 
 
+@dataclass(frozen=True, slots=True)
+class AccountUpdate:
+    """An `account_update` event for one WABA (no personal data)."""
+
+    waba_id: str
+    event: str
+    ban_state: str | None = None  # DISABLED_UPDATE: SCHEDULE_FOR_DISABLE | DISABLE | REINSTATE
+    certification_status: str | None = None  # business verification: APPROVED | FAILED | ...
+
+
+def parse_account_updates(payload: Mapping[str, Any]) -> list[AccountUpdate]:
+    """`account_update` changes. For partner events `waba_info.waba_id` is the account; the
+    entry id is the WABA otherwise."""
+    updates: list[AccountUpdate] = []
+    if payload.get("object") != "whatsapp_business_account":
+        return updates
+    for entry in payload.get("entry") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        for change in entry.get("changes") or []:
+            if not isinstance(change, Mapping) or change.get("field") != "account_update":
+                continue
+            value = change.get("value")
+            if not isinstance(value, Mapping) or not value.get("event"):
+                continue
+            waba_info = value.get("waba_info") or {}
+            waba_id = str(waba_info.get("waba_id") or entry.get("id") or "")
+            if not waba_id:
+                continue
+            ban = value.get("ban_info") or {}
+            certification = value.get("partner_client_certification_info") or {}
+            updates.append(
+                AccountUpdate(
+                    waba_id=waba_id,
+                    event=str(value["event"]),
+                    ban_state=str(ban["waba_ban_state"]) if ban.get("waba_ban_state") else None,
+                    certification_status=(
+                        str(certification["status"]) if certification.get("status") else None
+                    ),
+                )
+            )
+    return updates
+
+
 def _values(payload: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
     if payload.get("object") != "whatsapp_business_account":
         return

@@ -4,7 +4,10 @@
     uv run --all-packages python scripts/seed_dev.py --reset    # drop everything, migrate, seed
 
 Everything goes through the real use cases (sign-up, agent setup, onboarding, property
-import), so the seed stays valid as the domain changes. The inbox and the dashboard get about
+import, suspension, the WhatsApp health rules), so the seed stays valid as the domain changes.
+The backoffice gets one business in each state S8 shows: trial with WhatsApp (verification
+pending), onboarding 2 de 5 for three days, WhatsApp in error with Meta's code 190, suspended,
+and one created by an admin whose owner has not signed up yet. The inbox and the dashboard get about
 eight WhatsApp leads, created by the real pipeline (signed webhook payloads, worker handlers,
 the fake model and the log sender) on a clock set to this week and last week. Refuses to run
 with APP_ENV=production, and --reset only touches a database on localhost.
@@ -44,7 +47,26 @@ OWNER = DevAccount(
 )
 DEV_PHONE_NUMBER_ID = "dev-phone-1"
 NEW = DevAccount("nuevo@local.test", None, "sin cuenta: para probar el alta y el asistente")
-ACCOUNTS = (ADMIN, OWNER, NEW)
+PALERMO = DevAccount(
+    "duena@palermoprop.test",
+    "Palermo Propiedades",
+    "en prueba, WhatsApp conectado y verificación de Meta pendiente",
+)
+BELGRANO = DevAccount(
+    "dueno@belgranohogar.test", "Belgrano Hogar", "onboarding 2 de 5 desde hace 3 días"
+)
+CABALLITO = DevAccount(
+    "duena@caballitoinmuebles.test",
+    "Caballito Inmuebles",
+    "WhatsApp con error de Meta 190 (permiso vencido)",
+)
+NORTE = DevAccount("dueno@nortebienes.test", "Norte Bienes Raíces", "cuenta suspendida")
+INVITED = DevAccount(
+    "invitada@villaurquiza.test",
+    "Villa Urquiza Propiedades",
+    "sin cuenta: un admin le dio de alta el negocio; al entrar queda como dueña",
+)
+ACCOUNTS = (ADMIN, OWNER, NEW, PALERMO, BELGRANO, CABALLITO, NORTE, INVITED)
 
 
 class SeedError(RuntimeError):
@@ -133,9 +155,15 @@ def _configure_owner(session: Session, tenant_id, profile_id) -> None:
     _connect_whatsapp(session, tenant_id)
 
 
-def _connect_whatsapp(session: Session, tenant_id) -> None:
+def _connect_whatsapp(
+    session: Session,
+    tenant_id,
+    phone_number_id: str = DEV_PHONE_NUMBER_ID,
+    display: str = "+54 9 11 5555-0100",
+) -> None:
     """A fake number with the log sender: scripts/simulate_whatsapp.py talks to it and
     nothing ever reaches Meta."""
+    from followup_core.identity.infrastructure.dev_verifier import dev_user_id
     from followup_core.messaging.application.connections import ConnectionDraft
     from followup_core.messaging.domain.connection import SenderKind
     from followup_core.messaging.infrastructure.repositories import (
@@ -148,12 +176,13 @@ def _connect_whatsapp(session: Session, tenant_id) -> None:
     save_connection_use_case(session, get_messaging_services()).execute(
         tenant_id,
         ConnectionDraft(
-            phone_number_id=DEV_PHONE_NUMBER_ID,
-            waba_id="dev-waba-1",
-            display_phone_number="+54 9 11 5555-0100",
+            phone_number_id=phone_number_id,
+            waba_id=f"dev-waba-{phone_number_id.rsplit('-', 1)[-1]}",
+            display_phone_number=display,
             access_token="dev-token-not-used-by-the-log-sender",
             sender=SenderKind.LOG,
         ),
+        dev_user_id(ADMIN.email),
     )
 
 
@@ -168,6 +197,115 @@ def seed(session: Session) -> None:
     _configure_owner(session, owner.tenant.id, owner.profile.id)
     session.commit()
     seed_inbox(session, owner.tenant.id, owner.profile.id)
+    seed_backoffice(session)
+
+
+# --- Backoffice (S8, S9) ----------------------------------------------------------------------
+
+
+def _save_default_agent(session: Session, tenant_id, profile_id) -> None:
+    from followup_core.tenancy.application.agent_setup import AgentConfigDraft, QuestionDraft
+    from inmo24x7_api.container import get_agent_setup_use_case, save_agent_setup_use_case
+
+    setup = get_agent_setup_use_case(session).execute(tenant_id)
+    defaults = setup.defaults
+    save_agent_setup_use_case(session).execute(
+        tenant_id=tenant_id,
+        profile_id=profile_id,
+        draft=AgentConfigDraft(
+            agent_name=defaults.agent_name,
+            tone=defaults.tone,
+            after_hours_mode=defaults.after_hours_mode,
+            qualification_questions=tuple(
+                QuestionDraft(q.key, q.label, q.kind, q.options, q.enabled)
+                for q in defaults.qualification_questions
+            ),
+        ),
+        team_hours=setup.team_hours,
+        notification_emails=setup.notification_emails,
+    )
+
+
+def seed_backoffice(session: Session) -> None:
+    """One business per S8 state, with its audit events. Running it again changes nothing."""
+    from followup_core.identity.infrastructure.dev_verifier import dev_user_id
+    from followup_core.messaging.domain.connection import BusinessVerification
+    from followup_core.messaging.infrastructure.repositories import (
+        SqlAlchemyConnectionRepository,
+    )
+    from followup_core.tenancy.domain.errors import OwnerEmailTakenError
+    from inmo24x7_api.container import (
+        connection_health,
+        create_business_use_case,
+        tenant_suspension_use_case,
+    )
+    from sqlalchemy import text
+
+    admin = dev_user_id(ADMIN.email)
+    connections = SqlAlchemyConnectionRepository(session)
+
+    # Trial, everything done, WhatsApp connected while Meta reviews the business.
+    palermo = _sign_up(session, PALERMO)
+    _configure_owner_without_inbox(session, palermo.tenant.id, palermo.profile.id, "dev-phone-2")
+    connection = connections.get_by_tenant(palermo.tenant.id)
+    if connection is not None and connection.business_verification is not (
+        BusinessVerification.PENDING
+    ):
+        connections.save(replace(connection, business_verification=BusinessVerification.PENDING))
+
+    # Onboarding 2 de 5 (account + agent), stuck for three days: "Necesitan ayuda".
+    belgrano = _sign_up(session, BELGRANO)
+    _save_default_agent(session, belgrano.tenant.id, belgrano.profile.id)
+    session.execute(
+        text("UPDATE tenants SET created_at = :at WHERE id = :id AND created_at > :at"),
+        {"at": datetime.now(UTC) - timedelta(days=3), "id": belgrano.tenant.id},
+    )
+
+    # WhatsApp in error: the customer removed the app's access (190) 26 hours ago.
+    caballito = _sign_up(session, CABALLITO)
+    _configure_owner_without_inbox(
+        session, caballito.tenant.id, caballito.profile.id, "dev-phone-3"
+    )
+    connection = connections.get_by_tenant(caballito.tenant.id)
+    if connection is not None and not connection.is_failing:
+        failed_at = datetime.now(UTC) - timedelta(hours=26)
+        connection_health(session, lambda: failed_at).failed(connection, "190")
+
+    # Suspended, with a reason only admins see.
+    norte = _sign_up(session, NORTE)
+    _save_default_agent(session, norte.tenant.id, norte.profile.id)
+    if not norte.tenant.is_suspended:
+        tenant_suspension_use_case(session).suspend(
+            admin, norte.tenant.id, "Pidió pausar el servicio hasta marzo."
+        )
+
+    # Created by an admin; the owner joins it when she signs up with this email.
+    try:
+        assert INVITED.business is not None
+        create_business_use_case(session).execute(
+            admin, INVITED.business, "inmobiliaria", INVITED.email
+        )
+    except OwnerEmailTakenError:
+        pass  # already created (or claimed) by a previous run
+    session.commit()
+
+
+def _configure_owner_without_inbox(session: Session, tenant_id, profile_id, phone: str) -> None:
+    """Agent saved, wizard finished, the sample properties and a log-sender number."""
+    from followup_core.tenancy.domain.onboarding import OnboardingStep
+    from inmo24x7_api.container import advance_onboarding_use_case, import_properties_use_case
+    from inmo24x7_api.properties.infrastructure.repositories import SqlAlchemyPropertyRepository
+
+    _save_default_agent(session, tenant_id, profile_id)
+    advance = advance_onboarding_use_case(session)
+    for step in (OnboardingStep.TRY, OnboardingStep.WHATSAPP, OnboardingStep.DONE):
+        advance.execute(tenant_id, step)
+    if not SqlAlchemyPropertyRepository(session).has_any(tenant_id):
+        import_properties_use_case(session).execute(
+            tenant_id, profile_id, SAMPLE_PROPERTIES.name, SAMPLE_PROPERTIES.read_bytes()
+        )
+    suffix = phone.rsplit("-", 1)[-1]
+    _connect_whatsapp(session, tenant_id, phone, f"+54 9 11 5555-010{suffix}")
 
 
 # --- Inbox and dashboard ----------------------------------------------------------------------

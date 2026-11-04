@@ -7,6 +7,8 @@ from followup_core.identity.domain.errors import InvalidTokenError
 from followup_core.identity.domain.profile import Profile, Role
 from followup_core.identity.domain.token_verifier import TokenVerifier, VerifiedToken
 from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
+from followup_core.tenancy.domain.tenant import TenantStatus
+from followup_core.tenancy.infrastructure.models import TenantModel
 from sqlalchemy.orm import Session
 
 from .container import get_token_verifier
@@ -30,13 +32,28 @@ def current_identity(credentials: BearerDep, verifier: VerifierDep) -> VerifiedT
         raise ApiError(401, "unauthorized") from error
 
 
-def current_profile(
+def current_profile_any_status(
     session: SessionDep,
     identity: Annotated[VerifiedToken, Depends(current_identity)],
 ) -> Profile:
+    """The signed-in profile, even when its business is suspended (only /me uses it, so the
+    panel can show the suspended screen)."""
     profile = SqlAlchemyProfileRepository(session).get_by_id(identity.user_id)
     if profile is None:
         raise ApiError(404, "profile_not_found")
+    return profile
+
+
+def current_profile(
+    session: SessionDep,
+    profile: Annotated[Profile, Depends(current_profile_any_status)],
+) -> Profile:
+    """Every tenant endpoint goes through here: a suspended business gets 403
+    tenant_suspended. Platform admins keep working (the backoffice must reach it)."""
+    if not profile.is_platform_admin:
+        status = session.get(TenantModel, profile.tenant_id)
+        if status is not None and status.status == TenantStatus.SUSPENDED.value:
+            raise ApiError(403, "tenant_suspended")
     return profile
 
 

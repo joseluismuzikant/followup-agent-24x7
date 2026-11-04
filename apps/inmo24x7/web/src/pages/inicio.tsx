@@ -22,6 +22,7 @@ import { fetchOnboarding } from "../api/onboarding";
 import { fetchWhatsAppStatus } from "../api/whatsapp";
 import { LeadStatusBadge } from "../components/inbox/LeadStatusBadge";
 import { SetupChecklist } from "../components/SetupChecklist";
+import { ConnectionErrorBanner } from "../components/whatsapp/ConnectionErrorBanner";
 import { apiErrorMessage } from "../lib/api-errors";
 import { age, formatDuration } from "../lib/leads";
 
@@ -61,6 +62,7 @@ export function InicioPage() {
           </Button>
         </div>
       </div>
+      <ConnectionErrorBanner status={whatsapp} />
       {onboardingQuery.data ? (
         <SetupChecklist
           checklist={onboardingQuery.data.checklist}

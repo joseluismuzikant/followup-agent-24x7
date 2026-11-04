@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, Uuid
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,31 @@ class TenantModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     trial_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    plan: Mapped[str] = mapped_column(String(10), nullable=False, default="trial")
+    suspended_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OwnerClaimModel(Base):
+    __tablename__ = "tenant_owner_claims"
+
+    email: Mapped[str] = mapped_column(String(320), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuditEventModel(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    actor_kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    actor_profile_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String(200), nullable=True, unique=True)
 
 
 class OnboardingModel(Base):

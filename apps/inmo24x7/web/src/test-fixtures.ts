@@ -4,6 +4,7 @@ import type {
   MeResponse,
   OnboardingState,
   SimulatorState,
+  WhatsAppStatus,
 } from "@followup/api-client-inmo24x7";
 
 export const defaultConfig: AgentConfig = {
@@ -69,7 +70,7 @@ export function onboardingState(
   };
 }
 
-export function me(role = "owner"): MeResponse {
+export function me(role = "owner", tenantStatus = "active"): MeResponse {
   return {
     profile: {
       id: "11111111-1111-1111-1111-111111111111",
@@ -83,10 +84,29 @@ export function me(role = "owner"): MeResponse {
       id: "22222222-2222-2222-2222-222222222222",
       name: "Inmobiliaria Sur",
       slug: "inmobiliaria-sur",
-      status: "active",
+      status: tenantStatus,
+      plan: "trial",
       trial_ends_at: "2099-01-01T00:00:00Z",
       created_at: "2026-10-28T12:00:00Z",
     },
+    support_email: "soporte@inmo24x7.test",
+  };
+}
+
+export function whatsappStatus(overrides: Partial<WhatsAppStatus> = {}): WhatsAppStatus {
+  return {
+    status: "not_connected",
+    display_phone_number: null,
+    verified_name: null,
+    last_inbound_at: null,
+    connected_at: null,
+    quality_rating: null,
+    business_verification: null,
+    failing_since: null,
+    error: null,
+    signup_step: null,
+    signup_error: null,
+    ...overrides,
   };
 }
 

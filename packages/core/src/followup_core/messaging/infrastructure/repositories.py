@@ -9,10 +9,22 @@ from sqlalchemy.orm import Session
 
 from followup_core.conversation.infrastructure.models import MessageModel, ThreadModel
 
-from ..domain.connection import ConnectionStatus, SenderKind, WhatsAppConnection
+from ..domain.connection import (
+    BusinessVerification,
+    ConnectionStatus,
+    SenderKind,
+    WhatsAppConnection,
+)
 from ..domain.events import EventStatus, InboundEvent
 from ..domain.outbound import DeliveryStatus, OutboundPart, advances
-from .models import WhatsAppConnectionModel, WhatsAppInboundEventModel, WhatsAppOutboundModel
+from ..domain.signup import Signup, SignupStep
+from .models import (
+    WebhookCounterModel,
+    WhatsAppConnectionModel,
+    WhatsAppInboundEventModel,
+    WhatsAppOutboundModel,
+    WhatsAppSignupModel,
+)
 
 
 def _connection(model: WhatsAppConnectionModel) -> WhatsAppConnection:
@@ -34,6 +46,12 @@ def _connection(model: WhatsAppConnectionModel) -> WhatsAppConnection:
         connected_at=model.connected_at,
         visit_template_name=model.visit_template_name,
         visit_template_language=model.visit_template_language,
+        business_id=model.business_id,
+        quality_rating=model.quality_rating,
+        name_status=model.name_status,
+        business_verification=BusinessVerification(model.business_verification),
+        failing_since=model.failing_since,
+        last_health_check_at=model.last_health_check_at,
     )
 
 
@@ -75,7 +93,30 @@ class SqlAlchemyConnectionRepository:
         model.last_inbound_at = connection.last_inbound_at
         model.connected_at = connection.connected_at
         model.updated_at = connection.updated_at
+        model.business_id = connection.business_id
+        model.quality_rating = connection.quality_rating
+        model.name_status = connection.name_status
+        model.business_verification = connection.business_verification.value
+        model.failing_since = connection.failing_since
+        model.last_health_check_at = connection.last_health_check_at
         self._session.flush()
+
+    def get_by_waba_id(self, waba_id: str) -> WhatsAppConnection | None:
+        model = self._session.scalar(
+            select(WhatsAppConnectionModel).where(WhatsAppConnectionModel.waba_id == waba_id)
+        )
+        return _connection(model) if model else None
+
+    def cloud_connections(self) -> Sequence[WhatsAppConnection]:
+        models = self._session.scalars(
+            select(WhatsAppConnectionModel)
+            .where(
+                WhatsAppConnectionModel.sender == SenderKind.CLOUD.value,
+                WhatsAppConnectionModel.status != ConnectionStatus.DISCONNECTED.value,
+            )
+            .order_by(WhatsAppConnectionModel.tenant_id)
+        )
+        return [_connection(model) for model in models]
 
     def mark_inbound(self, connection_id: UUID, at: datetime) -> None:
         self._session.execute(
@@ -227,6 +268,39 @@ class SqlAlchemyOutboundRepository:
             .values(status=DeliveryStatus.FAILED.value, error_code=code[:40], updated_at=at)
         )
 
+    def mark_waiting(self, part_ids: Sequence[UUID], code: str, at: datetime) -> None:
+        if part_ids:
+            self._session.execute(
+                update(WhatsAppOutboundModel)
+                .where(WhatsAppOutboundModel.id.in_(list(part_ids)))
+                .values(status=DeliveryStatus.WAITING.value, error_code=code[:40], updated_at=at)
+            )
+
+    def waiting_messages(self, tenant_id: UUID) -> Sequence[UUID]:
+        rows = self._session.execute(
+            select(WhatsAppOutboundModel.message_id, func.min(MessageModel.seq).label("seq"))
+            .join(MessageModel, MessageModel.id == WhatsAppOutboundModel.message_id)
+            .join(ThreadModel, ThreadModel.id == MessageModel.thread_id)
+            .where(
+                ThreadModel.tenant_id == tenant_id,
+                WhatsAppOutboundModel.status == DeliveryStatus.WAITING.value,
+            )
+            .group_by(WhatsAppOutboundModel.message_id)
+            .order_by("seq")
+        )
+        return [row.message_id for row in rows]
+
+    def requeue(self, message_ids: Sequence[UUID], at: datetime) -> None:
+        if message_ids:
+            self._session.execute(
+                update(WhatsAppOutboundModel)
+                .where(
+                    WhatsAppOutboundModel.message_id.in_(list(message_ids)),
+                    WhatsAppOutboundModel.status == DeliveryStatus.WAITING.value,
+                )
+                .values(status=DeliveryStatus.QUEUED.value, error_code=None, updated_at=at)
+            )
+
     def apply_status(
         self, wamid: str, status: DeliveryStatus, error_code: str | None, at: datetime
     ) -> bool:
@@ -272,3 +346,67 @@ class SqlAlchemyOutboundRepository:
         for message_id, status in rows:
             result.setdefault(message_id, []).append(DeliveryStatus(status))
         return result
+
+
+class SqlAlchemySignupRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get(self, tenant_id: UUID) -> Signup | None:
+        model = self._session.get(WhatsAppSignupModel, tenant_id)
+        if model is None:
+            return None
+        return Signup(
+            tenant_id=model.tenant_id,
+            waba_id=model.waba_id,
+            phone_number_id=model.phone_number_id,
+            business_id=model.business_id,
+            step=SignupStep(model.step),
+            pin_encrypted=model.pin_encrypted,
+            updated_at=model.updated_at,
+            token_encrypted=model.token_encrypted,
+            last_error_code=model.last_error_code,
+        )
+
+    def save(self, signup: Signup) -> None:
+        model = self._session.get(WhatsAppSignupModel, signup.tenant_id)
+        if model is None:
+            model = WhatsAppSignupModel(tenant_id=signup.tenant_id)
+            self._session.add(model)
+        model.waba_id = signup.waba_id
+        model.phone_number_id = signup.phone_number_id
+        model.business_id = signup.business_id
+        model.step = signup.step.value
+        model.token_encrypted = signup.token_encrypted
+        model.pin_encrypted = signup.pin_encrypted
+        model.last_error_code = signup.last_error_code
+        model.updated_at = signup.updated_at
+        self._session.flush()
+
+
+class SqlAlchemyWebhookCounters:
+    """Hourly request counts for Salud del sistema (received, signature_rejected)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def increment(self, kind: str, at: datetime) -> None:
+        hour = at.replace(minute=0, second=0, microsecond=0)
+        statement = insert(WebhookCounterModel).values(hour=hour, kind=kind, count=1)
+        self._session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["hour", "kind"],
+                set_={"count": WebhookCounterModel.count + 1},
+            )
+        )
+
+    def total(self, kind: str, since: datetime) -> int:
+        return int(
+            self._session.scalar(
+                select(func.coalesce(func.sum(WebhookCounterModel.count), 0)).where(
+                    WebhookCounterModel.kind == kind,
+                    WebhookCounterModel.hour >= since.replace(minute=0, second=0, microsecond=0),
+                )
+            )
+            or 0
+        )

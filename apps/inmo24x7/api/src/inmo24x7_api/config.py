@@ -4,6 +4,8 @@ from functools import lru_cache
 
 from followup_core.conversation.infrastructure.llm_providers import parse_model_spec
 from followup_core.messaging.infrastructure.crypto import TokenCipherError, parse_key
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 DEFAULT_DATABASE_URL = "postgresql+psycopg://followup:followup@localhost:5433/followup"
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://localhost:5174"
@@ -19,6 +21,12 @@ DEFAULT_GRAPH_BASE_URL = "https://graph.facebook.com"
 # The latest Graph API version when Day 5 was built (v26.0, July 2026).
 DEFAULT_GRAPH_API_VERSION = "v26.0"
 DEFAULT_PANEL_URL = "http://localhost:5173"
+DEFAULT_SUPPORT_EMAIL = "soporte@inmo24x7.local"
+DEFAULT_DB_POOL_SIZE = 5
+DEFAULT_DB_MAX_OVERFLOW = 2
+# Supabase's transaction pooler: no prepared statements or pipelining, which psycopg and the
+# LangGraph checkpointer use. The session pooler (5432) or the direct connection work.
+TRANSACTION_POOLER_PORT = 6543
 
 
 class ConfigurationError(RuntimeError):
@@ -37,6 +45,12 @@ class Settings:
     supabase_jwt_secret: str
     supabase_jwks_url: str
     auth_mode: str = "supabase"
+    # The public (anon / publishable) key: the API asks Supabase Auth whether an email is
+    # confirmed before a sign-up joins a business an admin created for it.
+    supabase_anon_key: str = ""
+    # Where the API itself reaches Supabase Auth, when that differs from SUPABASE_URL (the
+    # token issuer the browser uses). Only the local rehearsal needs it; empty = SUPABASE_URL.
+    supabase_server_url: str = ""
     llm_model: str = ""
     llm_api_key: str = ""
     llm_base_url: str = ""
@@ -70,6 +84,16 @@ class Settings:
     smtp_starttls: bool = False
     email_from: str = "inmo24x7 <avisos@inmo24x7.local>"
     panel_url: str = DEFAULT_PANEL_URL
+    # Embedded Signup (the app id is public; the config id comes from Facebook Login for
+    # Business). Empty in development: customers then connect through the backoffice form.
+    meta_app_id: str = ""
+    meta_embedded_signup_config_id: str = ""
+    support_email: str = DEFAULT_SUPPORT_EMAIL
+    db_pool_size: int = DEFAULT_DB_POOL_SIZE
+    db_max_overflow: int = DEFAULT_DB_MAX_OVERFLOW
+    # The local production rehearsal (deploy/rehearsal): APP_ENV=production with the fake
+    # model and the log sender. Never set on a real server.
+    rehearsal: bool = False
 
     @property
     def is_production(self) -> bool:
@@ -103,11 +127,12 @@ def _flag(name: str, default: bool) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def _llm_settings(production: bool) -> tuple[str, str]:
-    """LLM_MODEL and the API key of its provider. Empty model = fake LLM (development only)."""
+def _llm_settings(production: bool, rehearsal: bool = False) -> tuple[str, str]:
+    """LLM_MODEL and the API key of its provider. Empty model = fake LLM (development and
+    the rehearsal only)."""
     model = os.getenv("LLM_MODEL", "").strip()
     if not model:
-        if production:
+        if production and not rehearsal:
             raise ConfigurationError("LLM_MODEL must be set when APP_ENV=production.")
         return "", ""
     try:
@@ -145,7 +170,7 @@ def _encryption_key(production: bool) -> str:
     return value
 
 
-def _messaging_settings(production: bool) -> dict[str, object]:
+def _messaging_settings(production: bool, rehearsal: bool = False) -> dict[str, object]:
     def setting(name: str, dev_default: str) -> str:
         value = os.getenv(name, "").strip()
         if production and (not value or value == dev_default):
@@ -155,7 +180,7 @@ def _messaging_settings(production: bool) -> dict[str, object]:
     sender = os.getenv("WHATSAPP_SENDER", "").strip().lower() or ("cloud" if production else "log")
     if sender not in WHATSAPP_SENDERS:
         raise ConfigurationError("WHATSAPP_SENDER must be 'cloud' or 'log'.")
-    if production and sender != "cloud":
+    if production and sender != "cloud" and not rehearsal:
         raise ConfigurationError("WHATSAPP_SENDER must be 'cloud' when APP_ENV=production.")
     return {
         "meta_app_secret": setting("META_APP_SECRET", DEV_META_APP_SECRET),
@@ -171,6 +196,8 @@ def _messaging_settings(production: bool) -> dict[str, object]:
             "WHATSAPP_DEFAULT_TEMPLATE_LANGUAGE", ""
         ).strip()
         or "en_US",
+        "meta_app_id": setting("META_APP_ID", ""),
+        "meta_embedded_signup_config_id": setting("META_EMBEDDED_SIGNUP_CONFIG_ID", ""),
         "token_encryption_key": _encryption_key(production),
         "inbound_debounce_seconds": _non_negative("INBOUND_DEBOUNCE_SECONDS", 3.0),
         "worker_concurrency": int(_positive_number("WORKER_CONCURRENCY", 4)),
@@ -192,7 +219,34 @@ def _email_settings(production: bool) -> dict[str, object]:
         "smtp_starttls": _flag("SMTP_STARTTLS", default=production),
         "email_from": required("EMAIL_FROM", "inmo24x7 <avisos@inmo24x7.local>"),
         "panel_url": required("PANEL_URL", DEFAULT_PANEL_URL).rstrip("/"),
+        "support_email": required("SUPPORT_EMAIL", DEFAULT_SUPPORT_EMAIL),
     }
+
+
+def _database_url(production: bool) -> str:
+    if production:
+        url = _required("DATABASE_URL")
+    else:
+        url = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    try:
+        port = make_url(url).port
+    except ArgumentError as error:
+        raise ConfigurationError("DATABASE_URL is not a valid database URL.") from error
+    if port == TRANSACTION_POOLER_PORT:
+        raise ConfigurationError(
+            "DATABASE_URL points at Supabase's transaction pooler (port 6543), which does not "
+            "support prepared statements. Use the session pooler on port 5432 (or the direct "
+            "connection); see docs/go-live.md."
+        )
+    return url
+
+
+def _rehearsal(production: bool) -> bool:
+    """REHEARSAL=true: only for the local production rehearsal, never on a server."""
+    enabled = _flag("REHEARSAL", default=False)
+    if enabled and not production:
+        raise ConfigurationError("REHEARSAL=true only makes sense with APP_ENV=production.")
+    return enabled
 
 
 def _non_negative(name: str, default: float) -> float:
@@ -214,9 +268,11 @@ def get_settings() -> Settings:
     if app_env not in {"development", "production"}:
         raise ConfigurationError("APP_ENV must be 'development' or 'production'.")
 
-    auth_mode = _auth_mode(app_env == "production")
-    if app_env == "production":
-        database_url = _required("DATABASE_URL")
+    production = app_env == "production"
+    rehearsal = _rehearsal(production)
+    auth_mode = _auth_mode(production)
+    database_url = _database_url(production)
+    if production:
         raw_origins = _required("CORS_ORIGINS")
         supabase_url = _required("SUPABASE_URL")
         supabase_jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "").strip()
@@ -225,19 +281,20 @@ def get_settings() -> Settings:
             raise ConfigurationError(
                 "SUPABASE_JWT_SECRET or SUPABASE_JWKS_URL must be set when APP_ENV=production."
             )
+        supabase_anon_key = _required("SUPABASE_ANON_KEY")
     else:
-        database_url = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
         raw_origins = os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
         supabase_url = os.getenv("SUPABASE_URL", "")
         supabase_jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "")
         supabase_jwks_url = os.getenv("SUPABASE_JWKS_URL", "")
+        supabase_anon_key = os.getenv("SUPABASE_ANON_KEY", "").strip()
         if auth_mode == "supabase" and not supabase_jwt_secret and not supabase_jwks_url:
             raise ConfigurationError(
                 "AUTH_MODE=supabase needs SUPABASE_JWT_SECRET or SUPABASE_JWKS_URL "
                 "(or use AUTH_MODE=dev locally)."
             )
 
-    llm_model, llm_api_key = _llm_settings(app_env == "production")
+    llm_model, llm_api_key = _llm_settings(production, rehearsal)
 
     return Settings(
         app_env=app_env,
@@ -250,6 +307,8 @@ def get_settings() -> Settings:
         supabase_jwt_secret=supabase_jwt_secret,
         supabase_jwks_url=supabase_jwks_url,
         auth_mode=auth_mode,
+        supabase_anon_key=supabase_anon_key,
+        supabase_server_url=os.getenv("SUPABASE_SERVER_URL", "").strip().rstrip("/"),
         llm_model=llm_model,
         llm_api_key=llm_api_key,
         llm_base_url=os.getenv("LLM_BASE_URL", "").strip(),
@@ -266,6 +325,9 @@ def get_settings() -> Settings:
         langsmith_endpoint=os.getenv("LANGSMITH_ENDPOINT", "").strip(),
         langsmith_redact_pii=_flag("LANGSMITH_REDACT_PII", default=True),
         langsmith_ui_url=os.getenv("LANGSMITH_UI_URL", "").strip().rstrip("/"),
-        **_messaging_settings(app_env == "production"),  # type: ignore[arg-type]
+        db_pool_size=int(_positive_number("DB_POOL_SIZE", DEFAULT_DB_POOL_SIZE)),
+        db_max_overflow=int(_non_negative("DB_MAX_OVERFLOW", DEFAULT_DB_MAX_OVERFLOW)),
+        rehearsal=rehearsal,
+        **_messaging_settings(production, rehearsal),  # type: ignore[arg-type]
         **_email_settings(app_env == "production"),  # type: ignore[arg-type]
     )

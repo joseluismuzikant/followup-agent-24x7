@@ -22,6 +22,9 @@ PRODUCTION_MESSAGING = {
     "SMTP_HOST": "smtp.example.com",
     "EMAIL_FROM": "inmo24x7 <avisos@example.com>",
     "PANEL_URL": "https://app.example.com",
+    "META_APP_ID": "1234567890",
+    "META_EMBEDDED_SIGNUP_CONFIG_ID": "987654321",
+    "SUPPORT_EMAIL": "soporte@example.com",
 }
 
 
@@ -29,6 +32,7 @@ def _production_env(monkeypatch, *, database_url: str | None = None, cors: str |
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "jwt-secret")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "public-anon-key")
     monkeypatch.setenv("LLM_MODEL", "anthropic:claude-sonnet-5-5")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.delenv("AUTH_MODE", raising=False)
@@ -85,19 +89,30 @@ def test_production_requires_supabase_secret_or_jwks(monkeypatch) -> None:
         get_settings()
 
 
-def test_production_accepts_jwks_without_secret_or_anon_key(monkeypatch) -> None:
+def test_production_accepts_jwks_without_the_jwt_secret(monkeypatch) -> None:
     _production_env(
         monkeypatch,
         database_url="postgresql+psycopg://db/app",
         cors="https://app.example.com",
     )
     monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
-    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
     monkeypatch.setenv(
         "SUPABASE_JWKS_URL", "https://example.supabase.co/auth/v1/.well-known/jwks.json"
     )
 
     assert get_settings().supabase_jwks_url.endswith("jwks.json")
+
+
+def test_production_needs_the_public_anon_key_to_check_owner_claims(monkeypatch) -> None:
+    _production_env(
+        monkeypatch,
+        database_url="postgresql+psycopg://db/app",
+        cors="https://app.example.com",
+    )
+    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+
+    with pytest.raises(ConfigurationError, match="SUPABASE_ANON_KEY"):
+        get_settings()
 
 
 def test_production_requires_supabase_url(monkeypatch) -> None:
@@ -253,6 +268,9 @@ def test_development_has_working_messaging_defaults(monkeypatch) -> None:
         False,
     )
     assert settings.panel_url == "http://localhost:5173"
+    # Without Embedded Signup locally: admins connect numbers by hand.
+    assert (settings.meta_app_id, settings.meta_embedded_signup_config_id) == ("", "")
+    assert settings.support_email == "soporte@inmo24x7.local"
 
 
 @pytest.mark.parametrize("name", sorted(PRODUCTION_MESSAGING))
@@ -285,3 +303,119 @@ def test_production_rejects_development_messaging_values(
 
     with pytest.raises(ConfigurationError, match=message):
         get_settings()
+
+
+# --- Day 7B: database, pools and the rehearsal ------------------------------------------------
+
+
+def test_the_transaction_pooler_is_refused_everywhere(monkeypatch) -> None:
+    pooler = (
+        "postgresql+psycopg://postgres.ref:pw@aws-0-sa-east-1.pooler.supabase.com:6543/postgres"
+    )
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("DATABASE_URL", pooler)
+
+    with pytest.raises(ConfigurationError, match="session pooler on port 5432"):
+        get_settings()
+
+
+def test_production_refuses_the_transaction_pooler(monkeypatch) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://postgres.ref:pw@aws-0-sa-east-1.pooler.supabase.com:6543/postgres",
+    )
+
+    with pytest.raises(ConfigurationError, match="6543"):
+        get_settings()
+
+
+def test_production_accepts_the_session_pooler(monkeypatch) -> None:
+    _complete_production_env(monkeypatch)
+    url = (
+        "postgresql+psycopg://postgres.ref:pw@aws-0-sa-east-1.pooler.supabase.com:5432/postgres"
+        "?sslmode=require"
+    )
+    monkeypatch.setenv("DATABASE_URL", url)
+
+    assert get_settings().database_url == url
+
+
+def test_pool_sizes_have_small_defaults_and_can_be_set(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("DB_POOL_SIZE", raising=False)
+    monkeypatch.delenv("DB_MAX_OVERFLOW", raising=False)
+    assert (get_settings().db_pool_size, get_settings().db_max_overflow) == (5, 2)
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("DB_POOL_SIZE", "8")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "0")
+    assert (get_settings().db_pool_size, get_settings().db_max_overflow) == (8, 0)
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("DB_POOL_SIZE", "0")
+    with pytest.raises(ConfigurationError, match="DB_POOL_SIZE"):
+        get_settings()
+
+
+def test_the_worker_needs_a_connection_per_job_thread(monkeypatch) -> None:
+    from inmo24x7_api.worker import check_pool
+
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("WORKER_CONCURRENCY", "4")
+    monkeypatch.setenv("DB_POOL_SIZE", "3")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "1")
+    with pytest.raises(ConfigurationError, match="WORKER_CONCURRENCY"):
+        check_pool(get_settings())
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("DB_POOL_SIZE", "5")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "0")
+    check_pool(get_settings())
+
+
+def test_production_refuses_the_fake_model_and_log_sender_outside_the_rehearsal(
+    monkeypatch,
+) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.delenv("LLM_MODEL")
+    with pytest.raises(ConfigurationError, match="LLM_MODEL"):
+        get_settings()
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("REHEARSAL", "true")
+    monkeypatch.setenv("WHATSAPP_SENDER", "log")
+    settings = get_settings()
+    assert (settings.rehearsal, settings.llm_model, settings.whatsapp_sender) == (True, "", "log")
+
+
+def test_the_rehearsal_flag_still_refuses_dev_auth(monkeypatch) -> None:
+    _complete_production_env(monkeypatch)
+    monkeypatch.setenv("REHEARSAL", "true")
+    monkeypatch.setenv("AUTH_MODE", "dev")
+
+    with pytest.raises(ConfigurationError, match="AUTH_MODE=dev"):
+        get_settings()
+
+
+def test_the_rehearsal_flag_is_only_for_production(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("REHEARSAL", "true")
+
+    with pytest.raises(ConfigurationError, match="REHEARSAL"):
+        get_settings()
+
+
+def test_the_production_env_example_never_enables_the_rehearsal() -> None:
+    from pathlib import Path
+
+    example = Path(__file__).resolve().parents[4] / "deploy" / ".env.production.example"
+    names = {
+        line.split("=", 1)[0].strip()
+        for line in example.read_text(encoding="utf-8").splitlines()
+        if "=" in line and not line.lstrip().startswith("#")
+    }
+
+    assert "REHEARSAL" not in names
+    assert {"APP_ENV", "DATABASE_URL", "SUPABASE_JWKS_URL", "SUPABASE_ANON_KEY"} <= names
+    assert ":6543/" not in example.read_text(encoding="utf-8")

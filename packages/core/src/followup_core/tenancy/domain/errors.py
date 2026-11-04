@@ -48,3 +48,20 @@ class InvalidOnboardingStepError(TenantError):
 
 class TenantSetupNotFoundError(TenantError):
     """Raised when a tenant has no onboarding or settings record."""
+
+
+class InvalidSuspensionReasonError(TenantError):
+    """Raised when a suspension has no reason or a too long one."""
+
+
+class TenantSuspendedError(TenantError):
+    """Raised when a suspended tenant tries to use the panel."""
+
+
+class OwnerEmailTakenError(TenantError):
+    """Raised when an admin creates a business for an email that already has an account or
+    a pending claim."""
+
+
+class InvalidAuditDetailsError(TenantError):
+    """Raised when audit details carry a key outside the allowlist (personal data)."""

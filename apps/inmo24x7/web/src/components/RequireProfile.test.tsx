@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchMe } from "../api/me";
 import { useAuth } from "../lib/auth";
+import { me } from "../test-fixtures";
 import { RequireProfile } from "./RequireProfile";
 
 vi.mock("../api/me", () => ({ fetchMe: vi.fn() }));
@@ -75,9 +76,24 @@ describe("RequireProfile", () => {
     expect(await screen.findByText("No pudimos cargar tu cuenta")).toBeTruthy();
     expect(screen.queryByText("Ingreso")).toBeNull();
 
-    fetchMeMock.mockResolvedValue({} as never);
+    fetchMeMock.mockResolvedValue(me());
     await user.click(screen.getByRole("button", { name: "Reintentar" }));
     await waitFor(() => expect(screen.getByText("Panel")).toBeTruthy());
+  });
+
+  it("shows the suspended account screen with support and sign out", async () => {
+    const user = userEvent.setup();
+    fetchMeMock.mockResolvedValue(me("owner", "suspended"));
+
+    renderGuard();
+
+    expect(await screen.findByText("Tu cuenta está suspendida")).toBeTruthy();
+    expect(screen.queryByText("Panel")).toBeNull();
+    expect(screen.getByRole("link", { name: "soporte@inmo24x7.test" }).getAttribute("href")).toBe(
+      "mailto:soporte@inmo24x7.test",
+    );
+    await user.click(screen.getByRole("button", { name: "Cerrar sesión" }));
+    expect(signOut).toHaveBeenCalled();
   });
 
   it("lets the user sign out from the error card", async () => {

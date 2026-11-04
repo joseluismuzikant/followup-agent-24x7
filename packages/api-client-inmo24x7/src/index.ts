@@ -51,6 +51,17 @@ export type DeliveryStatus = NonNullable<SimulatorMessage["delivery_status"]>;
 export type WhatsAppStatus = components["schemas"]["WhatsAppStatusRead"];
 export type WhatsAppConnection = components["schemas"]["WhatsAppConnectionRead"];
 export type WhatsAppConnectionInput = components["schemas"]["WhatsAppConnectionWrite"];
+export type WhatsAppError = components["schemas"]["WhatsAppErrorRead"];
+export type EmbeddedSignupInput = components["schemas"]["EmbeddedSignupWrite"];
+export type SignupAbandonedInput = components["schemas"]["SignupAbandonedWrite"];
+export type BusinessList = components["schemas"]["BusinessListRead"];
+export type BusinessRow = components["schemas"]["BusinessRowRead"];
+export type BusinessDetail = components["schemas"]["BusinessDetailRead"];
+export type BusinessCreateInput = components["schemas"]["BusinessCreate"];
+export type BusinessActivity = components["schemas"]["ActivityRead"];
+export type BusinessFilter = "all" | "needs_help" | "trial";
+export type SystemHealth = components["schemas"]["SystemRead"];
+export type PlanSummary = components["schemas"]["PlanSummaryRead"];
 
 export class ApiRequestError extends Error {
   readonly status: number;

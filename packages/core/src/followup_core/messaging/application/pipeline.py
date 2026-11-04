@@ -28,7 +28,7 @@ from followup_core.conversation.domain.thread import (
 )
 from followup_core.scheduling.domain.jobs import Job, JobQueue, NewJob, Reschedule, RetryLater
 
-from ..domain.connection import WhatsAppConnection
+from ..domain.connection import ConnectionStatus, WhatsAppConnection
 from ..domain.events import EventStatus, InboundEvent
 from ..domain.outbound import (
     OUTSIDE_SERVICE_WINDOW,
@@ -42,12 +42,19 @@ from ..domain.outbound import (
 )
 from ..domain.phones import display, to_e164
 from ..domain.repositories import ConnectionRepository, InboundEventRepository, OutboundRepository
-from ..domain.webhook import parse_webhook
+from ..domain.webhook import parse_account_updates, parse_webhook
+from .health import (
+    SEND_JOB,
+    ApplyAccountUpdate,
+    ConnectionHealth,
+    TenantIsActive,
+    always_active,
+    stops_sending,
+)
 
 logger = logging.getLogger("followup.whatsapp")
 
 PROCESS_JOB = "whatsapp.process"
-SEND_JOB = "whatsapp.send"
 MARK_READ_JOB = "whatsapp.mark_read"
 PURGE_JOB = "whatsapp.purge_payloads"
 PAYLOAD_RETENTION = timedelta(days=30)
@@ -60,6 +67,7 @@ class IngestResult:
     duplicates: int = 0
     ignored: int = 0
     statuses: int = 0
+    account_updates: int = 0
 
 
 class ApplyDeliveryStatus:
@@ -89,6 +97,7 @@ class IngestWebhook:
         queue: JobQueue,
         debounce: timedelta = DEFAULT_DEBOUNCE,
         clock: Clock = utc_now,
+        account_updates: ApplyAccountUpdate | None = None,
     ) -> None:
         self._connections = connections
         self._events = events
@@ -96,6 +105,7 @@ class IngestWebhook:
         self._queue = queue
         self._debounce = debounce
         self._clock = clock
+        self._account_updates = account_updates
 
     def execute(self, payload: Mapping[str, Any]) -> IngestResult:
         messages, statuses = parse_webhook(payload)
@@ -103,7 +113,12 @@ class IngestWebhook:
         queued = duplicates = ignored = 0
         for message in messages:
             connection = self._connections.get_by_phone_number_id(message.phone_number_id)
-            tenant_id = connection.tenant_id if connection and connection.is_connected else None
+            # A connection in error still receives (only sending is blocked): messages are
+            # stored and answered, and the replies wait for the reconnection.
+            accepts = (
+                connection is not None and connection.status is not ConnectionStatus.DISCONNECTED
+            )
+            tenant_id = connection.tenant_id if connection and accepts else None
             event = InboundEvent(
                 id=uuid4(),
                 wamid=message.wamid,
@@ -140,7 +155,12 @@ class IngestWebhook:
             self._statuses.execute(item.wamid, item.status, item.at, item.error_code)
             for item in statuses
         )
-        return IngestResult(queued, duplicates, ignored, applied)
+        updates = 0
+        if self._account_updates is not None:
+            updates = sum(
+                self._account_updates.execute(item) for item in parse_account_updates(payload)
+            )
+        return IngestResult(queued, duplicates, ignored, applied, updates)
 
 
 def channel_contact(wa_id: str) -> str | None:
@@ -200,9 +220,11 @@ class ProcessInbound:
         queue: JobQueue,
         debounce: timedelta = DEFAULT_DEBOUNCE,
         clock: Clock = utc_now,
+        is_active: TenantIsActive = always_active,
     ) -> None:
         self._events = events
         self._connections = connections
+        self._is_active = is_active
         self._lock = lock
         self._handle = handle
         self._reply_without_agent = reply_without_agent
@@ -234,6 +256,11 @@ class ProcessInbound:
             )
             for item in pending
         ]
+        if not self._is_active(event.tenant_id):
+            # A suspended business: stored for when it comes back, never answered.
+            self._reply_without_agent.execute(key, parts, None)
+            self._events.mark([item.id for item in pending], EventStatus.PROCESSED)
+            return None
         if any(item.is_text for item in pending):
             taps = [item.choice_id for item in pending if item.choice_id]
             turn = self._handle.execute(
@@ -279,11 +306,15 @@ class SendQueued:
         connections: ConnectionRepository,
         sender_for: SenderFor,
         clock: Clock = utc_now,
+        health: ConnectionHealth | None = None,
+        is_active: TenantIsActive = always_active,
     ) -> None:
         self._outbound = outbound
         self._connections = connections
         self._sender_for = sender_for
         self._clock = clock
+        self._health = health
+        self._is_active = is_active
 
     def __call__(self, job: Job) -> RetryLater | None:
         message_ids = [UUID(item) for item in job.payload["message_ids"]]
@@ -293,12 +324,20 @@ class SendQueued:
         tenant_id = self._outbound.tenant_of(parts[0].message_id)
         connection = self._connections.get_by_tenant(tenant_id) if tenant_id else None
         now = self._clock()
-        if connection is None or not connection.is_connected:
+        if tenant_id is not None and not self._is_active(tenant_id):
+            for part in parts:
+                self._outbound.mark_failed(part.id, "tenant_suspended", now)
+            return None
+        if connection is None or connection.status is ConnectionStatus.DISCONNECTED:
             for part in parts:
                 self._outbound.mark_failed(part.id, "not_connected", now)
             return None
+        if connection.is_failing and stops_sending(connection.last_error_code or ""):
+            # Never a retry loop against a dead token: wait for the reconnection.
+            self._wait([p for p in parts if p.status is DeliveryStatus.QUEUED], connection, now)
+            return None
         sender = self._sender_for(connection)
-        for part in parts:
+        for index, part in enumerate(parts):
             if part.status is not DeliveryStatus.QUEUED:
                 continue
             # Templates are the one kind of message allowed outside the 24-hour window.
@@ -310,9 +349,17 @@ class SendQueued:
             try:
                 wamid = sender.send(connection, part.wa_id, part.body)
             except SendError as error:
+                if stops_sending(error.code):
+                    if self._health is not None:
+                        connection = self._health.failed(connection, error.code)
+                    rest = [p for p in parts[index:] if p.status is DeliveryStatus.QUEUED]
+                    self._wait(rest, connection, now)
+                    return None
                 if error.retryable:
                     return RetryLater(f"meta_{error.code}")
                 self._outbound.mark_failed(part.id, error.code, now)
+                if self._health is not None:
+                    self._health.send_failed(connection.tenant_id, error.code)
                 logger.warning(
                     "whatsapp_send_failed",
                     extra={"message_id": str(part.message_id), "meta_code": error.code},
@@ -320,6 +367,12 @@ class SendQueued:
                 continue
             self._outbound.mark_sent(part.id, wamid, now)
         return None
+
+    def _wait(
+        self, parts: Sequence[OutboundPart], connection: WhatsAppConnection, at: datetime
+    ) -> None:
+        code = connection.last_error_code or "connection_error"
+        self._outbound.mark_waiting([part.id for part in parts], code, at)
 
 
 class OutsideServiceWindowError(Exception):
@@ -347,9 +400,15 @@ def send_template(
 
 
 class MarkRead:
-    def __init__(self, connections: ConnectionRepository, sender_for: SenderFor) -> None:
+    def __init__(
+        self,
+        connections: ConnectionRepository,
+        sender_for: SenderFor,
+        health: ConnectionHealth | None = None,
+    ) -> None:
         self._connections = connections
         self._sender_for = sender_for
+        self._health = health
 
     def __call__(self, job: Job) -> None:
         connection = self._connections.get_by_tenant(UUID(job.payload["tenant_id"]))
@@ -358,6 +417,8 @@ class MarkRead:
         try:
             self._sender_for(connection).mark_read(connection, job.payload["wamid"])
         except SendError as error:
+            if stops_sending(error.code) and self._health is not None:
+                self._health.failed(connection, error.code)
             # Not worth retrying: the conversation goes on without the blue ticks.
             logger.warning("whatsapp_mark_read_failed", extra={"meta_code": error.code})
 

@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 
 from ..application.connections import PhoneInfo
-from ..domain.connection import WhatsAppConnection
+from ..domain.connection import BusinessVerification, WhatsAppConnection
 from ..domain.outbound import SendError, template_body
 from .crypto import TokenCipher
 
@@ -26,6 +26,22 @@ _RETRYABLE_CODES = frozenset({"4", "80007", "130429", "131016", "131048", "13105
 class PhoneNumberInfo:
     display_phone_number: str
     verified_name: str
+    quality_rating: str | None = None
+    name_status: str | None = None
+
+
+_PHONE_FIELDS = "display_phone_number,verified_name,quality_rating,name_status"
+# Business node `verification_status` (Meta's values, lowercase).
+_VERIFICATION = {
+    "verified": BusinessVerification.VERIFIED,
+    "not_verified": BusinessVerification.PENDING,
+    "pending": BusinessVerification.PENDING,
+    "pending_submission": BusinessVerification.PENDING,
+    "pending_need_more_info": BusinessVerification.PENDING,
+    "failed": BusinessVerification.FAILED,
+    "rejected": BusinessVerification.FAILED,
+    "revoked": BusinessVerification.FAILED,
+}
 
 
 class GraphApiError(SendError):
@@ -46,12 +62,16 @@ class GraphClient:
         )
 
     def _request(
-        self, method: str, path: str, token: str, json: Mapping[str, Any] | None = None, **kw: Any
+        self,
+        method: str,
+        path: str,
+        token: str | None,
+        json: Mapping[str, Any] | None = None,
+        **kw: Any,
     ) -> dict[str, Any]:
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
         try:
-            response = self._client.request(
-                method, path, json=json, headers={"Authorization": f"Bearer {token}"}, **kw
-            )
+            response = self._client.request(method, path, json=json, headers=headers, **kw)
         except httpx.HTTPError as error:
             raise GraphApiError("network_error", retryable=True) from error
         body: Any
@@ -101,18 +121,49 @@ class GraphClient:
 
     def phone_number(self, phone_number_id: str, token: str) -> PhoneNumberInfo:
         result = self._request(
-            "GET",
-            f"/{phone_number_id}",
-            token,
-            params={"fields": "display_phone_number,verified_name"},
+            "GET", f"/{phone_number_id}", token, params={"fields": _PHONE_FIELDS}
         )
         return PhoneNumberInfo(
             display_phone_number=str(result.get("display_phone_number") or ""),
             verified_name=str(result.get("verified_name") or ""),
+            quality_rating=str(result["quality_rating"]) if result.get("quality_rating") else None,
+            name_status=str(result["name_status"]) if result.get("name_status") else None,
         )
 
     def subscribe_app(self, waba_id: str, token: str) -> None:
         self._request("POST", f"/{waba_id}/subscribed_apps", token)
+
+    def exchange_code(self, app_id: str, app_secret: str, code: str) -> str:
+        """Embedded Signup: the 30-second code for the customer's business token."""
+        result = self._request(
+            "GET",
+            "/oauth/access_token",
+            None,
+            params={"client_id": app_id, "client_secret": app_secret, "code": code},
+        )
+        token = result.get("access_token")
+        if not token:
+            raise GraphApiError("missing_token", retryable=False)
+        return str(token)
+
+    def register(self, phone_number_id: str, token: str, pin: str) -> None:
+        self._request(
+            "POST",
+            f"/{phone_number_id}/register",
+            token,
+            json={"messaging_product": "whatsapp", "pin": pin},
+        )
+
+    def business_verification(self, business_id: str, token: str) -> BusinessVerification:
+        """Not documented for business tokens everywhere: any failure is UNKNOWN."""
+        try:
+            result = self._request(
+                "GET", f"/{business_id}", token, params={"fields": "verification_status"}
+            )
+        except GraphApiError:
+            return BusinessVerification.UNKNOWN
+        status = str(result.get("verification_status") or "").lower()
+        return _VERIFICATION.get(status, BusinessVerification.UNKNOWN)
 
 
 class CloudApiSender:
@@ -151,11 +202,19 @@ class CloudGraphPort:
     def phone_number(self, connection: WhatsAppConnection) -> PhoneInfo:
         token = self._cipher.decrypt(connection.access_token_encrypted)
         info = self._client.phone_number(connection.phone_number_id, token)
-        return PhoneInfo(info.display_phone_number, info.verified_name)
+        return PhoneInfo(
+            info.display_phone_number, info.verified_name, info.quality_rating, info.name_status
+        )
 
     def subscribe_app(self, connection: WhatsAppConnection) -> None:
         token = self._cipher.decrypt(connection.access_token_encrypted)
         self._client.subscribe_app(connection.waba_id, token)
+
+    def business_verification(self, connection: WhatsAppConnection) -> BusinessVerification:
+        if not connection.business_id:
+            return BusinessVerification.UNKNOWN
+        token = self._cipher.decrypt(connection.access_token_encrypted)
+        return self._client.business_verification(connection.business_id, token)
 
 
 class LogGraphPort:
@@ -169,3 +228,36 @@ class LogGraphPort:
 
     def subscribe_app(self, connection: WhatsAppConnection) -> None:
         return None
+
+    def business_verification(self, connection: WhatsAppConnection) -> BusinessVerification:
+        return connection.business_verification
+
+
+class CloudSignupGraph:
+    """Embedded Signup's Graph calls: the app's id and secret exchange the code, then the
+    customer's business token does the rest."""
+
+    def __init__(self, client: GraphClient, app_id: str, app_secret: str) -> None:
+        self._client = client
+        self._app_id = app_id
+        self._app_secret = app_secret
+
+    def exchange_code(self, code: str) -> str:
+        if not self._app_id:
+            raise GraphApiError("embedded_signup_not_configured", retryable=False)
+        return self._client.exchange_code(self._app_id, self._app_secret, code)
+
+    def subscribe_app(self, waba_id: str, token: str) -> None:
+        self._client.subscribe_app(waba_id, token)
+
+    def register(self, phone_number_id: str, token: str, pin: str) -> None:
+        self._client.register(phone_number_id, token, pin)
+
+    def phone_number(self, phone_number_id: str, token: str) -> PhoneInfo:
+        info = self._client.phone_number(phone_number_id, token)
+        return PhoneInfo(
+            info.display_phone_number, info.verified_name, info.quality_rating, info.name_status
+        )
+
+    def business_verification(self, business_id: str, token: str) -> BusinessVerification:
+        return self._client.business_verification(business_id, token)
