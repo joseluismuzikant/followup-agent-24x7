@@ -9,9 +9,9 @@ const badgeVariants = cva(
     variants: {
       tone: {
         neutral: "border-border bg-muted text-muted-foreground",
-        info: "border-sky-200 bg-sky-50 text-sky-800",
-        success: "border-emerald-200 bg-emerald-50 text-emerald-800",
-        warning: "border-amber-200 bg-amber-50 text-amber-900",
+        info: "border-blue-200 bg-brand-soft text-brand",
+        success: "border-emerald-200 bg-success-soft text-emerald-800",
+        warning: "border-amber-200 bg-warning-soft text-amber-900",
         danger: "border-rose-200 bg-rose-50 text-rose-800",
       },
     },

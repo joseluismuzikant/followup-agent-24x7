@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ...product import PRODUCT
 from ..domain.usage import BusinessUsage, DailyUsage, Month, UsageFigures, UsageSplit
 
 _BUSINESSES = text(
@@ -49,7 +50,8 @@ _BUSINESSES = text(
     LEFT JOIN usage u ON u.tenant_id = t.id
     LEFT JOIN conversations c ON c.tenant_id = t.id
     LEFT JOIN templates tp ON tp.tenant_id = t.id
-    WHERE NOT EXISTS (
+    WHERE t.product = :product
+      AND NOT EXISTS (
       SELECT 1 FROM profiles a WHERE a.tenant_id = t.id AND a.is_platform_admin
     )
       AND (CAST(:tenant_id AS uuid) IS NULL OR t.id = CAST(:tenant_id AS uuid))
@@ -105,7 +107,7 @@ _OVER_LIMIT = text(
     SELECT u.tenant_id, t.name, sum(u.cost_usd) AS cost
     FROM llm_usage u
     JOIN tenants t ON t.id = u.tenant_id
-    WHERE u.created_at >= :start AND u.created_at < :end
+    WHERE t.product = :product AND u.created_at >= :start AND u.created_at < :end
     GROUP BY u.tenant_id, t.name
     HAVING sum(u.cost_usd) >= :limit
        AND NOT EXISTS (
@@ -143,13 +145,19 @@ def _split(row: Any) -> UsageSplit:
 
 
 class SqlAlchemyUsageQueries:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, product: str = PRODUCT) -> None:
         self._session = session
+        self._product = str(product)
 
     def businesses(self, month: Month, tenant_id: UUID | None = None) -> list[BusinessUsage]:
         rows = self._session.execute(
             _BUSINESSES,
-            {"start": month.start, "end": month.end, "tenant_id": tenant_id},
+            {
+                "start": month.start,
+                "end": month.end,
+                "tenant_id": tenant_id,
+                "product": self._product,
+            },
         )
         return [BusinessUsage(row.id, row.name, row.plan, _figures(row)) for row in rows]
 
@@ -173,6 +181,12 @@ class SqlAlchemyUsageQueries:
         """Businesses at or over `limit` this month that were not alerted yet."""
         rows = self._session.execute(
             _OVER_LIMIT,
-            {"start": month.start, "end": month.end, "limit": limit, "month": str(month)},
+            {
+                "start": month.start,
+                "end": month.end,
+                "limit": limit,
+                "month": str(month),
+                "product": self._product,
+            },
         )
         return [(row.tenant_id, row.name, Decimal(row.cost)) for row in rows]

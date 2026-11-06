@@ -14,7 +14,8 @@ port = 54322
 enabled = true
 port = 54323
 
-# Local mail UI where magic-link emails arrive (http://127.0.0.1:54324).
+# Local mail UI where Supabase's own emails arrive ("¿Olvidaste tu clave?"),
+# http://127.0.0.1:54324.
 [inbucket]
 enabled = true
 port = 54324
@@ -22,25 +23,31 @@ port = 54324
 [auth]
 enabled = true
 site_url = "http://localhost:5173"
-# The panel and the backoffice.
+# Both products' panels and backoffices ("¿Olvidaste tu clave?" comes back to /cambiar-clave).
 additional_redirect_urls = [
   # The local production rehearsal (deploy/rehearsal).
-  "https://app.localhost",
-  "https://admin.localhost",
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5174",
+  "https://app.localhost/**",
+  "https://admin.localhost/**",
+  "https://cuentasclaras.localhost/**",
+  "https://cuentasclaras-admin.localhost/**",
+  "http://localhost:5173/**",
+  "http://localhost:5174/**",
+  "http://localhost:5175/**",
+  "http://localhost:5176/**",
+  "http://127.0.0.1:5173/**",
+  "http://127.0.0.1:5174/**",
 ]
 jwt_expiry = 3600
-enable_signup = true
+# Invitation-only: users are created by the APIs (admin API, service-role key), never by
+# signing up.
+enable_signup = false
 
 [auth.email]
-enable_signup = true
-# Magic links work without confirming the address first.
+enable_signup = false
+# Invited users are created confirmed (the invitation link proves the address).
 enable_confirmations = false
 
-# Optional: needs a Google OAuth client (README). Set enabled = true and the two variables.
+# Not used: the panels sign in with email and password only.
 [auth.external.google]
 enabled = false
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"

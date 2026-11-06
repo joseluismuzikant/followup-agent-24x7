@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchAgentSetup, saveAgentSetup } from "../api/agent-setup";
-import { fetchMe } from "../api/me";
+import { fetchMe, signUp } from "../api/me";
 import { advanceOnboarding, fetchOnboarding } from "../api/onboarding";
 import { fetchSimulator } from "../api/simulator";
 import { fetchWhatsAppStatus } from "../api/whatsapp";
@@ -151,14 +151,28 @@ describe("OnboardingPage", () => {
     expect(isOnboardingDeferred()).toBe(true);
   });
 
-  it("starts at step 1 without Terminar después when there is no profile yet", async () => {
-    vi.mocked(fetchMe).mockRejectedValue(new ApiRequestError(404, "profile_not_found"));
+  it("joins the invited business the first time, then resumes its wizard", async () => {
+    vi.mocked(fetchMe)
+      .mockRejectedValueOnce(new ApiRequestError(404, "profile_not_found"))
+      .mockResolvedValue(me());
+    vi.mocked(signUp).mockResolvedValue({} as never);
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("agent"));
 
     renderWizard("/onboarding");
 
-    expect(await screen.findByLabelText("Nombre del negocio")).toBeTruthy();
-    expect(screen.getByText(/Paso 1 de 5/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Terminar después" })).toBeNull();
+    expect(await screen.findByText(/Paso 2 de 5/)).toBeTruthy();
+    expect(signUp).toHaveBeenCalledTimes(1);
+    expect(where()).toBe("/onboarding/tu-agente");
+  });
+
+  it("tells an email nobody invited that it is not enabled", async () => {
+    vi.mocked(fetchMe).mockRejectedValue(new ApiRequestError(404, "profile_not_found"));
+    vi.mocked(signUp).mockRejectedValue(new ApiRequestError(403, "not_invited"));
+
+    renderWizard("/onboarding");
+
+    expect(await screen.findByText("Tu cuenta no está habilitada")).toBeTruthy();
+    expect(screen.queryByLabelText("Nombre del negocio")).toBeNull();
   });
 
   it("shows what is ready and pending on the last step", async () => {

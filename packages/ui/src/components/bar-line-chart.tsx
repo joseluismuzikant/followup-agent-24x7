@@ -80,7 +80,7 @@ function BarLineChart({
               y={yBar(point.bar)}
               width={barWidth}
               height={PAD.top + plotHeight - yBar(point.bar)}
-              className="fill-primary/70"
+              className="fill-brand opacity-75"
             >
               <title>
                 {`${point.title ?? point.label}: ${barLabel} ${formatBar(point.bar)} · ${lineLabel} ${formatLine(point.line)}`}
@@ -100,7 +100,7 @@ function BarLineChart({
           </g>
         ))}
         {data.length ? (
-          <path d={path} fill="none" strokeWidth={2} className="stroke-foreground" />
+          <path d={path} fill="none" strokeWidth={2} className="stroke-[var(--highlight)]" />
         ) : null}
       </svg>
       <figcaption className="flex gap-4 text-xs text-muted-foreground">

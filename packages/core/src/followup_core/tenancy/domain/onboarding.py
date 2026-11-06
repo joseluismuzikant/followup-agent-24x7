@@ -1,51 +1,52 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from types import MappingProxyType
 from uuid import UUID
 
 from .errors import InvalidOnboardingStepError
 
 
-class OnboardingStep(StrEnum):
-    BUSINESS = "business"
-    AGENT = "agent"
-    TRY = "try"
-    WHATSAPP = "whatsapp"
-    DONE = "done"
-
-
-STEP_ORDER: tuple[OnboardingStep, ...] = tuple(OnboardingStep)
-
-
-def _position(step: OnboardingStep) -> int:
-    return STEP_ORDER.index(step)
+def _position(steps: Sequence[str], step: str) -> int:
+    try:
+        return list(steps).index(step)
+    except ValueError as error:
+        raise InvalidOnboardingStepError(f"Unknown onboarding step '{step}'.") from error
 
 
 @dataclass(frozen=True, slots=True)
 class Onboarding:
     """Furthest wizard step reached by a tenant.
 
-    `current_step` only moves forward. Revisiting an earlier step to edit it is just
-    navigation and never uncompletes anything.
+    The steps belong to the product (`ProductDefinition.onboarding_steps`); these rules are
+    the same for every product: `current_step` only moves forward, revisiting an earlier step
+    to edit it is just navigation and never uncompletes anything, and reaching the last step
+    finishes the onboarding.
     """
 
     tenant_id: UUID
-    current_step: OnboardingStep
-    completed_steps: Mapping[OnboardingStep, datetime]
+    current_step: str
+    completed_steps: Mapping[str, datetime]
     finished_at: datetime | None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "completed_steps", MappingProxyType(dict(self.completed_steps)))
+        object.__setattr__(self, "current_step", str(self.current_step))
+        object.__setattr__(
+            self,
+            "completed_steps",
+            MappingProxyType({str(step): at for step, at in self.completed_steps.items()}),
+        )
 
     @classmethod
-    def start(cls, tenant_id: UUID, now: datetime) -> "Onboarding":
-        """Sign-up completes the business step and lands on the agent step."""
+    def start(
+        cls, tenant_id: UUID, now: datetime, steps: Sequence[str], first_step: str
+    ) -> "Onboarding":
+        """Sign-up completes every step before `first_step` and lands on it."""
+        position = _position(steps, first_step)
         return cls(
             tenant_id=tenant_id,
-            current_step=OnboardingStep.AGENT,
-            completed_steps={OnboardingStep.BUSINESS: now},
+            current_step=first_step,
+            completed_steps={step: now for step in list(steps)[:position]},
             finished_at=None,
         )
 
@@ -53,24 +54,24 @@ class Onboarding:
     def finished(self) -> bool:
         return self.finished_at is not None
 
-    def is_reachable(self, step: OnboardingStep) -> bool:
-        return _position(step) <= _position(self.current_step)
+    def is_reachable(self, step: str, steps: Sequence[str]) -> bool:
+        return _position(steps, step) <= _position(steps, self.current_step)
 
-    def advance_to(self, step: OnboardingStep, now: datetime) -> "Onboarding":
+    def advance_to(self, step: str, now: datetime, steps: Sequence[str]) -> "Onboarding":
         """Move to `step`, which must be the next step or one already reached.
 
         Targeting an already reached step changes nothing, so retries are safe.
         """
-        if self.is_reachable(step):
+        if self.is_reachable(step, steps):
             return self
-        if _position(step) != _position(self.current_step) + 1:
+        if _position(steps, step) != _position(steps, self.current_step) + 1:
             raise InvalidOnboardingStepError(f"Cannot move from '{self.current_step}' to '{step}'.")
 
         completed = dict(self.completed_steps)
         completed.setdefault(self.current_step, now)
         finished_at = self.finished_at
-        if step is OnboardingStep.DONE:
-            completed[OnboardingStep.DONE] = now
+        if step == steps[-1]:
+            completed[step] = now
             finished_at = now
         return Onboarding(
             tenant_id=self.tenant_id,

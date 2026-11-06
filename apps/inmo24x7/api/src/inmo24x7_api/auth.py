@@ -1,81 +1,25 @@
-from collections.abc import Callable
-from typing import Annotated
+"""inmo24x7's auth dependencies (built by followup_platform.auth for this product)."""
 
-from fastapi import Depends
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from followup_core.identity.domain.errors import InvalidTokenError
-from followup_core.identity.domain.profile import Profile, Role
-from followup_core.identity.domain.token_verifier import TokenVerifier, VerifiedToken
-from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
-from followup_core.infrastructure import log_context
-from followup_core.tenancy.domain.tenant import TenantStatus
-from followup_core.tenancy.infrastructure.models import TenantModel
-from sqlalchemy.orm import Session
+from followup_platform.auth import BearerDep, build_auth
 
 from .container import get_token_verifier
 from .database import get_session
-from .http_errors import ApiError
+from .product import PRODUCT
 
-SessionDep = Annotated[Session, Depends(get_session)]
-VerifierDep = Annotated[TokenVerifier, Depends(get_token_verifier)]
-BearerDep = Annotated[
-    HTTPAuthorizationCredentials | None,
-    Depends(HTTPBearer(auto_error=False)),
+AUTH = build_auth(PRODUCT, get_session, get_token_verifier)
+
+current_identity = AUTH.current_identity
+current_profile_any_status = AUTH.current_profile_any_status
+current_profile = AUTH.current_profile
+require_role = AUTH.require_role
+require_platform_admin = AUTH.require_platform_admin
+
+__all__ = [
+    "AUTH",
+    "BearerDep",
+    "current_identity",
+    "current_profile",
+    "current_profile_any_status",
+    "require_platform_admin",
+    "require_role",
 ]
-
-
-def current_identity(credentials: BearerDep, verifier: VerifierDep) -> VerifiedToken:
-    if credentials is None:
-        raise ApiError(401, "unauthorized")
-    try:
-        return verifier.verify(credentials.credentials)
-    except InvalidTokenError as error:
-        raise ApiError(401, "unauthorized") from error
-
-
-def current_profile_any_status(
-    session: SessionDep,
-    identity: Annotated[VerifiedToken, Depends(current_identity)],
-) -> Profile:
-    """The signed-in profile, even when its business is suspended (only /me uses it, so the
-    panel can show the suspended screen)."""
-    profile = SqlAlchemyProfileRepository(session).get_by_id(identity.user_id)
-    if profile is None:
-        raise ApiError(404, "profile_not_found")
-    if not profile.is_platform_admin:
-        # Logs and error reports of this request name the business (an admin's own tenant
-        # says nothing about which business they are looking at).
-        log_context.bind(tenant_id=profile.tenant_id)
-    return profile
-
-
-def current_profile(
-    session: SessionDep,
-    profile: Annotated[Profile, Depends(current_profile_any_status)],
-) -> Profile:
-    """Every tenant endpoint goes through here: a suspended business gets 403
-    tenant_suspended. Platform admins keep working (the backoffice must reach it)."""
-    if not profile.is_platform_admin:
-        status = session.get(TenantModel, profile.tenant_id)
-        if status is not None and status.status == TenantStatus.SUSPENDED.value:
-            raise ApiError(403, "tenant_suspended")
-    return profile
-
-
-def require_role(*roles: Role) -> Callable[[Profile], Profile]:
-    def dependency(
-        profile: Annotated[Profile, Depends(current_profile)],
-    ) -> Profile:
-        if profile.role not in roles:
-            raise ApiError(403, "forbidden")
-        return profile
-
-    return dependency
-
-
-def require_platform_admin(
-    profile: Annotated[Profile, Depends(current_profile)],
-) -> Profile:
-    if not profile.is_platform_admin:
-        raise ApiError(403, "admin_required")
-    return profile

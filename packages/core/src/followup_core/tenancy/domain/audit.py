@@ -38,6 +38,10 @@ class AuditAction(StrEnum):
     TENANT_REACTIVATED = "tenant_reactivated"
     RECONNECT_LINK_SENT = "reconnect_link_sent"
     LLM_COST_ALERT = "llm_cost_alert"
+    OWNER_INVITED = "owner_invited"
+    INVITATION_RESENT = "invitation_resent"
+    TEMPORARY_PASSWORD_RESET = "temporary_password_reset"
+    INVITATION_ACCEPTED = "invitation_accepted"
 
 
 # Ids, counts, codes, versions and enum-like values only.
@@ -61,6 +65,10 @@ ALLOWED_DETAIL_KEYS = frozenset(
         "import_id",
         "month",
         "cost_usd",
+        "skipped",
+        "client_id",
+        "invoice_id",
+        "paid_via",
     }
 )
 
@@ -79,7 +87,8 @@ class AuditEvent:
     tenant_id: UUID
     at: datetime
     actor_kind: ActorKind
-    action: AuditAction
+    # One of core's AuditAction values or a product's own (a StrEnum of the product).
+    action: str
     details: Mapping[str, Any] = field(default_factory=dict)
     actor_profile_id: UUID | None = None
     # System failures repeat; one event per key (e.g. per tenant, code and hour) is enough.
@@ -91,8 +100,8 @@ class AuditEvent:
         object.__setattr__(self, "details", MappingProxyType(dict(self.details)))
 
 
-def hourly_key(action: AuditAction, tenant_id: UUID, code: str, at: datetime) -> str:
-    return f"{action.value}:{tenant_id}:{code}:{at:%Y%m%d%H}"
+def hourly_key(action: str, tenant_id: UUID, code: str, at: datetime) -> str:
+    return f"{action}:{tenant_id}:{code}:{at:%Y%m%d%H}"
 
 
 class AuditLog(Protocol):

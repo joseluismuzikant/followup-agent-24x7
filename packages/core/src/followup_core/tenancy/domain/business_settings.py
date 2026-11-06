@@ -1,12 +1,10 @@
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, time
-from enum import StrEnum
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .errors import (
-    InvalidBusinessTypeError,
     InvalidNotificationEmailError,
     InvalidTeamHoursError,
 )
@@ -14,20 +12,6 @@ from .errors import (
 DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires"
 MAX_NOTIFICATION_EMAILS = 5
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-class BusinessType(StrEnum):
-    AGENCY = "inmobiliaria"
-    NETWORK = "red_franquicia"
-    BROKER = "corredor"
-    DEVELOPER = "desarrolladora"
-
-    @classmethod
-    def parse(cls, value: str) -> "BusinessType":
-        try:
-            return cls(value)
-        except ValueError as error:
-            raise InvalidBusinessTypeError(f"Unknown business type '{value}'.") from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,12 +64,14 @@ def validate_notification_emails(emails: tuple[str, ...]) -> tuple[str, ...]:
 @dataclass(frozen=True, slots=True)
 class BusinessSettings:
     tenant_id: UUID
-    business_type: BusinessType
+    # One of the product's business types (ProductDefinition.business_types).
+    business_type: str
     timezone: str
     team_hours: tuple[ScheduleBlock, ...]
     notification_emails: tuple[str, ...]
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "business_type", str(self.business_type))
         try:
             ZoneInfo(self.timezone)
         except (ZoneInfoNotFoundError, ValueError) as error:
@@ -100,7 +86,7 @@ class BusinessSettings:
     def with_changes(
         self,
         *,
-        business_type: BusinessType | None = None,
+        business_type: str | None = None,
         team_hours: tuple[ScheduleBlock, ...] | None = None,
         notification_emails: tuple[str, ...] | None = None,
     ) -> "BusinessSettings":

@@ -9,7 +9,6 @@
 .env.*
 !.env.example
 .openapi.json
-apps/cuentas-claras
 # Deploy files and their env files (secrets) never go into an image.
 deploy
 .dev-logs

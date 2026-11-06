@@ -54,55 +54,55 @@ say "Database"
 	fail "tables without row level security"
 ok "row level security on every table ($(psql_db "SELECT version_num FROM alembic_version"))"
 
-say "Auth with Supabase (JWKS, issuer, confirmed emails)"
-new_user() { # email confirmed(true|false) → access token
-	https -X POST "$supabase_url/auth/v1/admin/users" -H "apikey: $service_key" \
-		-H "Authorization: Bearer $service_key" -H "Content-Type: application/json" \
-		-d "{\"email\":\"$1\",\"password\":\"Rehearsal-$run_id!\",\"email_confirm\":$2}" >/dev/null
+say "Auth with Supabase (JWKS, issuer, invitation-only accounts)"
+token_for() { # email password → access token ("" when Supabase refuses)
 	https -X POST "$supabase_url/auth/v1/token?grant_type=password" -H "apikey: $anon_key" \
 		-H "Content-Type: application/json" \
-		-d "{\"email\":\"$1\",\"password\":\"Rehearsal-$run_id!\"}" | json 'data.get("access_token", "")'
+		-d "{\"email\":\"$1\",\"password\":\"$2\"}" | json 'data.get("access_token", "")'
 }
-sign_up() { # token business → the business name the account landed in
-	https -X POST https://api.localhost/me/sign-up -H "Authorization: Bearer $1" \
-		-H "Content-Type: application/json" \
-		-d "{\"business_name\":\"$2\",\"business_type\":\"inmobiliaria\"}" | json 'data["tenant"]["name"]'
+api() { # token method path [json] → body
+	https -X "$2" "https://api.localhost$3" -H "Authorization: Bearer $1" \
+		-H "Content-Type: application/json" ${4:+-d "$4"}
 }
-owner_email="dueno-$run_id@rehearsal.test"
-owner="$(new_user "$owner_email" true)"
-[[ -n "$owner" ]] || fail "Supabase gave no token"
-[[ "$(sign_up "$owner" "Ensayo $run_id")" == "Ensayo $run_id" ]] || fail "sign-up failed"
-ok "a Supabase token signs up (ES256 via JWKS, issuer $supabase_url/auth/v1)"
-compose run --rm -T api python scripts/make_admin.py "$owner_email" >/dev/null
-ok "make_admin.py ran in the API container"
+admin_email="admin-$run_id@rehearsal.test"
+temporary="$(compose run --rm -T api python scripts/make_admin.py "$admin_email" --create |
+	sed -n 's/^Clave temporal.*: //p')"
+[[ -n "$temporary" ]] || fail "make_admin.py --create printed no temporary password"
+ok "make_admin.py --create made the first admin in Supabase Auth (service-role key)"
+admin="$(token_for "$admin_email" "$temporary")"
+[[ -n "$admin" ]] || fail "Supabase gave no token for the temporary password"
+[[ "$(api "$admin" GET /me | json 'data.get("code", "")')" == "password_change_required" ]] ||
+	fail "a temporary password reached /me"
+api "$admin" POST /account/password "{\"password\":\"Rehearsal-$run_id!\"}" >/dev/null
+admin="$(token_for "$admin_email" "Rehearsal-$run_id!")"
+[[ "$(api "$admin" GET /me | json 'data["profile"]["is_platform_admin"]')" == "True" ]] ||
+	fail "the admin's own password does not reach the backoffice"
+ok "the temporary password must be changed first; the new one works (ES256 via JWKS)"
 
-claimed_email="invitada-$run_id@rehearsal.test"
-https -X POST https://api.localhost/admin/tenants -H "Authorization: Bearer $owner" \
-	-H "Content-Type: application/json" \
-	-d "{\"business_name\":\"Alta $run_id\",\"owner_email\":\"$claimed_email\"}" >/dev/null
-claimed="$(new_user "$claimed_email" true)"
-[[ "$(sign_up "$claimed" "Otro nombre")" == "Alta $run_id" ]] ||
-	fail "a confirmed email did not join the business created for it"
-ok "a confirmed email joins the business an admin created for it"
+owner_email="invitada-$run_id@rehearsal.test"
+created="$(api "$admin" POST /admin/tenants \
+	"{\"business_name\":\"Alta $run_id\",\"owner_email\":\"$owner_email\"}")"
+owner_temporary="$(json 'data["temporary_password"]' <<<"$created")"
+claimed="$(token_for "$owner_email" "$owner_temporary")"
+api "$claimed" POST /account/password "{\"password\":\"Duenia-$run_id!\"}" >/dev/null
+claimed="$(token_for "$owner_email" "Duenia-$run_id!")"
+[[ "$(api "$claimed" POST /me/sign-up | json 'data["tenant"]["name"]')" == "Alta $run_id" ]] ||
+	fail "the invited owner did not join the business created for her"
+ok "Dar de alta → temporary password → own password → the invited owner joins her business"
 
-unconfirmed_email="sinconfirmar-$run_id@rehearsal.test"
-https -X POST https://api.localhost/admin/tenants -H "Authorization: Bearer $owner" \
+stranger_email="nadie-$run_id@rehearsal.test"
+https -X POST "$supabase_url/auth/v1/signup" -H "apikey: $anon_key" \
 	-H "Content-Type: application/json" \
-	-d "{\"business_name\":\"Reservado $run_id\",\"owner_email\":\"$unconfirmed_email\"}" >/dev/null
-unconfirmed="$(new_user "$unconfirmed_email" false)"
-if [[ -z "$unconfirmed" ]]; then
-	ok "Supabase refuses to sign in an unconfirmed email (the API check is covered by tests)"
-elif [[ "$(sign_up "$unconfirmed" "Propio $run_id")" == "Propio $run_id" ]]; then
-	ok "an unconfirmed email gets its own business, never the reserved one"
-else
-	fail "an unconfirmed email joined a business created for it"
-fi
+	-d "{\"email\":\"$stranger_email\",\"password\":\"Nadie-$run_id!\"}" >/dev/null || true
+[[ -z "$(token_for "$stranger_email" "Nadie-$run_id!")" ]] ||
+	fail "Supabase let someone sign up on their own"
+ok "Supabase refuses self sign-up (enable_signup = false)"
 
 say "WhatsApp: signed webhook → worker → agent reply (log sender, fake model)"
 tenant_id="$(https https://api.localhost/me -H "Authorization: Bearer $claimed" | json 'data["tenant"]["id"]')"
 phone="rehearsal-$run_id"
 https -X PUT "https://api.localhost/admin/tenants/$tenant_id/whatsapp" \
-	-H "Authorization: Bearer $owner" -H "Content-Type: application/json" \
+	-H "Authorization: Bearer $admin" -H "Content-Type: application/json" \
 	-d "{\"phone_number_id\":\"$phone\",\"waba_id\":\"waba-$run_id\",\"access_token\":\"x\",\"sender\":\"log\"}" >/dev/null
 body_file="$(mktemp)"
 trap 'rm -f "$body_file"' EXIT

@@ -1,9 +1,10 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
 from ..domain.errors import TenantSetupNotFoundError
-from ..domain.onboarding import Onboarding, OnboardingStep
+from ..domain.onboarding import Onboarding
 from ..domain.onboarding_repository import OnboardingRepository
 from ..domain.setup_checklist import SetupChecklist
 from .get_setup_checklist import GetSetupChecklist
@@ -36,16 +37,18 @@ class AdvanceOnboarding:
         self,
         onboardings: OnboardingRepository,
         checklist: GetSetupChecklist,
+        steps: Sequence[str],
     ) -> None:
         self._onboardings = onboardings
         self._checklist = checklist
+        self._steps = steps
 
-    def execute(self, tenant_id: UUID, to_step: OnboardingStep) -> OnboardingState:
+    def execute(self, tenant_id: UUID, to_step: str) -> OnboardingState:
         onboarding = self._onboardings.get(tenant_id)
         if onboarding is None:
             raise TenantSetupNotFoundError("The tenant has no onboarding record.")
 
-        advanced = onboarding.advance_to(to_step, datetime.now(UTC))
+        advanced = onboarding.advance_to(to_step, datetime.now(UTC), self._steps)
         if advanced is not onboarding:
             self._onboardings.save(advanced)
         return OnboardingState(advanced, self._checklist.execute(tenant_id))

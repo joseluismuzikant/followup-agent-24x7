@@ -1,137 +1,91 @@
+"""Sign-up is invitation-only: it joins the business an admin created for the email."""
+
 from uuid import uuid4
 
 import pytest
 from followup_core.identity.domain.profile import Role
+from followup_core.tenancy.application.admin_tenants import CreateBusinessForOwner
 from followup_core.tenancy.application.sign_up import SignUp
-from followup_core.tenancy.domain.business_settings import BusinessType
-from followup_core.tenancy.domain.errors import InvalidBusinessTypeError, InvalidTenantNameError
-from followup_core.tenancy.domain.onboarding import OnboardingStep
-from followup_core.tenancy.domain.tenant import TenantStatus
+from followup_core.tenancy.domain.errors import NotInvitedError
 from tenancy_fakes import (
+    SAMPLE_PRODUCT,
     InMemoryBusinessSettingsRepository,
     InMemoryOnboardingRepository,
+    InMemoryOwnerClaims,
     InMemoryProfileRepository,
     InMemoryTenantRepository,
+    OnboardingStep,
+    RecordingAuditLog,
     sample_defaults,
 )
 
 
-def _sign_up_use_case(tenants=None, profiles=None, onboardings=None, settings=None) -> SignUp:
-    return SignUp(
-        tenants or InMemoryTenantRepository(),
-        profiles or InMemoryProfileRepository(),
-        onboardings or InMemoryOnboardingRepository(),
-        settings or InMemoryBusinessSettingsRepository(),
-        sample_defaults(),
-    )
+class World:
+    def __init__(self) -> None:
+        self.tenants = InMemoryTenantRepository()
+        self.profiles = InMemoryProfileRepository()
+        self.onboardings = InMemoryOnboardingRepository()
+        self.claims = InMemoryOwnerClaims()
+        self.audit = RecordingAuditLog()
+        self.create = CreateBusinessForOwner(
+            self.tenants,
+            self.profiles,
+            self.onboardings,
+            InMemoryBusinessSettingsRepository(),
+            self.claims,
+            sample_defaults(),
+            self.audit,
+            definition=SAMPLE_PRODUCT,
+        )
+        self.sign_up = SignUp(
+            self.profiles, self.tenants, self.claims, self.audit, definition=SAMPLE_PRODUCT
+        )
 
 
-def test_sign_up_creates_tenant_owner_and_trial() -> None:
-    tenants = InMemoryTenantRepository()
-    profiles = InMemoryProfileRepository()
+def test_an_invited_email_joins_its_business_as_owner() -> None:
+    world = World()
+    tenant = world.create.execute(uuid4(), "Inmobiliaria Sur", "inmobiliaria", "owner@example.com")
     user_id = uuid4()
 
-    result = _sign_up_use_case(tenants, profiles).execute(
-        user_id=user_id,
-        email="owner@example.com",
-        business_name="Inmobiliaria Sur",
-        business_type="inmobiliaria",
-    )
+    result = world.sign_up.execute(user_id, "Owner@Example.com")
 
     assert result.created is True
-    assert result.tenant.status == TenantStatus.ACTIVE
-    assert result.tenant.trial_ends_at > result.tenant.created_at
-    assert result.profile.tenant_id == result.tenant.id
+    assert result.tenant.id == tenant.id
     assert result.profile.role == Role.OWNER
     assert result.profile.is_platform_admin is False
-    assert profiles.get_by_id(user_id) == result.profile
-    assert tenants.get_by_id(result.tenant.id) == result.tenant
+    assert world.profiles.get_for_user(user_id) == result.profile
 
 
 def test_sign_up_is_idempotent_per_user() -> None:
-    tenants = InMemoryTenantRepository()
-    profiles = InMemoryProfileRepository()
+    world = World()
+    world.create.execute(uuid4(), "Inmobiliaria Sur", "inmobiliaria", "owner@example.com")
     user_id = uuid4()
 
-    first = _sign_up_use_case(tenants, profiles).execute(
-        user_id=user_id,
-        email="owner@example.com",
-        business_name="Inmobiliaria Sur",
-        business_type="inmobiliaria",
-    )
-    second = _sign_up_use_case(tenants, profiles).execute(
-        user_id=user_id,
-        email="owner@example.com",
-        business_name="Otro Nombre",
-        business_type="inmobiliaria",
-    )
+    first = world.sign_up.execute(user_id, "owner@example.com")
+    second = world.sign_up.execute(user_id, "owner@example.com")
 
     assert second.created is False
     assert second.tenant.id == first.tenant.id
-    assert len(tenants.tenants) == 1
-    assert len(profiles.profiles) == 1
+    assert len(world.profiles.profiles) == 1
 
 
-def test_sign_up_rejects_blank_business_name() -> None:
-    with pytest.raises(InvalidTenantNameError):
-        _sign_up_use_case().execute(
-            user_id=uuid4(),
-            email="owner@example.com",
-            business_name="   ",
-            business_type="inmobiliaria",
-        )
+def test_an_email_nobody_invited_cannot_sign_up() -> None:
+    world = World()
+
+    with pytest.raises(NotInvitedError):
+        world.sign_up.execute(uuid4(), "nadie@example.com")
+
+    assert world.tenants.count() == 0
+    assert world.profiles.profiles == {}
 
 
-def test_sign_up_picks_next_free_slug_for_same_business_name() -> None:
-    tenants = InMemoryTenantRepository()
-    profiles = InMemoryProfileRepository()
+def test_the_invited_business_starts_its_wizard_after_the_business_step() -> None:
+    world = World()
+    tenant = world.create.execute(uuid4(), "Inmobiliaria Sur", "corredor", "owner@example.com")
 
-    slugs = [
-        _sign_up_use_case(tenants, profiles)
-        .execute(
-            user_id=uuid4(),
-            email=f"user{index}@example.com",
-            business_name="Inmobiliaria Sur",
-            business_type="inmobiliaria",
-        )
-        .tenant.slug
-        for index in range(3)
-    ]
+    world.sign_up.execute(uuid4(), "owner@example.com")
 
-    assert slugs == ["inmobiliaria-sur", "inmobiliaria-sur-2", "inmobiliaria-sur-3"]
-
-
-def test_sign_up_creates_onboarding_and_default_settings() -> None:
-    onboardings = InMemoryOnboardingRepository()
-    settings = InMemoryBusinessSettingsRepository()
-
-    result = _sign_up_use_case(onboardings=onboardings, settings=settings).execute(
-        user_id=uuid4(),
-        email="Owner@Example.com",
-        business_name="Inmobiliaria Sur",
-        business_type="corredor",
-    )
-
-    onboarding = onboardings.get(result.tenant.id)
+    onboarding = world.onboardings.get(tenant.id)
     assert onboarding is not None
-    assert onboarding.current_step is OnboardingStep.AGENT
+    assert onboarding.current_step == OnboardingStep.AGENT
     assert OnboardingStep.BUSINESS in onboarding.completed_steps
-    saved = settings.get(result.tenant.id)
-    assert saved is not None
-    assert saved.business_type is BusinessType.BROKER
-    assert saved.notification_emails == ("owner@example.com",)
-    assert saved.team_hours == sample_defaults().team_hours
-
-
-def test_sign_up_rejects_unknown_business_type() -> None:
-    tenants = InMemoryTenantRepository()
-
-    with pytest.raises(InvalidBusinessTypeError):
-        _sign_up_use_case(tenants).execute(
-            user_id=uuid4(),
-            email="owner@example.com",
-            business_name="Inmobiliaria Sur",
-            business_type="pizzeria",
-        )
-
-    assert tenants.count() == 0

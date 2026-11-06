@@ -39,7 +39,8 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pyright
-      - run: uv run alembic upgrade head
+      # Every product's migration branch, and core's.
+      - run: uv run alembic upgrade heads
       - run: uv run pytest
 
   typescript:
@@ -63,7 +64,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: uv sync --all-packages --frozen
       - run: uv run --all-packages python scripts/generate_types.py
-      - run: git diff --exit-code -- packages/api-client-inmo24x7/src/schema.ts
+      - run: git diff --exit-code -- packages/api-client-inmo24x7/src/schema.ts packages/api-client-cuentas-claras/src/schema.ts
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
@@ -82,18 +83,24 @@ jobs:
         run: |
           IMAGE_TAG=sha-0000000 ENV_FILE=.env.production.example docker compose \
             --env-file .env.production.example -f compose.prod.yml \
-            --profile tools --profile observability config --quiet
-      - name: Caddyfile (with and without Grafana)
+            --profile tools --profile observability --profile cuentas-claras config --quiet
+      - name: Caddyfile (with and without Grafana and Cuentas Claras)
         run: |
           for site in grafana no-grafana; do
-            docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-              -v "$PWD/deploy/caddy/$site.caddy:/etc/caddy/grafana.caddy:ro" \
-              -e APP_DOMAIN=app.example.com -e ADMIN_DOMAIN=admin.example.com \
-              -e API_DOMAIN=api.example.com -e ACME_EMAIL=ops@example.com \
-              -e SUPABASE_URL=https://ref.supabase.co \
-              -e SENTRY_INGEST_HOST=https://o1.ingest.us.sentry.io \
-              -e GRAFANA_DOMAIN=grafana.example.com -e "GRAFANA_ALLOWED_IPS=0.0.0.0/0 ::/0" \
-              caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            for cc in cuentas-claras no-cuentas-claras; do
+              docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+                -v "$PWD/deploy/caddy/$site.caddy:/etc/caddy/grafana.caddy:ro" \
+                -v "$PWD/deploy/caddy/$cc.caddy:/etc/caddy/cuentas-claras.caddy:ro" \
+                -e APP_DOMAIN=app.example.com -e ADMIN_DOMAIN=admin.example.com \
+                -e API_DOMAIN=api.example.com -e ACME_EMAIL=ops@example.com \
+                -e SUPABASE_URL=https://ref.supabase.co \
+                -e SENTRY_INGEST_HOST=https://o1.ingest.us.sentry.io \
+                -e GRAFANA_DOMAIN=grafana.example.com -e "GRAFANA_ALLOWED_IPS=0.0.0.0/0 ::/0" \
+                -e CC_APP_DOMAIN=cuentasclaras.example.com \
+                -e CC_ADMIN_DOMAIN=cuentasclaras-admin.example.com \
+                -e CC_API_DOMAIN=cuentasclaras-api.example.com \
+                caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            done
           done
       - name: Loki and Alloy configs
         working-directory: deploy/observability
@@ -106,17 +113,58 @@ jobs:
               validate "/etc/alloy/$config"
           done
 
-  images:
+  # Images are published only for a product whose production values exist as repository
+  # variables (docs/go-live.md, step 4). A product that is not ready yet is skipped with a
+  # notice, never an error: tests, lint and the schema checks above run on every push anyway.
+  release-gate:
     if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
     needs:
       - python
       - typescript
       - deploy-files
     runs-on: ubuntu-latest
+    outputs:
+      inmo24x7_ready: ${{ steps.check.outputs.inmo24x7_ready }}
+      cuentas_claras_ready: ${{ steps.check.outputs.cuentas_claras_ready }}
+    env:
+      INMO24X7_API_URL: ${{ vars.INMO24X7_API_URL }}
+      INMO24X7_PANEL_URL: ${{ vars.INMO24X7_PANEL_URL }}
+      CUENTAS_CLARAS_API_URL: ${{ vars.CUENTAS_CLARAS_API_URL }}
+      CUENTAS_CLARAS_PANEL_URL: ${{ vars.CUENTAS_CLARAS_PANEL_URL }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
+      META_APP_ID: ${{ vars.META_APP_ID }}
+      META_EMBEDDED_SIGNUP_CONFIG_ID: ${{ vars.META_EMBEDDED_SIGNUP_CONFIG_ID }}
+    steps:
+      - id: check
+        run: |
+          check() {
+            local product=$1 output=$2 missing=""
+            shift 2
+            for name in "$@"; do
+              [ -n "${!name}" ] || missing="$missing $name"
+            done
+            if [ -n "$missing" ]; then
+              echo "::notice::$product images skipped. Missing repository variables:$missing (docs/go-live.md, step 4)"
+              echo "$output=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "$output=true" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          check inmo24x7 inmo24x7_ready INMO24X7_API_URL INMO24X7_PANEL_URL SUPABASE_URL \
+            SUPABASE_ANON_KEY META_APP_ID META_EMBEDDED_SIGNUP_CONFIG_ID
+          check "Cuentas Claras" cuentas_claras_ready CUENTAS_CLARAS_API_URL \
+            CUENTAS_CLARAS_PANEL_URL SUPABASE_URL SUPABASE_ANON_KEY
+
+  images-inmo24x7:
+    if: needs.release-gate.outputs.inmo24x7_ready == 'true'
+    needs: release-gate
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - image: inmo24x7-api
@@ -138,17 +186,6 @@ jobs:
       META_APP_ID: ${{ vars.META_APP_ID }}
       META_EMBEDDED_SIGNUP_CONFIG_ID: ${{ vars.META_EMBEDDED_SIGNUP_CONFIG_ID }}
     steps:
-      - name: The production values for the panel builds are set
-        run: |
-          missing=""
-          for name in INMO24X7_API_URL INMO24X7_PANEL_URL SUPABASE_URL SUPABASE_ANON_KEY \
-            META_APP_ID META_EMBEDDED_SIGNUP_CONFIG_ID; do
-            [ -n "${!name}" ] || missing="$missing $name"
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::Missing repository variables:$missing (docs/go-live.md, step 4)"
-            exit 1
-          fi
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4.4.0
       - uses: docker/setup-buildx-action@v4.4.1
@@ -159,9 +196,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Prepare image metadata
         run: |
-          echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
-          echo "APP_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')" >> "$GITHUB_ENV"
-          echo "IMAGE_PREFIX=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          {
+            echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "APP_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+            echo "IMAGE_PREFIX=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          } >> "$GITHUB_ENV"
       - uses: docker/build-push-action@v7.4.0
         with:
           context: .
@@ -182,6 +221,76 @@ jobs:
             VITE_PANEL_URL=${{ env.INMO24X7_PANEL_URL }}
             VITE_META_APP_ID=${{ env.META_APP_ID }}
             VITE_META_EMBEDDED_SIGNUP_CONFIG_ID=${{ env.META_EMBEDDED_SIGNUP_CONFIG_ID }}
+            VITE_SENTRY_DSN=${{ matrix.sentry_dsn_var && vars[matrix.sentry_dsn_var] || '' }}
+            SENTRY_ORG=${{ vars.SENTRY_ORG }}
+            SENTRY_PROJECT=${{ matrix.sentry_project_var && vars[matrix.sentry_project_var] || '' }}
+          # Source maps are uploaded to Sentry only when this secret exists (then deleted from
+          # the image). A BuildKit secret never lands in a layer.
+          secrets: |
+            sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  images-cuentas-claras:
+    if: needs.release-gate.outputs.cuentas_claras_ready == 'true'
+    needs: release-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: cuentas-claras-api
+            dockerfile: apps/cuentas-claras/api/Dockerfile
+          - image: cuentas-claras-web
+            dockerfile: apps/cuentas-claras/web/Dockerfile
+            sentry_dsn_var: CUENTAS_CLARAS_SENTRY_DSN_PANEL
+            sentry_project_var: CUENTAS_CLARAS_SENTRY_PROJECT_PANEL
+          - image: cuentas-claras-backoffice
+            dockerfile: apps/cuentas-claras/backoffice/Dockerfile
+            sentry_dsn_var: CUENTAS_CLARAS_SENTRY_DSN_BACKOFFICE
+            sentry_project_var: CUENTAS_CLARAS_SENTRY_PROJECT_BACKOFFICE
+    env:
+      CUENTAS_CLARAS_API_URL: ${{ vars.CUENTAS_CLARAS_API_URL }}
+      CUENTAS_CLARAS_PANEL_URL: ${{ vars.CUENTAS_CLARAS_PANEL_URL }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4.4.0
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare image metadata
+        run: |
+          {
+            echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "APP_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+            echo "IMAGE_PREFIX=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          } >> "$GITHUB_ENV"
+      - uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:sha-${{ github.sha }}
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+            VITE_AUTH_MODE=supabase
+            VITE_CUENTAS_CLARAS_API_URL=${{ env.CUENTAS_CLARAS_API_URL }}
+            VITE_SUPABASE_URL=${{ env.SUPABASE_URL }}
+            VITE_SUPABASE_ANON_KEY=${{ env.SUPABASE_ANON_KEY }}
+            VITE_PANEL_URL=${{ env.CUENTAS_CLARAS_PANEL_URL }}
             VITE_SENTRY_DSN=${{ matrix.sentry_dsn_var && vars[matrix.sentry_dsn_var] || '' }}
             SENTRY_ORG=${{ vars.SENTRY_ORG }}
             SENTRY_PROJECT=${{ matrix.sentry_project_var && vars[matrix.sentry_project_var] || '' }}

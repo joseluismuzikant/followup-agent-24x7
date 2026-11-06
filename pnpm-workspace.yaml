@@ -4,3 +4,7 @@ packages:
   - packages/ui
   - packages/api-client-inmo24x7
   - packages/observability
+  - packages/app-shell
+  - packages/api-client-cuentas-claras
+  - apps/cuentas-claras/web
+  - apps/cuentas-claras/backoffice

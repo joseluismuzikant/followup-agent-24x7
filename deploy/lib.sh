@@ -34,12 +34,22 @@ else
 	GRAFANA_ROOT_URL="http://localhost:3000"
 	GRAFANA_COOKIE_SECURE=false
 fi
-export ENV_FILE IMAGE_TAG COMPOSE_PROJECT COMPOSE_PROFILES CADDY_GRAFANA_SITE GRAFANA_ROOT_URL \
-	GRAFANA_COOKIE_SECURE
 
 observability_enabled() {
 	[[ ",$COMPOSE_PROFILES," == *",observability,"* ]]
 }
+
+# COMPOSE_PROFILES=cuentas-claras turns on Cuentas Claras's services and Caddy's three hosts.
+cuentas_claras_enabled() {
+	[[ ",$COMPOSE_PROFILES," == *",cuentas-claras,"* ]]
+}
+if cuentas_claras_enabled; then
+	CADDY_CUENTAS_CLARAS_SITE="./caddy/cuentas-claras.caddy"
+else
+	CADDY_CUENTAS_CLARAS_SITE="./caddy/no-cuentas-claras.caddy"
+fi
+export ENV_FILE IMAGE_TAG COMPOSE_PROJECT COMPOSE_PROFILES CADDY_GRAFANA_SITE GRAFANA_ROOT_URL \
+	GRAFANA_COOKIE_SECURE CADDY_CUENTAS_CLARAS_SITE
 
 compose() {
 	local args=(--project-name "$COMPOSE_PROJECT" --project-directory "$DEPLOY_DIR"

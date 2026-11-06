@@ -40,14 +40,22 @@ API container reaches it), generated secrets, and a throwaway age key pair for t
 Ports 80/443 busy? `REHEARSAL_HTTP_PORT=8080 REHEARSAL_HTTPS_PORT=8443` (then add the port
 to the URLs).
 
+It builds the images locally and needs none of the GitHub repository variables (those only
+gate CI's image publishing). `REHEARSAL_PRODUCTS=inmo24x7,cuentas-claras` also builds and
+starts Cuentas Claras (profile `cuentas-claras`) at https://cuentasclaras.localhost,
+https://cuentasclaras-admin.localhost and https://cuentasclaras-api.localhost; the smoke
+checks still cover inmo24x7 only.
+
 `smoke` checks, in order:
 
 1. `https://api.localhost/health/ready` reports the deployed commit;
 2. the panel and backoffice load, with HSTS and the CSP that allows the Facebook SDK;
 3. every table has row level security, and the Alembic revision;
-4. a Supabase token (ES256, verified with the JWKS and the issuer) signs up; `make_admin.py`
-   runs in the API container; a confirmed email joins the business an admin created for it,
-   and an unconfirmed one never does;
+4. `make_admin.py --create` makes the first admin in Supabase Auth (service-role key); its
+   temporary password signs in (ES256, verified with the JWKS and the issuer) but gets
+   `password_change_required` until it is changed; "Dar de alta un negocio" gives an invited
+   owner a temporary password, and after choosing her own she joins her business; Supabase
+   refuses self sign-up;
 5. a signed webhook goes through Caddy, the worker answers with the agent's reply, and a bad
    signature gets 401;
 6. the API's webhook line and the worker's lines for that business (by `tenant_id`) reach
@@ -71,15 +79,16 @@ Security → Manage certificates → Authorities; Firefox: Settings → Certific
 Linux system-wide: copy to `/usr/local/share/ca-certificates/` and run
 `sudo update-ca-certificates`). Remove it after the rehearsal.
 
-Sign in at https://app.localhost with a magic link: the email is in the Supabase CLI's mail
-UI (http://127.0.0.1:54324). `supabase/config.toml` lists `https://app.localhost` and
-`https://admin.localhost` as redirect URLs; restart the CLI stack (`npx supabase stop &&
-npx supabase start`) if it was running before you pulled that change. Make yourself an
-admin with:
+Nobody can sign up (as in production), so make yourself an admin first; it prints a
+temporary password you change at the first sign-in at https://admin.localhost.
+`supabase/config.toml` lists the rehearsal hosts as redirect URLs and turns sign-up off;
+restart the CLI stack (`npx supabase stop && npx supabase start`) if it was running before
+you pulled that change. Supabase's own emails ("¿Olvidaste tu clave?") are in the CLI's mail
+UI (http://127.0.0.1:54324).
 
 ```bash
 docker compose --project-name inmo24x7-rehearsal --project-directory deploy \
   -f deploy/compose.prod.yml -f deploy/rehearsal/compose.rehearsal.yml \
   --env-file deploy/rehearsal/.env.rehearsal \
-  run --rm api python scripts/make_admin.py <your email>
+  run --rm api python scripts/make_admin.py <your email> --create
 ```

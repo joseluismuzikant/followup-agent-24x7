@@ -26,6 +26,12 @@ TABLES = (
     "whatsapp_outbound",
     "audit_events",
     "tenant_owner_claims",
+    "accounts",
+    "invitations",
+    "dev_passwords",
+    "cc_clients",
+    "cc_invoices",
+    "cc_invoice_imports",
 )
 
 
@@ -36,6 +42,12 @@ def _snapshot(session) -> dict[str, object]:
     counts["properties_updated"] = session.execute(
         text("SELECT max(updated_at) FROM properties")
     ).scalar()
+    for product in ("inmo24x7", "cuentas_claras"):
+        for table in ("tenants", "profiles"):
+            counts[f"{product}_{table}"] = session.execute(
+                text(f"SELECT count(*) FROM {table} WHERE product = :product"),
+                {"product": product},
+            ).scalar()
     return counts
 
 
@@ -46,13 +58,29 @@ def test_seed_creates_the_dev_accounts_and_running_it_twice_changes_nothing(db_s
     seed_dev.seed(db_session)
 
     assert _snapshot(db_session) == first
-    # Plataforma, Inmobiliaria Sur and the five S8 businesses (one waits for its owner).
-    assert first["tenants"] == 7 and first["profiles"] == 6
+    # Plataforma, Inmobiliaria Sur, the five S8 businesses and Nuevo Inmo; two wait for
+    # their invited owners.
+    assert first["inmo24x7_tenants"] == 8 and first["inmo24x7_profiles"] == 6
     assert first["properties"] == 60 and first["property_imports"] == 3
     assert first["whatsapp_connections"] == 3
-    assert first["tenant_owner_claims"] == 1
+    # Every business was created by an admin ("Dar de alta"), in both products.
+    assert first["tenant_owner_claims"] == 14
+    # One account per person; the three invited ones still have the temporary password.
+    assert first["accounts"] == first["dev_passwords"] == 12
+    assert first["invitations"] == 4
+    must_change = db_session.execute(
+        text("SELECT email FROM accounts WHERE must_change_password ORDER BY email")
+    ).scalars()
+    assert list(must_change) == [
+        "invitada@villaurquiza.test",
+        "invitado@matafuegosnorte.test",
+        "nuevo@local.test",
+    ]
     admin = db_session.execute(
-        text("SELECT id, is_platform_admin FROM profiles WHERE email = 'admin@local.test'")
+        text(
+            "SELECT id, is_platform_admin FROM profiles "
+            "WHERE email = 'admin@local.test' AND product = 'inmo24x7'"
+        )
     ).one()
     assert admin == (dev_user_id("admin@local.test"), True)
     onboarding = db_session.execute(
@@ -69,6 +97,57 @@ def test_seed_creates_the_dev_accounts_and_running_it_twice_changes_nothing(db_s
         ).scalar()
         == 0
     )
+
+
+def test_the_seed_gives_cuentas_claras_its_own_accounts(db_session) -> None:
+    seed_dev.seed(db_session)
+
+    first = _snapshot(db_session)
+    # Plataforma, Ascensores Delta, Monitoreo Sur (suspended), Soporte IT Norte (wizard
+    # unfinished), and Nuevo Negocio and Matafuegos Norte (invited); admin@local.test is a
+    # second profile of the same user.
+    assert first["cuentas_claras_tenants"] == 6 and first["cuentas_claras_profiles"] == 4
+    states = dict(
+        db_session.execute(
+            text(
+                "SELECT t.name, t.status || '/' || o.current_step FROM tenants t "
+                "JOIN tenant_onboarding o ON o.tenant_id = t.id "
+                "WHERE t.product = 'cuentas_claras'"
+            )
+        ).all()
+    )
+    assert states["Monitoreo Sur"].startswith("suspended/")
+    assert states["Soporte IT Norte"] == "active/invoices"
+    assert first["cc_invoices"] == 40 and first["cc_clients"] == 25
+    assert first["cc_invoice_imports"] == 1
+    admin = db_session.execute(
+        text(
+            "SELECT id, user_id, is_platform_admin FROM profiles "
+            "WHERE email = 'admin@local.test' AND product = 'cuentas_claras'"
+        )
+    ).one()
+    assert admin.user_id == dev_user_id("admin@local.test")
+    assert admin.id != admin.user_id and admin.is_platform_admin
+    finished = db_session.execute(
+        text(
+            "SELECT o.current_step, o.finished_at IS NOT NULL FROM tenant_onboarding o "
+            "JOIN tenants t ON t.id = o.tenant_id "
+            "WHERE t.product = 'cuentas_claras' AND t.name = 'Ascensores Delta'"
+        )
+    ).one()
+    assert tuple(finished) == ("done", True)
+
+
+def test_the_sample_invoices_are_shifted_to_today() -> None:
+    from datetime import date
+
+    rows = seed_dev.shifted_invoices(date(2026, 11, 12)).decode().splitlines()
+    original = seed_dev.SAMPLE_INVOICES.read_text(encoding="utf-8").splitlines()
+
+    assert rows[0] == original[0] and len(rows) == len(original)
+    # 10 days after the reference date: every date moves 10 days, nothing else changes.
+    assert "23/09/2026;" in original[1] and "03/10/2026;" in rows[1]
+    assert rows[1].split(";")[:9] == original[1].split(";")[:9]
 
 
 def test_the_seed_fills_the_inbox_through_the_pipeline(db_session) -> None:
@@ -184,4 +263,10 @@ def test_the_seed_gives_the_backoffice_one_business_per_state(db_session) -> Non
     actions = {
         row.action for row in db_session.execute(text("SELECT DISTINCT action FROM audit_events"))
     }
-    assert {"sign_up", "whatsapp_error", "tenant_suspended", "tenant_created_by_admin"} <= actions
+    assert {
+        "owner_claimed",
+        "owner_invited",
+        "whatsapp_error",
+        "tenant_suspended",
+        "tenant_created_by_admin",
+    } <= actions

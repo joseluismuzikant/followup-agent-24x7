@@ -9,15 +9,16 @@ from uuid import UUID
 from followup_core.identity.domain.profile_repository import ProfileRepository
 
 from ..domain.audit import ActorKind, AuditAction, AuditEvent, AuditLog
-from ..domain.business_settings import BusinessSettings, BusinessType
+from ..domain.business_settings import BusinessSettings
 from ..domain.business_settings_repository import BusinessSettingsRepository
 from ..domain.errors import OwnerEmailTakenError, TenantNotFoundError
 from ..domain.onboarding import Onboarding
 from ..domain.onboarding_repository import OnboardingRepository
 from ..domain.owner_claims import OwnerClaim, OwnerClaimRepository
+from ..domain.product import ProductDefinition
 from ..domain.tenant import Tenant
 from ..domain.tenant_repository import TenantRepository
-from .defaults import SetupDefaults
+from .defaults import BusinessDefaults
 
 Clock = Callable[[], datetime]
 
@@ -37,10 +38,13 @@ class CreateBusinessForOwner:
         onboardings: OnboardingRepository,
         settings: BusinessSettingsRepository,
         claims: OwnerClaimRepository,
-        defaults: SetupDefaults,
+        defaults: BusinessDefaults,
         audit: AuditLog,
         clock: Clock = _now,
+        *,
+        definition: ProductDefinition,
     ) -> None:
+        self._definition = definition
         self._tenants = tenants
         self._profiles = profiles
         self._onboardings = onboardings
@@ -56,8 +60,8 @@ class CreateBusinessForOwner:
         email = owner_email.strip().lower()
         if self._profiles.get_by_email(email) is not None or self._claims.exists(email):
             raise OwnerEmailTakenError(email)
-        parsed_type = BusinessType.parse(business_type)
-        tenant = Tenant.create(business_name)
+        parsed_type = self._definition.parse_business_type(business_type)
+        tenant = Tenant.create(business_name, self._definition.product)
         slug, suffix = tenant.slug, 2
         while self._tenants.slug_exists(slug):
             slug = f"{tenant.slug}-{suffix}"
@@ -74,7 +78,11 @@ class CreateBusinessForOwner:
                 notification_emails=(email,),
             )
         )
-        self._onboardings.add(Onboarding.start(tenant.id, now))
+        self._onboardings.add(
+            Onboarding.start(
+                tenant.id, now, self._definition.onboarding_steps, self._definition.first_step
+            )
+        )
         self._claims.add(OwnerClaim(email, tenant.id, now))
         self._audit.record(
             AuditEvent(

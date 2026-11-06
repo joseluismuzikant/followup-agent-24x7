@@ -12,6 +12,7 @@ import {
   Input,
   PanelLayout,
 } from "@followup/ui";
+import { OwnerInvitationCard } from "@followup/app-shell";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
@@ -22,6 +23,8 @@ import {
   fetchSystemHealth,
   fetchTenantUsage,
   reactivateBusiness,
+  resendInvitation,
+  resetTemporaryPassword,
   retrySignup,
   sendReconnectLink,
   suspendBusiness,
@@ -130,6 +133,13 @@ function Detail({ business, queryKey }: DetailProps) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         <div className="flex flex-col gap-6">
+          {business.owner_pending ? (
+            <OwnerInvitationCard
+              ownerEmail={business.owner_email}
+              resend={() => resendInvitation(business.id)}
+              resetPassword={() => resetTemporaryPassword(business.id)}
+            />
+          ) : null}
           <WhatsAppCard business={business} queryKey={queryKey} />
           <BusinessErrorsCard tenantId={business.id} />
           <ActivityCard business={business} />

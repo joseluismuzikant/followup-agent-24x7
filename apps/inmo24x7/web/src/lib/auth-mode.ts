@@ -1,14 +1,5 @@
-export type AuthMode = "supabase" | "dev";
+import { readAuthMode } from "@followup/app-shell";
 
-/** Vite passes unset variables from .env as "", so an empty value counts as unset. */
-export function envValue(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
+export { envValue, readAuthMode, type AuthMode } from "@followup/app-shell";
 
-/** `VITE_AUTH_MODE=dev` signs in with `dev:<email>` tokens; anything else uses Supabase. */
-export function readAuthMode(value: string | undefined): AuthMode {
-  return envValue(value) === "dev" ? "dev" : "supabase";
-}
-
-export const authMode: AuthMode = readAuthMode(import.meta.env.VITE_AUTH_MODE);
+export const authMode = readAuthMode(import.meta.env.VITE_AUTH_MODE);

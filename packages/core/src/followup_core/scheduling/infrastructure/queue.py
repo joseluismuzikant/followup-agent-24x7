@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from ...infrastructure import log_context
+from ...tenancy.domain.product import FIRST_PRODUCT
 from ..domain.jobs import (
     Job,
     JobError,
@@ -34,11 +35,15 @@ def utc_now() -> datetime:
 
 
 class SqlAlchemyJobQueue:
-    """Jobs in Postgres, written in the caller's transaction."""
+    """Jobs in Postgres, written in the caller's transaction. Each product has its own queue:
+    jobs are enqueued into it and only that product's worker claims them."""
 
-    def __init__(self, session: Session, clock: Clock = utc_now) -> None:
+    def __init__(
+        self, session: Session, clock: Clock = utc_now, queue: str = FIRST_PRODUCT
+    ) -> None:
         self._session = session
         self._clock = clock
+        self._queue = str(queue)
 
     def enqueue(self, job: NewJob) -> bool:
         now = self._clock()
@@ -46,6 +51,7 @@ class SqlAlchemyJobQueue:
             insert(JobModel)
             .values(
                 id=uuid4(),
+                queue=self._queue,
                 kind=job.kind,
                 payload=dict(job.payload),
                 run_at=job.run_at or now,
@@ -55,7 +61,7 @@ class SqlAlchemyJobQueue:
                 dedupe_key=job.dedupe_key,
                 created_at=now,
             )
-            .on_conflict_do_nothing(index_elements=["dedupe_key"])
+            .on_conflict_do_nothing(index_elements=["queue", "dedupe_key"])
             .returning(JobModel.id)
         )
         return self._session.execute(statement).scalar_one_or_none() is not None
@@ -70,8 +76,9 @@ class SqlAlchemyJobQueue:
                        locked_until = :locked_until
                 WHERE id = (
                     SELECT id FROM jobs
-                    WHERE (status IN ('queued', 'failed') AND run_at <= :now)
-                       OR (status = 'running' AND locked_until < :now)
+                    WHERE queue = :queue
+                      AND ((status IN ('queued', 'failed') AND run_at <= :now)
+                           OR (status = 'running' AND locked_until < :now))
                     ORDER BY run_at
                     FOR UPDATE SKIP LOCKED
                     LIMIT 1
@@ -79,7 +86,7 @@ class SqlAlchemyJobQueue:
                 RETURNING id, kind, payload, run_at, status, attempts, max_attempts
                 """
             ),
-            {"now": now, "locked_until": now + lease},
+            {"now": now, "locked_until": now + lease, "queue": self._queue},
         ).one_or_none()
         if row is None:
             return None
@@ -139,17 +146,21 @@ class JobRunner:
         clock: Clock = utc_now,
         lease: timedelta = DEFAULT_LEASE,
         jitter: Callable[[], float] = random.random,
+        queue: str = FIRST_PRODUCT,
     ) -> None:
         self._sessions = sessions
         self._handlers = handlers
         self._clock = clock
         self._lease = lease
         self._jitter = jitter
+        self._queue = str(queue)
 
     def run_next(self) -> bool:
         """Runs one due job. False when there was nothing to do."""
         with self._sessions() as session:
-            job = SqlAlchemyJobQueue(session, self._clock).claim(self._clock(), self._lease)
+            job = SqlAlchemyJobQueue(session, self._clock, self._queue).claim(
+                self._clock(), self._lease
+            )
             session.commit()
         if job is None:
             return False
@@ -174,7 +185,7 @@ class JobRunner:
             self._record_failure(job, JobError(result.code))
             return
         with self._sessions() as session:
-            queue = SqlAlchemyJobQueue(session, self._clock)
+            queue = SqlAlchemyJobQueue(session, self._clock, self._queue)
             if isinstance(result, Reschedule):
                 queue.reschedule(job, result.run_at)
             else:
@@ -197,7 +208,7 @@ class JobRunner:
             code, retry = type(error).__name__, True
         now = self._clock()
         with self._sessions() as session:
-            dead = SqlAlchemyJobQueue(session, self._clock).fail(
+            dead = SqlAlchemyJobQueue(session, self._clock, self._queue).fail(
                 job, code, now, retry=retry, run_at=now + backoff(job.attempts, self._jitter)
             )
             session.commit()

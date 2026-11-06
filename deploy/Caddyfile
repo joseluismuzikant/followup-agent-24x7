@@ -1,5 +1,6 @@
 # inmo24x7: three hosts with automatic HTTPS (Let's Encrypt), plus Grafana when
-# GRAFANA_DOMAIN is set (caddy/grafana.caddy). The values come from .env.production:
+# GRAFANA_DOMAIN is set (caddy/grafana.caddy) and Cuentas Claras's hosts when its profile is on
+# (caddy/cuentas-claras.caddy). The values come from .env.production:
 # APP_DOMAIN, ADMIN_DOMAIN, API_DOMAIN, ACME_EMAIL, SUPABASE_URL and SENTRY_INGEST_HOST.
 {
 	email {$ACME_EMAIL}
@@ -89,3 +90,7 @@
 
 # Grafana, or nothing (lib.sh picks caddy/grafana.caddy or caddy/no-grafana.caddy).
 import /etc/caddy/grafana.caddy
+
+# Cuentas Claras's three hosts, or nothing (lib.sh picks caddy/cuentas-claras.caddy when
+# COMPOSE_PROFILES has cuentas-claras, caddy/no-cuentas-claras.caddy otherwise).
+import /etc/caddy/cuentas-claras.caddy

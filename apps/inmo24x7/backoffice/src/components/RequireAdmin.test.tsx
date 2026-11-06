@@ -1,9 +1,11 @@
 import { ApiRequestError } from "@followup/api-client-inmo24x7";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { account } from "../api/client";
 import { fetchMe } from "../api/me";
 import { AuthProvider } from "../lib/auth";
 import { readDevToken, signOutDev } from "../lib/dev-session";
@@ -23,15 +25,18 @@ vi.mock("../lib/auth-mode", () => ({
 }));
 vi.mock("../lib/supabase", () => ({ getSupabase: vi.fn(() => ({ auth })) }));
 vi.mock("../api/me", () => ({ fetchMe: vi.fn() }));
+vi.mock("../api/client", () => ({ account: { fetchAccount: vi.fn(), devSignIn: vi.fn() } }));
 
 function renderGuard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RequireAdmin>
-          <p>Negocios</p>
-        </RequireAdmin>
+        <MemoryRouter>
+          <RequireAdmin>
+            <p>Negocios</p>
+          </RequireAdmin>
+        </MemoryRouter>
       </AuthProvider>
     </QueryClientProvider>,
   );
@@ -44,31 +49,50 @@ describe("RequireAdmin sign-in", () => {
     signOutDev();
     auth.getSession.mockResolvedValue({ data: { session: null } });
     auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
+    vi.mocked(account.fetchAccount).mockResolvedValue({
+      email: "admin@local.test",
+      must_change_password: false,
+    });
   });
 
-  it("in dev mode shows the development box instead of Google and the magic link", async () => {
+  it("in dev mode checks the password with the API and lets the admin in", async () => {
     mode.current = "dev";
     vi.mocked(fetchMe).mockResolvedValue({
       profile: { is_platform_admin: true },
     } as Awaited<ReturnType<typeof fetchMe>>);
+    vi.mocked(account.devSignIn).mockResolvedValue("dev:admin@local.test");
     const user = renderGuard();
 
-    expect(await screen.findByText("Modo desarrollo")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Continuar con Google" })).toBeNull();
-
-    await user.type(screen.getByLabelText("Email de prueba"), "admin@local.test");
+    expect(await screen.findByText("Entrá al backoffice")).toBeTruthy();
+    await user.type(screen.getByLabelText("Email"), "admin@local.test");
+    await user.type(screen.getByLabelText("Clave"), "local-1234");
     await user.click(screen.getByRole("button", { name: "Entrar" }));
 
+    expect(account.devSignIn).toHaveBeenCalledWith("admin@local.test", "local-1234");
     expect(readDevToken()).toBe("dev:admin@local.test");
     expect(await screen.findByText("Negocios")).toBeTruthy();
   });
 
-  it("in Supabase mode shows Google and the magic link only", async () => {
+  it("asks an admin with a temporary password to choose one first", async () => {
+    mode.current = "dev";
+    vi.mocked(account.fetchAccount).mockResolvedValue({
+      email: "admin@local.test",
+      must_change_password: true,
+    });
+    const { storeDevToken } = await import("../lib/dev-session");
+    storeDevToken("dev:admin@local.test");
+    renderGuard();
+
+    expect(await screen.findByText("Elegí tu clave")).toBeTruthy();
+    expect(screen.queryByText("Negocios")).toBeNull();
+  });
+
+  it("in Supabase mode has no development hint", async () => {
     mode.current = "supabase";
     renderGuard();
 
-    expect(await screen.findByRole("button", { name: "Continuar con Google" })).toBeTruthy();
-    expect(screen.queryByText("Modo desarrollo")).toBeNull();
+    expect(await screen.findByLabelText("Clave")).toBeTruthy();
+    expect(screen.queryByText(/Modo desarrollo/)).toBeNull();
   });
 
   describe("when signed in", () => {
@@ -77,8 +101,8 @@ describe("RequireAdmin sign-in", () => {
     });
 
     async function signedIn(email = "persona@local.test") {
-      const { signInDev } = await import("../lib/dev-session");
-      signInDev(email);
+      const { storeDevToken } = await import("../lib/dev-session");
+      storeDevToken(`dev:${email}`);
       return renderGuard();
     }
 

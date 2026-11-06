@@ -5,7 +5,6 @@ import pytest
 from followup_core.tenancy.domain.business_settings import (
     TEAM_HOURS_MON_SAT_9_13,
     TEAM_HOURS_WEEKDAYS_9_18,
-    BusinessType,
     ScheduleBlock,
     is_within_team_hours,
 )
@@ -14,7 +13,7 @@ from followup_core.tenancy.domain.errors import (
     InvalidNotificationEmailError,
     InvalidTeamHoursError,
 )
-from tenancy_fakes import sample_settings
+from tenancy_fakes import SAMPLE_PRODUCT, sample_settings
 
 
 def _buenos_aires(day: int, hour: int, minute: int = 0) -> datetime:
@@ -105,4 +104,4 @@ def test_unknown_timezone_and_business_type_are_rejected() -> None:
     with pytest.raises(InvalidTeamHoursError):
         sample_settings(uuid4(), timezone="Mars/Olympus")
     with pytest.raises(InvalidBusinessTypeError):
-        BusinessType.parse("pizzeria")
+        SAMPLE_PRODUCT.parse_business_type("pizzeria")

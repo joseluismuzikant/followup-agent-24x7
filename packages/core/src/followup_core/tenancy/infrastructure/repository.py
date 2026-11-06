@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..domain.errors import DuplicateTenantSlugError, TenantNotFoundError
+from ..domain.product import FIRST_PRODUCT, Product
 from ..domain.tenant import Plan, Tenant, TenantStatus
 from .models import TenantModel
 
@@ -32,17 +33,28 @@ def _to_domain(model: TenantModel) -> Tenant:
         plan=Plan(model.plan),
         suspended_reason=model.suspended_reason,
         suspended_at=suspended_at,
+        product=Product(model.product),
     )
 
 
 class SqlAlchemyTenantRepository:
-    def __init__(self, session: Session) -> None:
+    """One product's tenants: a tenant of another product does not exist here."""
+
+    def __init__(self, session: Session, product: Product = FIRST_PRODUCT) -> None:
         self._session = session
+        self._product = product
+
+    def _get(self, tenant_id: UUID) -> TenantModel | None:
+        model = self._session.get(TenantModel, tenant_id)
+        return model if model is not None and model.product == self._product else None
 
     def add(self, tenant: Tenant) -> None:
+        if tenant.product != self._product:
+            raise ValueError(f"A {tenant.product} tenant in the {self._product} repository.")
         self._session.add(
             TenantModel(
                 id=tenant.id,
+                product=tenant.product.value,
                 name=tenant.name,
                 slug=tenant.slug,
                 created_at=tenant.created_at,
@@ -60,7 +72,7 @@ class SqlAlchemyTenantRepository:
             ) from error
 
     def save(self, tenant: Tenant) -> None:
-        model = self._session.get(TenantModel, tenant.id)
+        model = self._get(tenant.id)
         if model is None:
             raise TenantNotFoundError(f"Tenant '{tenant.id}' does not exist.")
         model.name = tenant.name
@@ -71,13 +83,14 @@ class SqlAlchemyTenantRepository:
         self._session.flush()
 
     def get_by_id(self, tenant_id: UUID) -> Tenant | None:
-        model = self._session.get(TenantModel, tenant_id)
+        model = self._get(tenant_id)
         return _to_domain(model) if model is not None else None
 
     def list_page(self, page: int, limit: int) -> Sequence[Tenant]:
         offset = (page - 1) * limit
         models = self._session.scalars(
             select(TenantModel)
+            .where(TenantModel.product == self._product)
             .order_by(TenantModel.created_at.desc(), TenantModel.id)
             .offset(offset)
             .limit(limit)
@@ -85,7 +98,20 @@ class SqlAlchemyTenantRepository:
         return [_to_domain(model) for model in models]
 
     def count(self) -> int:
-        return self._session.scalar(select(func.count()).select_from(TenantModel)) or 0
+        return (
+            self._session.scalar(
+                select(func.count())
+                .select_from(TenantModel)
+                .where(TenantModel.product == self._product)
+            )
+            or 0
+        )
 
     def slug_exists(self, slug: str) -> bool:
-        return bool(self._session.scalar(select(exists().where(TenantModel.slug == slug))))
+        return bool(
+            self._session.scalar(
+                select(
+                    exists().where(TenantModel.slug == slug, TenantModel.product == self._product)
+                )
+            )
+        )

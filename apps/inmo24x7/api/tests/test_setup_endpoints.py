@@ -23,11 +23,8 @@ class Account:
         self.email = f"{self.user_id}@example.com"
         token = auth.register(self.user_id, email=self.email)
         self.headers = {"Authorization": f"Bearer {token}"}
-        response = client.post(
-            "/me/sign-up",
-            json={"business_name": name, "business_type": "inmobiliaria"},
-            headers=self.headers,
-        )
+        auth.invite(self.email, name)
+        response = client.post("/me/sign-up", headers=self.headers)
         assert response.status_code == 201
         self.tenant_id = UUID(response.json()["tenant"]["id"])
 

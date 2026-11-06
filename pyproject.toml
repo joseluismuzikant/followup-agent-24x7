@@ -6,7 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["packages/core", "apps/inmo24x7/api"]
+members = ["packages/core", "packages/platform", "apps/inmo24x7/api", "apps/cuentas-claras/api"]
 
 [dependency-groups]
 dev = [
@@ -17,7 +17,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/core/tests", "apps/inmo24x7/api/tests"]
+testpaths = ["packages/core/tests", "apps/inmo24x7/api/tests", "apps/cuentas-claras/api/tests"]
 addopts = "-q"
 
 [tool.pyright]
@@ -29,9 +29,13 @@ extraPaths = ["scripts"]
 include = [
     "packages/core/src",
     "packages/core/tests",
+    "packages/platform/src",
     "apps/inmo24x7/api/src",
     "apps/inmo24x7/api/tests",
     "apps/inmo24x7/api/migrations",
+    "apps/cuentas-claras/api/src",
+    "apps/cuentas-claras/api/tests",
+    "apps/cuentas-claras/api/migrations",
     "scripts",
 ]
 

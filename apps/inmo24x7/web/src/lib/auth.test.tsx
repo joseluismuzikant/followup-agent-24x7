@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readAuthMode } from "./auth-mode";
 import { AuthProvider, RequireAuth, useAuth } from "./auth";
-import { readDevToken, signInDev, signOutDev } from "./dev-session";
+import { readDevToken, signOutDev, storeDevToken } from "./dev-session";
 import { getSupabase } from "./supabase";
 
 const mode = vi.hoisted(() => ({ current: "supabase" as "supabase" | "dev" }));
@@ -87,7 +87,7 @@ describe("RequireAuth in dev mode", () => {
   });
 
   it("uses the dev token and never builds the Supabase client", async () => {
-    signInDev("dueno@inmobiliariasur.test");
+    storeDevToken("dev:dueno@inmobiliariasur.test");
 
     renderGuard();
 
@@ -96,7 +96,7 @@ describe("RequireAuth in dev mode", () => {
   });
 
   it("signing out clears the dev token and goes back to /ingreso", async () => {
-    signInDev("dueno@inmobiliariasur.test");
+    storeDevToken("dev:dueno@inmobiliariasur.test");
     renderGuard();
 
     const button = await screen.findByRole("button", { name: "Salir" });

@@ -65,3 +65,7 @@ class OwnerEmailTakenError(TenantError):
 
 class InvalidAuditDetailsError(TenantError):
     """Raised when audit details carry a key outside the allowlist (personal data)."""
+
+
+class NotInvitedError(TenantError):
+    """Raised when someone signs up without an admin's invitation for this product."""

@@ -7,7 +7,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  WizardStepper,
 } from "@followup/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router";
@@ -22,7 +21,9 @@ import { SimulatorView } from "../components/SimulatorView";
 import { ConnectWhatsApp } from "../components/whatsapp/ConnectWhatsApp";
 import { BusinessStep } from "../components/onboarding/BusinessStep";
 import { apiErrorMessage } from "../lib/api-errors";
+import { useAuth } from "../lib/auth";
 import { deferOnboarding, resumeOnboarding } from "../lib/onboarding-deferred";
+import { ClaimInvitation, WizardFrame as ShellWizardFrame } from "@followup/app-shell";
 import { stepFromPath, stepIndex, wizardSteps } from "../lib/setup";
 import type { WizardStepId } from "../lib/setup";
 
@@ -43,10 +44,8 @@ export function OnboardingPage() {
     return <Navigate to="/" replace />;
   }
   if (noProfile) {
-    if (stepParam && stepFromPath(stepParam)?.id !== "business") {
-      return <Navigate to={stepPath("business")} replace />;
-    }
-    return <WizardFrame current="business" reachable={["business"]} canDefer={false} />;
+    // First time in: join the business the admin created for this email.
+    return <ClaimInvitation productName="inmo24x7" signUp={signUp} useAuth={useAuth} />;
   }
 
   return <ExistingAccountWizard stepParam={stepParam} />;
@@ -96,11 +95,6 @@ interface WizardFrameProps {
 
 function WizardFrame({ current, reachable, state, canDefer }: WizardFrameProps) {
   const navigate = useNavigate();
-  const index = stepIndex(current);
-
-  function selectStep(id: string) {
-    navigate(stepPath(id as WizardStepId));
-  }
 
   function finishLater() {
     deferOnboarding();
@@ -108,42 +102,23 @@ function WizardFrame({ current, reachable, state, canDefer }: WizardFrameProps) 
   }
 
   return (
-    <div className="min-h-screen bg-muted/40">
-      <header className="border-b bg-card">
-        <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-sm font-medium">
-              inmo24x7 · Paso {index + 1} de {wizardSteps.length} · {wizardSteps[index].label}
-            </p>
-            {canDefer ? (
-              <Button variant="ghost" size="sm" onClick={finishLater}>
-                Terminar después
-              </Button>
-            ) : null}
-          </div>
-          <WizardStepper
-            ariaLabel="Pasos de la configuración"
-            currentId={current}
-            onSelect={selectStep}
-            steps={wizardSteps.map((step) => ({
-              id: step.id,
-              label: step.label,
-              reachable: reachable.includes(step.id),
-            }))}
-          />
-        </div>
-      </header>
-      <main className="mx-auto max-w-3xl px-4 py-8">
-        <StepContent current={current} state={state} />
-      </main>
-    </div>
+    <ShellWizardFrame
+      productName="inmo24x7"
+      steps={wizardSteps}
+      current={current}
+      reachable={reachable}
+      onSelect={(id) => navigate(stepPath(id as WizardStepId))}
+      onFinishLater={canDefer ? finishLater : undefined}
+    >
+      <StepContent current={current} state={state} />
+    </ShellWizardFrame>
   );
 }
 
 function StepContent({ current, state }: { current: WizardStepId; state?: OnboardingState }) {
   switch (current) {
     case "business":
-      return <BusinessStepContainer hasAccount={Boolean(state)} />;
+      return <BusinessStepContainer />;
     case "agent":
       return <AgentStepContainer />;
     case "try":
@@ -175,18 +150,14 @@ function StepCard({
   );
 }
 
-function BusinessStepContainer({ hasAccount }: { hasAccount: boolean }) {
+function BusinessStepContainer() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const settingsQuery = useQuery({
-    queryKey: ["tenant-settings"],
-    queryFn: fetchTenantSettings,
-    enabled: hasAccount,
-  });
+  const settingsQuery = useQuery({ queryKey: ["tenant-settings"], queryFn: fetchTenantSettings });
   const mutation = useMutation({
     mutationFn: async ({ name, type }: { name: string; type: string }) => {
       if (!settingsQuery.data) {
-        return signUp(name, type);
+        throw new Error("settings not loaded");
       }
       const { business_hours, notification_emails } = settingsQuery.data;
       return saveTenantSettings({
@@ -202,7 +173,7 @@ function BusinessStepContainer({ hasAccount }: { hasAccount: boolean }) {
     },
   });
 
-  if (hasAccount && settingsQuery.isPending) {
+  if (settingsQuery.isPending) {
     return null;
   }
 

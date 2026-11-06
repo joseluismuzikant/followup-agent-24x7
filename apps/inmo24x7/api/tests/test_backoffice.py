@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from followup_core.identity.infrastructure.dev_verifier import dev_user_id
 from inmo24x7_api.backoffice.domain.rules import (
     Onboarding,
     TenantRow,
@@ -12,7 +13,7 @@ from inmo24x7_api.backoffice.domain.rules import (
     needs_help,
     whatsapp_badge,
 )
-from inmo24x7_api.container import get_email_confirmation, get_messaging_services
+from inmo24x7_api.container import get_messaging_services
 from inmo24x7_api.main import app
 from test_setup_endpoints import Account, _body
 from whatsapp_fakes import (
@@ -178,55 +179,22 @@ def test_the_detail_masks_the_waba_and_shows_activity_usage_and_users(world: Wor
         }
     ]
     actions = [event["action"] for event in detail["activity"]]
-    assert actions[-2:] == ["agent_config_saved", "sign_up"]
+    assert actions[-3:] == ["agent_config_saved", "owner_claimed", "tenant_created_by_admin"]
     assert "whatsapp_connected" in actions
     connected = next(e for e in detail["activity"] if e["action"] == "whatsapp_connected")
     assert (connected["actor_kind"], connected["actor_name"]) == ("admin", world.admin.email)
     assert [item["done"] for item in detail["onboarding"]] == [True, True, False, False, False]
 
 
-class Confirmation:
-    """Supabase Auth's answer about the email, as the test decides."""
-
-    def __init__(self, confirmed: bool) -> None:
-        self.confirmed = confirmed
-        self.asked: list[tuple[str, str]] = []
-
-    def is_confirmed(self, access_token: str, email: str) -> bool:
-        self.asked.append((access_token, email))
-        return self.confirmed
+def _invitation_token(world: World, email: str) -> str:
+    world.run()
+    message = next(m for m in reversed(world.emails.sent) if email in m.to)
+    return message.text.split("invitacion?token=", 1)[1].split()[0]
 
 
-def _sign_up(client, auth, email: str, name: str = "Lo que escriba"):
-    token = auth.register(uuid4(), email=email)
-    return client.post(
-        "/me/sign-up",
-        json={"business_name": name, "business_type": "inmobiliaria"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-
-def test_an_unconfirmed_email_gets_its_own_business_and_the_claim_waits(
+def test_dar_de_alta_creates_the_account_and_emails_the_invitation(
     world: World, client, auth
 ) -> None:
-    confirmation = Confirmation(confirmed=False)
-    app.dependency_overrides[get_email_confirmation] = lambda: confirmation
-    created = world.admin_post(
-        "/admin/tenants", {"business_name": "Palermo Propiedades", "owner_email": "d@p.test"}
-    )
-
-    joined = _sign_up(client, auth, "d@p.test", "Mía")
-
-    assert joined.status_code == 201
-    assert joined.json()["tenant"]["name"] == "Mía"
-    assert [email for _, email in confirmation.asked] == ["d@p.test"]
-    assert world.admin_get(f"/admin/tenants/{created.json()['id']}").json()["owner_pending"]
-    app.dependency_overrides.pop(get_email_confirmation, None)
-
-
-def test_an_admin_creates_a_business_that_its_owner_claims(world: World, client, auth) -> None:
-    confirmation = Confirmation(confirmed=True)
-    app.dependency_overrides[get_email_confirmation] = lambda: confirmation
     created = world.admin_post(
         "/admin/tenants", {"business_name": "Palermo Propiedades", "owner_email": "Duenia@P.test"}
     )
@@ -235,22 +203,110 @@ def test_an_admin_creates_a_business_that_its_owner_claims(world: World, client,
     )
 
     assert created.status_code == 201
-    assert (created.json()["owner_email"], created.json()["owner_pending"]) == (
-        "duenia@p.test",
-        True,
-    )
+    body = created.json()
+    assert (body["owner_email"], body["owner_pending"]) == ("duenia@p.test", True)
+    temporary = body["temporary_password"]
+    assert temporary and len(temporary) == 12
     assert (again.status_code, again.json()) == (409, {"code": "owner_email_taken"})
+    token = _invitation_token(world, "duenia@p.test")
+    assert temporary not in world.emails.sent[-1].text
 
-    joined = _sign_up(client, auth, "duenia@p.test")
+    # The temporary password signs in, and nothing works until it is changed.
+    signed_in = client.post(
+        "/auth/dev/sign-in", json={"email": "duenia@p.test", "password": temporary}
+    )
+    assert signed_in.json() == {"access_token": "dev:duenia@p.test"}
+    wrong = client.post("/auth/dev/sign-in", json={"email": "duenia@p.test", "password": "x"})
+    assert (wrong.status_code, wrong.json()) == (401, {"code": "invalid_credentials"})
+    headers = {
+        "Authorization": f"Bearer {auth.register(dev_user_id('duenia@p.test'), 'duenia@p.test')}"
+    }
+    blocked = client.post("/me/sign-up", headers=headers)
+    assert (blocked.status_code, blocked.json()) == (403, {"code": "password_change_required"})
+    assert client.get("/account", headers=headers).json() == {
+        "email": "duenia@p.test",
+        "must_change_password": True,
+    }
+    weak = client.post("/account/password", json={"password": "corta"}, headers=headers)
+    assert (weak.status_code, weak.json()) == (422, {"code": "password_too_short"})
+    assert (
+        client.post(
+            "/account/password", json={"password": "mi-clave-nueva"}, headers=headers
+        ).status_code
+        == 204
+    )
+
+    joined = client.post("/me/sign-up", headers=headers)
 
     assert joined.status_code == 201
-    # The user's own token went to Supabase Auth for the check.
-    assert confirmation.asked[0][0].startswith("tok-")
-    app.dependency_overrides.pop(get_email_confirmation, None)
     assert joined.json()["tenant"]["name"] == "Palermo Propiedades"
-    detail = world.admin_get(f"/admin/tenants/{created.json()['id']}").json()
+    detail = world.admin_get(f"/admin/tenants/{body['id']}").json()
     assert detail["owner_pending"] is False
-    assert [e["action"] for e in detail["activity"]] == ["owner_claimed", "tenant_created_by_admin"]
+    assert [e["action"] for e in detail["activity"]] == [
+        "owner_claimed",
+        "owner_invited",
+        "tenant_created_by_admin",
+    ]
+    # The link no longer asks for a password: they already chose one.
+    assert client.get(f"/invitations/{token}").json()["needs_password"] is False
+
+
+def test_the_invitation_link_sets_the_password_once(world: World, client) -> None:
+    world.admin_post(
+        "/admin/tenants", {"business_name": "Villa Urquiza", "owner_email": "v@u.test"}
+    )
+    token = _invitation_token(world, "v@u.test")
+
+    view = client.get(f"/invitations/{token}")
+    accepted = client.post(
+        "/invitations/accept", json={"token": token, "password": "mi-clave-nueva"}
+    )
+    again = client.post("/invitations/accept", json={"token": token, "password": "otra-clave"})
+
+    assert view.json() == {
+        "email": "v@u.test",
+        "business_name": "Villa Urquiza",
+        "status": "valid",
+        "needs_password": True,
+    }
+    assert accepted.json() == {"email": "v@u.test"}
+    assert (again.status_code, again.json()) == (409, {"code": "invitation_used"})
+    assert client.get(f"/invitations/{token}").json()["status"] == "used"
+    assert (
+        client.post(
+            "/auth/dev/sign-in", json={"email": "v@u.test", "password": "mi-clave-nueva"}
+        ).status_code
+        == 200
+    )
+    assert client.get("/invitations/nada").status_code == 404
+
+
+def test_resend_and_a_new_temporary_password_until_the_owner_comes_in(world: World, client) -> None:
+    created = world.admin_post(
+        "/admin/tenants", {"business_name": "Norte", "owner_email": "n@n.test"}
+    ).json()
+    first = _invitation_token(world, "n@n.test")
+    path = f"/admin/tenants/{created['id']}"
+
+    resent = world.admin_post(f"{path}/invitation")
+    second = _invitation_token(world, "n@n.test")
+    reset = world.admin_post(f"{path}/temporary-password")
+
+    assert resent.json() == {"sent": True}
+    assert client.get(f"/invitations/{first}").json()["status"] == "expired"
+    assert client.get(f"/invitations/{second}").json()["status"] == "valid"
+    new_password = reset.json()["temporary_password"]
+    assert new_password != created["temporary_password"]
+    assert (
+        client.post(
+            "/auth/dev/sign-in", json={"email": "n@n.test", "password": new_password}
+        ).status_code
+        == 200
+    )
+    client.post("/invitations/accept", json={"token": second, "password": "mi-clave-nueva"})
+    late = world.admin_post(f"{path}/temporary-password")
+    assert (late.status_code, late.json()) == (409, {"code": "owner_already_joined"})
+    assert world.owner.post(f"{path}/invitation", {}).status_code == 403
 
 
 # --- Suspension --------------------------------------------------------------------------------

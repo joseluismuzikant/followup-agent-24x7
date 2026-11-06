@@ -8,14 +8,19 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/api-client-inmo24x7/package.json packages/api-client-inmo24x7/package.json
 COPY packages/observability/package.json packages/observability/package.json
+COPY packages/app-shell/package.json packages/app-shell/package.json
+COPY packages/api-client-cuentas-claras/package.json packages/api-client-cuentas-claras/package.json
 COPY apps/inmo24x7/web/package.json apps/inmo24x7/web/package.json
 COPY apps/inmo24x7/backoffice/package.json apps/inmo24x7/backoffice/package.json
+COPY apps/cuentas-claras/web/package.json apps/cuentas-claras/web/package.json
+COPY apps/cuentas-claras/backoffice/package.json apps/cuentas-claras/backoffice/package.json
 
 RUN corepack pnpm install --frozen-lockfile
 
 COPY packages/ui packages/ui
 COPY packages/api-client-inmo24x7 packages/api-client-inmo24x7
 COPY packages/observability packages/observability
+COPY packages/app-shell packages/app-shell
 COPY apps/inmo24x7/backoffice apps/inmo24x7/backoffice
 
 ARG VITE_API_URL

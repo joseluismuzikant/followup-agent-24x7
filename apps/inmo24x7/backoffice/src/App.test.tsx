@@ -61,8 +61,12 @@ describe("Negocios (S8)", () => {
     );
   });
 
-  it("gives a business to its owner's email from Dar de alta", async () => {
-    vi.mocked(createBusiness).mockResolvedValue(businessDetail());
+  it("gives a business to its owner's email from Dar de alta and shows the password once", async () => {
+    vi.mocked(createBusiness).mockResolvedValue({
+      ...businessDetail(),
+      owner_email: "duenia@palermo.test",
+      temporary_password: "Kx7pQ2mN9rTw",
+    });
     const user = renderApp();
 
     await user.click(screen.getByRole("button", { name: "Dar de alta un negocio" }));
@@ -70,6 +74,9 @@ describe("Negocios (S8)", () => {
     await user.type(screen.getByLabelText("Email del dueño"), "duenia@palermo.test");
     await user.click(screen.getByRole("button", { name: "Dar de alta" }));
 
+    expect(await screen.findByText("Kx7pQ2mN9rTw")).toBeTruthy();
+    expect(screen.getByText(/Te enviamos la invitación a/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Listo" }));
     expect(await screen.findByText("Detalle")).toBeTruthy();
     expect(createBusiness).toHaveBeenCalledWith({
       business_name: "Palermo Propiedades",

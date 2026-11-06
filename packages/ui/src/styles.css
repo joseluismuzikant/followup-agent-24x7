@@ -1,3 +1,6 @@
+/* Inter, bundled with the apps (the production CSP only allows fonts from 'self'). */
+@import "@fontsource-variable/inter";
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -17,32 +20,101 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-active: var(--sidebar-active);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* inmo24x7 (the default): the palette of https://www.inmo24x7.com/: navy #1E3A8A / #172554, blue #3B82F6, green
+   #10B981 / #059669 and the night #0a0f1f. White text on #10B981 is too faint to read, so
+   buttons use green-700 and the bright green stays for accents, success and focus. */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(0.985 0.002 247.839);
-  --foreground: oklch(0.21 0.034 264.665);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.034 264.665);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.034 264.665);
-  --primary: oklch(0.49 0.177 257.417);
-  --primary-foreground: oklch(0.985 0.002 247.839);
-  --secondary: oklch(0.967 0.003 264.542);
-  --secondary-foreground: oklch(0.21 0.034 264.665);
-  --muted: oklch(0.967 0.003 264.542);
-  --muted-foreground: oklch(0.551 0.027 264.364);
-  --accent: oklch(0.967 0.003 264.542);
-  --accent-foreground: oklch(0.21 0.034 264.665);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.928 0.006 264.531);
-  --input: oklch(0.928 0.006 264.531);
-  --ring: oklch(0.49 0.177 257.417);
+  --radius: 0.75rem;
+  --background: #f5f7fb;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #047857;
+  --primary-foreground: #ffffff;
+  --secondary: #eef2fb;
+  --secondary-foreground: #1e3a8a;
+  --muted: #eef1f6;
+  --muted-foreground: #5b6474;
+  --accent: #ecfdf5;
+  --accent-foreground: #065f46;
+  --destructive: #dc2626;
+  --border: #e2e7ef;
+  --input: #d5dce7;
+  --ring: #3b82f6;
+  --brand: #1e3a8a;
+  --brand-soft: #e8eefb;
+  --success: #059669;
+  --success-soft: #d1fae5;
+  --warning: #b45309;
+  --warning-soft: #fef3c7;
+  --sidebar: #172554;
+  --sidebar-foreground: #ffffff;
+  --sidebar-muted: rgba(255, 255, 255, 0.68);
+  --sidebar-active: rgba(16, 185, 129, 0.18);
+  /* The bright accent: the active nav bar, focus glow, chart line. */
+  --highlight: #10b981;
+  --highlight-soft: rgba(16, 185, 129, 0.18);
+  --highlight-glow: rgba(16, 185, 129, 0.35);
+  --primary-hover: #065f46;
+  --primary-glow: rgba(5, 150, 105, 0.28);
+  --gradient-brand: linear-gradient(135deg, #10b981, #1e3a8a);
+  --gradient-auth:
+    radial-gradient(60rem 30rem at 85% 110%, rgba(16, 185, 129, 0.35), transparent 60%),
+    linear-gradient(135deg, #1e3a8a 0%, #0a0f1f 55%, #0b1a2e 100%);
+  --gradient-sidebar: linear-gradient(180deg, #172554 0%, #0a0f1f 100%);
+}
+
+/* Cuentas Claras: the palette of https://www.naranjax.com/ (orange #FE5000, purple #50007F,
+   text #333333, background #FAFAFA). White on #FE5000 is too faint to read (3.3:1), so
+   buttons use #C93F00 (5:1) and the bright orange stays for accents and the logo.
+   <html data-product="cuentas-claras"> in its index.html. */
+[data-product="cuentas-claras"] {
+  --background: #fafafa;
+  --foreground: #333333;
+  --card-foreground: #333333;
+  --popover-foreground: #333333;
+  --primary: #c93f00;
+  --secondary: #f4ecf8;
+  --secondary-foreground: #50007f;
+  --muted: #f2f0f3;
+  --muted-foreground: #66606b;
+  --accent: #fff1ea;
+  --accent-foreground: #9a3200;
+  --border: #ebe6ee;
+  --input: #dcd4e1;
+  --ring: #fe5000;
+  --brand: #50007f;
+  --brand-soft: #f4ecf8;
+  --sidebar: #50007f;
+  --sidebar-active: rgba(254, 80, 0, 0.22);
+  --highlight: #fe5000;
+  --highlight-soft: rgba(254, 80, 0, 0.2);
+  --highlight-glow: rgba(254, 80, 0, 0.38);
+  --primary-hover: #a83400;
+  --primary-glow: rgba(201, 63, 0, 0.28);
+  --gradient-brand: linear-gradient(135deg, #fe5000, #50007f);
+  --gradient-auth:
+    radial-gradient(60rem 30rem at 85% 110%, rgba(254, 80, 0, 0.4), transparent 60%),
+    linear-gradient(135deg, #50007f 0%, #2a0045 55%, #1a002b 100%);
+  --gradient-sidebar: linear-gradient(180deg, #50007f 0%, #22003a 100%);
 }
 
 * {
@@ -54,7 +126,22 @@ body {
   background-color: var(--background);
   color: var(--foreground);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The product's logo square. */
+.brand-gradient {
+  background: var(--gradient-brand);
+}
+
+/* Behind the sign-in and invitation cards. */
+.auth-backdrop {
+  background: var(--gradient-auth);
+}
+
+/* The panels' and backoffices' sidebar. */
+.sidebar-gradient {
+  background: var(--gradient-sidebar);
 }
