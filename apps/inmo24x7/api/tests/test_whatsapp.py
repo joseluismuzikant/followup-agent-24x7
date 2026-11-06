@@ -212,6 +212,25 @@ def test_whatsapp_leads_are_real_and_never_asked_for_a_phone(world: World) -> No
     assert not any("derivó" in text for text in texts)
 
 
+def test_a_slot_pick_that_hands_off_sends_one_message(world: World) -> None:
+    # The name is known before the pick (WhatsApp already knows the number): the pick hands off.
+    world.chat("Hola, busco un 2 ambientes para alquilar en Palermo", "hasta 900 mil", "Jose Luis")
+    world.chat("la de Güemes")
+    slot = world.graph.sent()[-1]["interactive"]["action"]["buttons"][0]["reply"]
+    before = len(world.graph.sent())
+
+    assert world.say(slot["title"], slot=slot["id"]) == 200
+    world.run()
+
+    (confirmation,) = world.graph.sent()[before:]
+    assert "Una persona del equipo" in confirmation["text"]["body"]
+    # The hand-off event stays in the transcript, the lead is handed off and the team emailed.
+    assert ("outbound", "system", "El agente derivó la consulta a tu equipo") in world.transcript()
+    (lead,) = world.owner.get("/leads").json()["items"]
+    assert (lead["status"], lead["hand_off_reason"]) == ("visit_proposed", "visit")
+    assert len(world.emails.sent) == 1
+
+
 def test_media_gets_a_fixed_reply_without_the_model(client, auth, database) -> None:
     world = _world(client, auth, database, llm=FailingModel())
 

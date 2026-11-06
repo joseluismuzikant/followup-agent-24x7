@@ -7,20 +7,25 @@ from followup_core.conversation.infrastructure.langchain_llm import (
     PromptFile,
     _usage,
     strip_introduction,
+    strip_trailing_question,
 )
-from followup_core.tenancy.domain.agent_config import Tone
+from followup_core.tenancy.domain.agent_config import QualificationQuestion, QuestionKind, Tone
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage
 
+BUDGET = QualificationQuestion(key="budget", label="Presupuesto", kind=QuestionKind.MONEY)
 
-def _reply(model_text: str, intent: ReplyIntent) -> str:
+
+def _reply(
+    model_text: str, intent: ReplyIntent, question: QualificationQuestion | None = None
+) -> str:
     llm = LangChainLanguageModel(
         FakeListChatModel(responses=[model_text]),
         model_name="fake:list",
         extract=PromptFile("extract.test", "x"),
         reply=PromptFile("reply.test", "intent: $intent"),
     )
-    request = ReplyRequest(intent, Tone.WARM, "Sofía", "Inmobiliaria Sur")
+    request = ReplyRequest(intent, Tone.WARM, "Sofía", "Inmobiliaria Sur", question=question)
     return llm.compose_reply(request).text
 
 
@@ -54,7 +59,35 @@ def test_only_the_greeting_may_introduce_the_agent() -> None:
     intro = "¡Hola! Soy Sofía, de Inmobiliaria Sur. ¿Qué presupuesto tenés en mente?"
 
     assert _reply(intro, ReplyIntent.ASK) == "¿Qué presupuesto tenés en mente?"
-    assert _reply(intro, ReplyIntent.GREET) == intro
+    assert _reply(intro, ReplyIntent.GREET, BUDGET) == intro
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "¡Hola! Soy Sofía, de Inmobiliaria Sur. Contame, ¿qué estás buscando?",
+            "¡Hola! Soy Sofía, de Inmobiliaria Sur.",
+        ),
+        (
+            "¡Hola! Soy Sofía. Buenísimo, te busco opciones. ¿Algo más? ¿Qué zona?",
+            "¡Hola! Soy Sofía. Buenísimo, te busco opciones.",
+        ),
+        ("¡Hola! Soy Sofía, de Inmobiliaria Sur.", "¡Hola! Soy Sofía, de Inmobiliaria Sur."),
+        # Only a question: nothing would be left, so it stays.
+        ("¿Qué estás buscando?", "¿Qué estás buscando?"),
+    ],
+)
+def test_strip_trailing_question(text: str, expected: str) -> None:
+    assert strip_trailing_question(text) == expected
+
+
+def test_a_greeting_without_a_question_asks_nothing() -> None:
+    model_text = "¡Hola! Soy Sofía, de Inmobiliaria Sur. Contame, ¿qué estás buscando?"
+
+    assert _reply(model_text, ReplyIntent.GREET) == "¡Hola! Soy Sofía, de Inmobiliaria Sur."
+    # With a question to ask, the closing question is the point of the message.
+    assert _reply(model_text, ReplyIntent.GREET, BUDGET) == model_text
 
 
 # Usage as each provider's LangChain integration reports it (built with the integrations'

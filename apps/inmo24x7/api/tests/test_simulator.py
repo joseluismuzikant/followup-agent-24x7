@@ -72,6 +72,23 @@ def test_chat_fills_the_panel_and_the_transcript(owner: Account) -> None:
     assert body["known"] == with_cards["known"]
 
 
+def test_picking_a_slot_that_hands_off_is_one_message(owner: Account) -> None:
+    first = _send(owner, "Hola, busco un 2 ambientes para alquilar en Palermo")
+    assert "?" not in first["messages"][0]["text"]
+    for message in ("hasta 900 mil", "Jose Luis", "11 5555-0188"):
+        _send(owner, message)
+    offer = _send(owner, "la de Güemes")["messages"][-1]
+    slot = offer["slots"][0]
+
+    response = owner.post("/simulator/messages", {"text": slot["label"], "choice_id": slot["id"]})
+
+    agent = [m for m in response.json()["messages"] if m["author"] == "agent"]
+    assert len(agent) == 1
+    assert "Una persona del equipo" in agent[0]["text"] and slot["label"] in agent[0]["text"]
+    (lead,) = owner.get("/leads?include_test=true").json()["items"]
+    assert (lead["status"], lead["hand_off_reason"]) == ("visit_proposed", "visit")
+
+
 def test_reset_starts_a_new_thread(owner: Account) -> None:
     _send(owner, "Hola")
     before = owner.get("/simulator").json()["thread"]["key"]

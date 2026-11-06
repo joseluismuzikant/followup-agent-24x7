@@ -22,7 +22,9 @@ CONTACT_KEY = "contact"
 class ReplyIntent(StrEnum):
     """What a reply must do. The graph picks it; the model only words it."""
 
-    GREET = "greet"  # introduce the agent, then ask `question` if there is one
+    # Introduce the agent (acknowledging facts["looking_for"]), then ask `question` if there
+    # is one; without a question it asks nothing.
+    GREET = "greet"
     ASK = "ask"  # ask exactly `question`
     PRESENT_OPTIONS = "present_options"  # short line before property cards
     NO_OPTIONS = "no_options"  # nothing matched yet
@@ -33,7 +35,9 @@ class ReplyIntent(StrEnum):
     INVALID_CONTACT = "invalid_contact"  # the contact given is not a phone or email; ask again
     OFFER_VISIT = "offer_visit"  # ask once whether they want to visit one of the options
     OFFER_SLOTS = "offer_slots"  # propose facts["slots"] for facts["option"]
-    SLOT_CHOSEN = "slot_chosen"  # note facts["slot"]; the team confirms it
+    # Note facts["slot"]; the team confirms it. With facts["hand_off"] it is also the
+    # hand-off's message (one message, not two saying the team follows up).
+    SLOT_CHOSEN = "slot_chosen"
     HAND_OFF = "hand_off"  # a person from the team takes it from here
     AFTER_HAND_OFF = "after_hand_off"  # anything after the hand-off: polite, no new proposals
 

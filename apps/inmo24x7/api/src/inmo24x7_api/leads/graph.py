@@ -6,7 +6,8 @@ The flow is decided here in code (`plan_turn`); the language model only reads va
 the message (`extract`) and words each reply for an intent this module chose. Tools come from
 the registry in `tools.py`. Rules enforced here, not in prompts:
 - options are shown before asking for personal data;
-- each message asks at most one thing;
+- each message asks at most one thing (a greeting without a question asks nothing);
+- one message per idea: a slot noted in the turn that hands off also carries the hand-off;
 - property links come only from the search results (own links or the sample pages);
 - after a hand-off the agent answers politely and never proposes a visit again.
 """
@@ -31,7 +32,7 @@ from langgraph.runtime import Runtime
 
 from ..properties.domain.property import Currency, Operation
 from ..properties.domain.search import PropertyMatch, PropertyQuery
-from .display import price_label
+from .display import money, price_label
 from .domain.lead import HandOffReason
 from .tools import (
     HAND_OFF,
@@ -212,6 +213,36 @@ def _with_greeting(steps: list[Step], first_turn: bool) -> list[Step]:
     return [Step(ReplyIntent.GREET), *steps]
 
 
+def _folds_hand_off(steps: Sequence[Step], index: int) -> bool:
+    """A HAND_OFF right after SLOT_CHOSEN: the slot's message already says that a person
+    follows up, so the hand-off sends no message of its own (two in a row said the same)."""
+    return (
+        steps[index].intent is ReplyIntent.SLOT_CHOSEN
+        and index + 1 < len(steps)
+        and steps[index + 1].intent is ReplyIntent.HAND_OFF
+    )
+
+
+def looking_for_fact(answers: dict[str, Any]) -> str:
+    """What the lead asked for, in words the greeting can repeat without inventing anything:
+    "2 ambientes en alquiler en Palermo hasta $900.000". Empty when nothing is known."""
+    parts: list[str] = []
+    rooms = answers.get("rooms")
+    operation = _operation(answers.get("operation"))
+    if isinstance(rooms, int) and rooms > 0:
+        parts.append("monoambientes" if rooms == 1 else f"{rooms} ambientes")
+    if operation is Operation.RENT:
+        parts.append("en alquiler" if parts else "alquiler")
+    elif operation is Operation.SALE:
+        parts.append("en venta" if parts else "compra")
+    if zone := answers.get("zone"):
+        parts.append(f"en {zone}")
+    budget = answers.get("budget")
+    if isinstance(budget, dict) and "amount" in budget and "currency" in budget:
+        parts.append(f"hasta {money(budget['amount'], budget['currency'])}")
+    return " ".join(parts)
+
+
 def _clean(value: str | None, limit: int) -> str | None:
     if value is None:
         return None
@@ -338,14 +369,17 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
 
     outbox: list[dict[str, Any]] = []
     asked_key: str | None = None
-    for step in steps:
+    for index, step in enumerate(steps):
         # Facts belong to their own step: a slot noted in this turn must not leak into the
         # hand-off message that follows it.
         facts = {"visitor_name": state.get("visitor_name") or ""}
         payload: dict[str, Any] | None = None
         intent = step.intent
 
-        if intent is ReplyIntent.PRESENT_OPTIONS:
+        if intent is ReplyIntent.GREET:
+            facts["looking_for"] = looking_for_fact(answers)
+
+        elif intent is ReplyIntent.PRESENT_OPTIONS:
             matches = context.tools.call(
                 SEARCH_PROPERTIES,
                 SearchPropertiesInput(
@@ -415,6 +449,8 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                 "label": slot.get("label"),
             }
             facts["slot"] = slot.get("label", "")
+            if _folds_hand_off(steps, index):
+                facts["hand_off"] = "sí"
 
         elif intent is ReplyIntent.OFFER_VISIT:
             update["visit_invited"] = True
@@ -428,7 +464,8 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                 reason = HandOffReason.QUALIFIED
             result: HandOffResult = context.tools.call(HAND_OFF, HandOffInput(reason))
             update["hand_off_reason"] = result.reason.value
-            outbox.append({"text": reply(Step(intent)), "payload": None})
+            if not (index > 0 and _folds_hand_off(steps, index - 1)):
+                outbox.append({"text": reply(Step(intent)), "payload": None})
             outbox.append({"text": result.event, "payload": None, "author": "system"})
             continue
 
