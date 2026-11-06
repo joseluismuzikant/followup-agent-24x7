@@ -1,0 +1,32 @@
+cliente;detalle_cliente;cuit;contacto;whatsapp;email;tipo;punto_venta;numero;fecha_emision;vencimiento;monto;moneda;descripcion;estado;fecha_pago;medio_pago
+Consorcio Güemes 2140;Administración Pérez;30-71000000-6;Marta Pérez;11 5555-0101;admin.perez@ejemplo.com;B;3;1201;13/09/2026;23/09/2026;180.000,00;ARS;Mantenimiento de ascensores 09/2026;pagada;28/09/2026;mercado pago
+Consorcio Güemes 2140;Administración Pérez;30-71000000-6;Marta Pérez;11 5555-0101;admin.perez@ejemplo.com;B;3;1201;13/09/2026;23/09/2026;180.000,00;ARS;Mantenimiento de ascensores 09/2026;pagada;28/09/2026;mercado pago
+Consorcio Güemes 2140;Administración Pérez;30-71000000-6;Marta Pérez;11 5555-0101;admin.perez@ejemplo.com;B;3;1203;12/11/2026;22/11/2026;180.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Edificio Libertador 5800;Mantenimiento mensual;30-71001013-3;Jorge Ríos;11 5555-0102;;B;3;1204;28/09/2026;08/10/2026;245.500,00;ARS;Mantenimiento de ascensores 10/2026;pendiente;;
+Edificio Libertador 5800;Mantenimiento mensual;30-71001013-3;Jorge Ríos;11 5555-0102;;B;3;1205;28/10/2026;07/11/2026;245.500,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Torre Palermo Chico;Administración Sosa;30-71234567-8;Laura Sosa;11 5555-0103;lsosa@ejemplo.com;B;3;1206;18/10/2026;28/10/2026;320.000,00;ARS;Mantenimiento de ascensores 10/2026;pagada;28/10/2026;mercado pago
+Torre Palermo Chico;Administración Sosa;30-71002026-0;Laura Sosa;11 5555-0103;lsosa@ejemplo.com;B;3;1207;17/11/2026;27/11/2026;320.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Consorcio Güemes 2140;Administración Pérez;30-71000000-6;Marta Pérez;11 5555-0101;admin.perez@ejemplo.com;B;3;1201;13/09/2026;23/09/2026;180.000,00;ARS;Mantenimiento de ascensores 09/2026;pendiente;;
+Consorcio Cabildo 1550;Administración Pérez;30-71003039-8;Marta Pérez;11 5555-0101;admin.perez@ejemplo.com;B;3;1209;04/11/2026;14/11/2026;150.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Edificio Juramento 2200;2 ascensores;;Carlos Díaz;11 5555-0105;;B;3;1210;20/10/2026;30/10/2026;198.000,00;ARS;Mantenimiento de ascensores 10/2026;pendiente;;
+Edificio Juramento 2200;2 ascensores;;Carlos Díaz;11 5555-0105;;B;3;1211;19/11/2026;;198.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Clínica San Martín;Montacargas y ascensor;30-71005065-8;Ana Gómez;11 5555-0106;compras@clinicasm.ejemplo.com;A;3;1212;23/09/2026;03/10/2026;410.000,00;ARS;Mantenimiento de ascensores 10/2026;pagada;05/10/2026;transferencia
+Clínica San Martín;Montacargas y ascensor;30-71005065-8;Ana Gómez;11 5555-0106;compras@clinicasm.ejemplo.com;A;3;1213;23/10/2026;02/11/2026;410.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Hotel Recoleta Plaza;Mantenimiento 24 h;30-71006078-5;Diego Paz;11 5555-0107;mantenimiento@recoletaplaza.ejemplo.com;A;3;1214;11/10/2026;21/10/2026;560.000,00;ARS;Mantenimiento de ascensores 10/2026;pendiente;;
+Hotel Recoleta Plaza;Mantenimiento 24 h;30-71006078-5;Diego Paz;11 5555-0107;mantenimiento@recoletaplaza.ejemplo.com;A;3;1215;10/11/2026;20/11/2026;560.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Consorcio Rivadavia 7300;Administración Lema;30-71007091-8;Rosa Lema;;rlema@ejemplo.com;B;3;1216;08/09/2026;18/09/2026;135.000,00;ARS;Mantenimiento de ascensores 09/2026;pendiente;;
+Consorcio Rivadavia 7300;Administración Lema;30-71007091-8;Rosa Lema;;rlema@ejemplo.com;B;3;1217;07/11/2026;17/11/2026;135.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Edificio Belgrano R;Mantenimiento mensual;;Pablo Ruiz;11 5555-0109;;B;3;1218;25/10/2026;04/11/2026;172.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Colegio Nuestra Señora;Ascensor adaptado;30-71009117-6;Hna. Teresa;11 5555-0110;administracion@colegions.ejemplo.com;B;3;1219;15/10/2026;30.11.2026;220.000,00;ARS;Mantenimiento de ascensores 10/2026;pagada;26/10/2026;transferencia
+Colegio Nuestra Señora;Ascensor adaptado;30-71009117-6;Hna. Teresa;11 5555-0110;administracion@colegions.ejemplo.com;B;3;1220;14/11/2026;24/11/2026;220.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Consorcio Santa Fe 3300;Administración Lema;30-71010130-9;Rosa Lema;;rlema@ejemplo.com;B;3;1221;03/10/2026;13/10/2026;128.500,00;ARS;Mantenimiento de ascensores 10/2026;pendiente;;
+Oficinas Catalinas Norte;6 ascensores;30-71011143-6;Sofía Herrera;11 5555-0112;facilities@catalinas.ejemplo.com;A;3;1222;08/10/2026;18/10/2026;890.000,00;ARS;Mantenimiento de ascensores 10/2026;pagada;21/10/2026;transferencia
+Oficinas Catalinas Norte;6 ascensores;30-71011143-6;Sofía Herrera;11 5555-0112;facilities@catalinas.ejemplo.com;A;3;1223;07/11/2026;17/11/2026;890.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Edificio Caballito Sur;Mantenimiento mensual;;Luis Funes;11 5555-0113;;B;3;1224;29/10/2026;08/11/2026;165.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Sanatorio Flores;Montacargas;30-71013169-0;Mario Castro;11 5555-0114;compras@sanflores.ejemplo.com;B;3;1225;24/08/2026;03/09/2026;305.000,00;ARS;Mantenimiento de ascensores 09/2026;pendiente;;
+Sanatorio Flores;Montacargas;30-71013169-0;Mario Castro;11 5555-0114;compras@sanflores.ejemplo.com;B;3;1226;24/10/2026;03/11/2026;305.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Consorcio Corrientes 4100;Administración Ibarra;30-71014182-3;Elena Ibarra;11 5555-0115;;B;3;1227;21/10/2026;31/10/2026;142.000,00;ARS;Mantenimiento de ascensores 10/2026;pendiente;;
+Edificio Villa Urquiza;1 ascensor;;Raúl Medina;;;B;3;1228;01/11/2026;11/11/2026;98.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;
+Centro Comercial Devoto;Escaleras mecánicas;30-71016208-1;Paula Vera;11 5555-0117;operaciones@devoto.ejemplo.com;A;3;1229;18/09/2026;28/09/2026;1.250.000,00;ARS;Mantenimiento de ascensores 09/2026;pagada;08/10/2026;mercado pago
+Centro Comercial Devoto;Escaleras mecánicas;30-71016208-1;Paula Vera;11 5555-0117;operaciones@devoto.ejemplo.com;A;3;1230;18/10/2026;28/10/2026;ciento veinte mil;ARS;Mantenimiento de ascensores 10/2026;pendiente;;
+Consorcio Pueyrredón 900;Administración Ibarra;30-71017221-4;Elena Ibarra;11 5555-0115;;B;3;1231;27/10/2026;06/11/2026;118.000,00;ARS;Mantenimiento de ascensores 11/2026;pendiente;;

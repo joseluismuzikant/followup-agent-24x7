@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from followup_core.identity.application.accounts import InviteOwner
 from followup_core.identity.domain.profile import Profile
 from followup_core.tenancy.application.admin_tenants import (
     CreateBusinessForOwner,
@@ -23,6 +24,7 @@ from followup_core.tenancy.domain.errors import (
     TenantNotFoundError,
 )
 from followup_core.tenancy.domain.plans import PLANS, plan_info
+from followup_platform.routers.admin_invitations import invite_new_owner
 from pydantic import BaseModel, Field
 
 from ..auth import require_platform_admin
@@ -122,6 +124,12 @@ class BusinessDetailRead(BusinessRowRead):
     usage: PlanUsageRead
     users: list[UserRead]
     activity: list[ActivityRead]
+
+
+class BusinessCreatedRead(BusinessDetailRead):
+    # The owner's temporary password, shown once; null when they already had an account
+    # (in the other product) and keep their own password.
+    temporary_password: str | None
 
 
 class SuspendWrite(BaseModel):
@@ -260,6 +268,7 @@ def build_backoffice_router(
     list_factory: Callable[..., ListBusinesses],
     detail_factory: Callable[..., GetBusiness],
     create_factory: Callable[..., CreateBusinessForOwner],
+    invite_factory: Callable[..., InviteOwner],
     suspension_factory: Callable[..., SetTenantSuspension],
     queries_factory: Callable[..., SqlAlchemyBackofficeQueries],
     version: tuple[str, str],
@@ -299,14 +308,19 @@ def build_backoffice_router(
         )
 
     @router.post(
-        "/tenants", response_model=BusinessDetailRead, status_code=201, responses={409: {}}
+        "/tenants",
+        response_model=BusinessCreatedRead,
+        status_code=201,
+        responses={409: {}, 503: {}},
     )
     def create_business(
         payload: BusinessCreate,
         admin: AdminDep,
         use_case: Annotated[CreateBusinessForOwner, Depends(create_factory)],
+        invite: Annotated[InviteOwner, Depends(invite_factory)],
         get: Annotated[GetBusiness, Depends(detail_factory)],
-    ) -> BusinessDetailRead:
+    ) -> BusinessCreatedRead:
+        """The business, its owner's account and the invitation email."""
         try:
             tenant = use_case.execute(
                 admin.id, payload.business_name, payload.business_type, payload.owner_email
@@ -317,7 +331,10 @@ def build_backoffice_router(
             raise ApiError(422, "business_type_invalid") from error
         except InvalidTenantNameError as error:
             raise ApiError(422, "tenant_name_invalid") from error
-        return detail(get, tenant.id)
+        password = invite_new_owner(invite, admin.id, tenant.id)
+        return BusinessCreatedRead(
+            **detail(get, tenant.id).model_dump(), temporary_password=password
+        )
 
     @router.get("/tenants/{tenant_id}", response_model=BusinessDetailRead)
     def get_business(

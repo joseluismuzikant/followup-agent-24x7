@@ -16,13 +16,9 @@ export async function fetchMe(): Promise<MeResponse> {
   throw apiError(response, error);
 }
 
-export async function signUp(
-  businessName: string,
-  businessType: string,
-): Promise<SignUpResponse> {
-  const { data, error, response } = await apiClient.POST("/me/sign-up", {
-    body: { business_name: businessName, business_type: businessType },
-  });
+/** Joins the business an admin created for the signed-in email ("Dar de alta"). */
+export async function signUp(): Promise<SignUpResponse> {
+  const { data, error, response } = await apiClient.POST("/me/sign-up");
 
   if (data) {
     return data;

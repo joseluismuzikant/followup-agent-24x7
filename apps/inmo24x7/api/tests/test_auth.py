@@ -7,11 +7,8 @@ def _sign_up(client: TestClient, auth, email: str) -> tuple[str, dict]:
     user_id = uuid4()
     token = auth.register(user_id, email=email)
     headers = {"Authorization": f"Bearer {token}"}
-    response = client.post(
-        "/me/sign-up",
-        json={"business_name": f"Negocio {user_id}", "business_type": "inmobiliaria"},
-        headers=headers,
-    )
+    auth.invite(email, f"Negocio {user_id}")
+    response = client.post("/me/sign-up", headers=headers)
     assert response.status_code == 201
     return token, response.json()
 

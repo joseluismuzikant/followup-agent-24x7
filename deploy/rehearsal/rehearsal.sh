@@ -6,6 +6,9 @@
 #   deploy/rehearsal/rehearsal.sh up      # build, deploy, start
 #   deploy/rehearsal/rehearsal.sh smoke   # the end-to-end checks
 #   deploy/rehearsal/rehearsal.sh down    # remove containers, volumes and generated files
+#
+# REHEARSAL_PRODUCTS=inmo24x7,cuentas-claras also builds and starts Cuentas Claras (profile
+# cuentas-claras, https://cuentasclaras.localhost and friends). inmo24x7 always runs.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,6 +18,10 @@ export ENV_FILE="rehearsal/.env.rehearsal"
 export COMPOSE_PROJECT="inmo24x7-rehearsal"
 export IMAGE_PREFIX="inmo24x7-rehearsal"
 env_path="$here/.env.rehearsal"
+products="${REHEARSAL_PRODUCTS:-inmo24x7}"
+with_cuentas_claras() {
+	[[ ",$products," == *",cuentas-claras,"* ]]
+}
 key_path="$here/backup.agekey"
 
 # shellcheck source=SCRIPTDIR/../lib.sh
@@ -39,12 +46,13 @@ commit_sha() {
 }
 
 write_env() {
-	local status api_url anon_key jwt_secret jwks_keys recipient
+	local status api_url anon_key service_key jwt_secret jwks_keys recipient
 	status="$(supabase_env)"
 	api_url="$(sed -n 's/^API_URL="\(.*\)"$/\1/p' <<<"$status")"
 	anon_key="$(sed -n 's/^ANON_KEY="\(.*\)"$/\1/p' <<<"$status")"
+	service_key="$(sed -n 's/^SERVICE_ROLE_KEY="\(.*\)"$/\1/p' <<<"$status")"
 	jwt_secret="$(sed -n 's/^JWT_SECRET="\(.*\)"$/\1/p' <<<"$status")"
-	[[ -n "$api_url" && -n "$anon_key" ]] || fail "the local Supabase stack is not running.
+	[[ -n "$api_url" && -n "$anon_key" && -n "$service_key" ]] || fail "the local Supabase stack is not running.
 Start it with 'npx supabase start' (repository root). The rehearsal never uses AUTH_MODE=dev."
 	local server_url="${api_url/127.0.0.1/host.docker.internal}"
 	server_url="${server_url/localhost/host.docker.internal}"
@@ -81,7 +89,7 @@ SUPPORT_EMAIL=soporte@rehearsal.localhost
 AUTH_MODE=supabase
 SUPABASE_URL=$api_url
 SUPABASE_SERVER_URL=$server_url
-SUPABASE_ANON_KEY=$anon_key
+SUPABASE_SERVICE_ROLE_KEY=$service_key
 $(if ((jwks_keys > 0)); then
 		echo "SUPABASE_JWKS_URL=$server_url/auth/v1/.well-known/jwks.json"
 	else
@@ -104,7 +112,12 @@ BACKUP_AGE_RECIPIENT=$recipient
 BACKUP_REMOTE=:local:/backups
 BACKUP_KEEP_DAILY=14
 BACKUP_KEEP_WEEKLY=8
-COMPOSE_PROFILES=observability
+COMPOSE_PROFILES=observability$(with_cuentas_claras && echo ",cuentas-claras")
+CC_APP_DOMAIN=cuentasclaras.localhost
+CC_ADMIN_DOMAIN=cuentasclaras-admin.localhost
+CC_API_DOMAIN=cuentasclaras-api.localhost
+CUENTAS_CLARAS_CORS_ORIGINS=https://cuentasclaras.localhost,https://cuentasclaras-admin.localhost
+CUENTAS_CLARAS_PANEL_URL=https://cuentasclaras.localhost
 LOKI_RETENTION_DAYS=14
 GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 12)
 GRAFANA_DOMAIN=grafana.localhost
@@ -138,6 +151,21 @@ build_images() {
 			--build-arg VITE_META_EMBEDDED_SIGNUP_CONFIG_ID=rehearsal-config \
 			-t "$IMAGE_PREFIX/inmo24x7-$app:sha-$sha" "$root" >/dev/null
 	done
+	if with_cuentas_claras; then
+		docker build -q -f "$root/apps/cuentas-claras/api/Dockerfile" \
+			--build-arg APP_VERSION=rehearsal --build-arg GIT_COMMIT="$sha" \
+			--build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+			-t "$IMAGE_PREFIX/cuentas-claras-api:sha-$sha" "$root" >/dev/null
+		for app in web backoffice; do
+			docker build -q -f "$root/apps/cuentas-claras/$app/Dockerfile" \
+				--build-arg VITE_AUTH_MODE=supabase \
+				--build-arg VITE_CUENTAS_CLARAS_API_URL=https://cuentasclaras-api.localhost \
+				--build-arg VITE_SUPABASE_URL="$supabase_url" \
+				--build-arg VITE_SUPABASE_ANON_KEY="$anon_key" \
+				--build-arg VITE_PANEL_URL=https://cuentasclaras.localhost \
+				-t "$IMAGE_PREFIX/cuentas-claras-$app:sha-$sha" "$root" >/dev/null
+		done
+	fi
 }
 
 up() {
@@ -151,10 +179,14 @@ up() {
 	"$DEPLOY_DIR/deploy.sh" "$sha" --local-images
 	say "Up. Panel https://app.localhost  Backoffice https://admin.localhost  Mail http://127.0.0.1:58025"
 	say "Logs: https://grafana.localhost (admin / GRAFANA_ADMIN_PASSWORD in rehearsal/.env.rehearsal)"
+	if with_cuentas_claras; then
+		say "Cuentas Claras: https://cuentasclaras.localhost  https://cuentasclaras-admin.localhost"
+	fi
 }
 
 down() {
-	compose --profile tools --profile observability down --volumes --remove-orphans || true
+	compose --profile tools --profile observability --profile cuentas-claras down --volumes \
+		--remove-orphans || true
 	rm -f "$env_path" "$key_path" "$here/.supabase_url" "$here/.supabase_anon_key"
 	rm -rf "$DEPLOY_DIR/state-rehearsal"
 	say "Rehearsal removed (images stay; 'docker image prune' clears them)."

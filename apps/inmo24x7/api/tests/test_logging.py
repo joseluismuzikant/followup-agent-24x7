@@ -56,11 +56,8 @@ def test_request_completed_has_the_tenant_bound_by_a_dependency(
 ) -> None:
     owner = uuid4()
     token = auth.register(owner, "owner@example.com")
-    client.post(
-        "/me/sign-up",
-        json={"business_name": "Inmo Log", "business_type": "inmobiliaria"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    auth.invite("owner@example.com", "Inmo Log")
+    client.post("/me/sign-up", headers={"Authorization": f"Bearer {token}"})
     # Alembic's logging config (the migration fixture) disables existing loggers.
     monkeypatch.setattr(logging.getLogger("inmo24x7.http"), "disabled", False)
     caplog.set_level(logging.INFO, logger="inmo24x7.http")

@@ -2,6 +2,44 @@
 
 Monorepo with a shared engine and multiple products. All code, names, comments, and documentation are in English; product UI copy is in Spanish.
 
+## Products
+
+Two products run on one platform: **inmo24x7** (real estate leads) and **Cuentas Claras**
+(invoice collection). They share one database, one Supabase project and one VM, and each has
+its own API (composition root), worker, panel and backoffice.
+
+- **Tenants belong to a product** (`tenants.product`, a key of `Product` in
+  `followup_core/tenancy/domain/product.py`; the database checks the list). Slugs are unique
+  per product. Every repository and query that lists or finds tenants is scoped by product,
+  so a business of one product is "not found" for the other.
+- **Profiles are per (user, product).** One Supabase user (one email) can own a business in
+  each product; each is its own profile, with its own role and platform-admin flag.
+  Authentication finds the profile by the token's user id plus the API's product. A user's
+  first profile reuses the user id as its id (every inmo24x7 profile kept its id); later
+  ones get a new uuid. Owner claims (businesses an admin created for an email) are per
+  product too.
+- **The product defines its onboarding.** A `ProductDefinition` lists the wizard's steps, the
+  step sign-up lands on, the business types, and the checklist items as (item key, fact key)
+  pairs. Core's onboarding and checklist logic (forward only, resume, timestamps) is
+  generic; each API passes its definition and its fact providers. The database no longer
+  checks steps or business types: they are product data, validated by the definition.
+- **Job queues per product.** `jobs.queue` is the product key; each worker claims only its
+  own queue, and dedupe keys are unique per queue.
+- **Core adapters default to `inmo24x7`** (`FIRST_PRODUCT`), the first product, so its
+  existing code and tests did not change. Cuentas Claras always passes its own key, and a
+  test checks that its container never relies on the default.
+- **Shared code is moved, never copied.** Backend plumbing that every product API repeats
+  lives in `packages/platform` (`followup_platform`): settings with per-product variables
+  (`CORS_ORIGINS` and `PANEL_URL`, prefixed `CUENTAS_CLARAS_` for Cuentas Claras), logging,
+  the request middleware, error handlers, auth dependencies, Sentry and LangSmith setup,
+  health routes, the worker loop, the CSV/XLSX reader, LLM prices, and the `/me`,
+  `/onboarding` and `/tenant/settings` routers built from a `ProductDefinition`. It is not
+  core because it is framework and process wiring, not a bounded context. The panels share
+  `@followup/app-shell` (auth adapters and provider, sign-in, `RequireProfile`,
+  `ResumeOnboarding`, `RequireAdmin`, the wizard frame, the checklist card, the settings
+  fields and the API client base); components take the product's fetchers and copy as props.
+  `@followup/ui`'s `data-product` attribute picks the accent color.
+
 ## Layers
 
 Each context has three folders:
@@ -23,6 +61,21 @@ In `packages/core`:
 - **Scheduling**: background jobs in Postgres and the worker that runs them.
 - **Notifications**: email to the business behind an `EmailSender` port.
 - **Conversation**: follow-up threads, agent runtime, and human handoff.
+
+In `apps/cuentas-claras/api`:
+
+- **Clients**: the companies that owe the invoices. CUIT (11 digits with AFIP's check digit,
+  unique per business, shown `30-12345678-9`), WhatsApp normalized like core's phones, and
+  `missing_whatsapp`.
+- **Invoices**: type, point of sale and number (`B 0003-00001245`, unique per business),
+  dates, `Decimal` amount, ARS or USD. A stored lifecycle (`open`, `paid`, `cancelled`) and a
+  display status computed in the business's timezone (`Vencida · N días`, `Por vencer` within
+  7 days, `Pendiente`, `Pagada · {medio}`, `Anulada`). Spreadsheet import with per-row
+  validation in Spanish, client upsert by CUIT or normalized name, invoice upsert by number,
+  and paid invoices never reopened.
+
+Its audit actions (`client_created`, `invoice_paid`, `invoices_imported`, …) are stored as
+strings by core's audit log, with ids and counts only.
 
 In `apps/inmo24x7/api`:
 
@@ -68,20 +121,25 @@ All three live in the Tenancy context of `packages/core`, because every product 
 Writes to these resources need the owner or manager role; reads are open to every role of the
 tenant. The tenant always comes from the caller's profile, never from the request.
 
-## Migrations
-
 There is one database, one root `alembic.ini`, and one Alembic version table.
 
-- The root `migrations` directory contains the environment and revision template.
-- Version locations include the core chain and every product chain.
-- Core revisions live in `packages/core/migrations/versions`.
-- Product revisions live in each product API's `migrations/versions`.
-- Product revision chains must set `down_revision` to the current core head, so every product chain depends on core. The inmo24x7 chain starts at `inmo_0001` (properties and imports), whose `down_revision` is core `0006`, followed by `inmo_0002` (leads). Product revisions use their own ids (`inmo_NNNN`) so they never collide with core numbers.
-- Core revisions always chain to the core head, never to a product revision, so every new core revision creates a second head. Right after adding one, add a product merge revision with an empty upgrade whose `down_revision` is (current product head, new core head), as `inmo_0003` (core `0008`) and `inmo_0004` (core `0009`) do. Never rewrite a published revision.
-- `tests/test_migrations.py` asserts that the graph has exactly one head, so a forgotten merge fails CI.
-- Run `uv run alembic upgrade head` from the repository root to apply all locations.
+- The root `migrations` directory contains the environment and revision template; it imports
+  every product's models.
+- **Named branches.** Core revisions (`packages/core/migrations/versions`, ids `NNNN`) form
+  the `core` branch. Each product's revisions live in its API's `migrations/versions` and
+  form its own branch: `inmo24x7` (`inmo_NNNN`) and `cuentas_claras` (`cc_NNNN`). A product
+  branch's first revision, or any revision that needs new core tables, declares
+  `depends_on` that core revision (`cc_0001` depends on core `0013`).
+- **No merge revisions any more.** Core revisions chain on core; product revisions chain on
+  their own branch. The old merges `inmo_0003`–`inmo_0008` (from when inmo24x7 merged every
+  core head) stay as published history. Never rewrite a published revision.
+- `tests/test_migrations.py` asserts exactly one head per branch, that every product branch
+  reaches core, and that the new revisions upgrade and downgrade cleanly.
+- Run `uv run alembic upgrade heads` (plural) from the repository root to apply every branch.
 - API integration tests build their schema by running these migrations.
-- The API image contains the root configuration, so deployments run `alembic upgrade head` once in a one-off container before starting the new API version.
+- Each API image contains the whole Python workspace and the root configuration, so
+  deployments run `alembic upgrade heads` once in a one-off container (from the inmo24x7 API
+  image) before starting the new versions.
 - **Row level security on every table.** Supabase publishes the `public` schema through its
   Data API with the anon key, which is public in the panel bundle. Core `0011` (and the
   `inmo_0007` merge, which runs after every product table exists) enables RLS on every table
@@ -95,17 +153,51 @@ There is one database, one root `alembic.ini`, and one Alembic version table.
 
 ## Auth modes
 
-`AUTH_MODE` (API) and `VITE_AUTH_MODE` (panels) choose how people sign in:
+`AUTH_MODE` (API) and `VITE_AUTH_MODE` (panels) choose where passwords live:
 
-- **`supabase`**: Supabase Auth (Google or magic link) in the panels; the API verifies the JWT
-  with the secret or the JWKS URL and checks the issuer `{SUPABASE_URL}/auth/v1`. This is the
-  only mode allowed in production.
-- **`dev`**: local development without any external service. The panels show a "Modo
-  desarrollo" box; the session is the token `dev:<email>` in localStorage. The API's
-  `DevTokenVerifier` accepts only that shape and maps the email to
-  `uuid5(fixed namespace, email)`, so the same email is always the same user (the seed relies
-  on it). `APP_ENV=production` with `AUTH_MODE=dev` stops the API at startup, and a
-  production `vite build` with `VITE_AUTH_MODE=dev` fails, so a dev build can never ship.
+- **`supabase`**: Supabase Auth, email and password (`signInWithPassword`; "¿Olvidaste tu
+  clave?" is Supabase's reset email back to `/cambiar-clave`). The API verifies the JWT with
+  the secret or the JWKS URL and checks the issuer `{SUPABASE_URL}/auth/v1`. Self sign-up is
+  off in Supabase; the APIs create users through the admin API with the service-role key.
+  This is the only mode allowed in production.
+- **`dev`**: local development without any external service. Passwords are scrypt hashes in
+  `dev_passwords`; the panels post them to `POST /auth/dev/sign-in`, which answers the token
+  `dev:<email>` (kept in localStorage). The API's `DevTokenVerifier` accepts only that shape
+  and maps the email to `uuid5(fixed namespace, email)`, so the same email is always the same
+  user (the seed relies on it). `APP_ENV=production` with `AUTH_MODE=dev` stops the API at
+  startup, and a production `vite build` with `VITE_AUTH_MODE=dev` fails, so a dev build can
+  never ship.
+
+## Accounts and invitations
+
+Nobody signs up: every account starts with an admin's "Dar de alta un negocio".
+
+- **Account** (`accounts`, core Identity): one per person, shared by the products, with
+  `must_change_password`. A profile is still per product (see Products).
+- **`AccountDirectory`** is the port to where passwords live: `SupabaseAccountDirectory`
+  (GoTrue's admin API: create the user already confirmed, set a password) or
+  `DevAccountDirectory` (the `dev_passwords` table). `followup_platform.identity` picks one by
+  `AUTH_MODE`.
+- **`InviteOwner`** runs after `CreateBusinessForOwner` (which adds the owner claim): a new
+  email gets an account with a generated temporary password (12 characters without look-alike
+  letters, returned once to the backoffice, never stored in clear nor emailed) and
+  `must_change_password`; an email that already has an account (the other product) keeps its
+  password. Either way an **invitation** is created (`invitations`: only the SHA-256 of a
+  32-byte token, 7 days, a newer one revokes the older) and the `identity.invitation_email`
+  job, on the product's queue, emails the link `{PANEL_URL}/invitacion?token=…`.
+- **Two ways in, one rule:** the temporary password signs in, but `current_account` (in front
+  of every profile dependency) answers `403 password_change_required` until
+  `POST /account/password`; the link's `POST /invitations/accept` sets the password and clears
+  the flag in one step. A link of the other product is `404`.
+- **Then the wizard:** `POST /me/sign-up` (no body) joins the claimed business as owner, or
+  answers `403 not_invited`. The panels call it once on the first visit to `/onboarding`
+  (`ClaimInvitation`), so the owner lands on the wizard's second step with the business the
+  admin named; "Tu negocio" still lets them change the name and type.
+- **Frontend guards:** `RequireAuth` → `RequireAccount` (`GET /account`; a temporary password
+  goes to `/cambiar-clave` first) → `RequireProfile`. `/invitacion` and `/cambiar-clave` are
+  public routes; the backoffices' `RequireAdmin` shows the password change inline.
+- **First admin:** `scripts/make_admin.py <email> --create` (account, "Plataforma" business,
+  profile, temporary password printed once).
 
 Both panels hide the choice behind one `AuthProvider`/`useAuth`: an `AuthAdapter` with a
 Supabase and a dev implementation. Pages only see `{ accessToken, email }`. The Supabase
@@ -114,7 +206,7 @@ values count as unset.
 
 ## Composition root
 
-The product API is the composition root.
+Each product API is its own composition root (`inmo24x7_api`, `cuentas_claras_api`).
 
 - Core routers receive use-case factories as dependencies.
 - Core HTTP adapters do not build repositories or sessions.
@@ -137,7 +229,7 @@ Every response carries an `X-Request-ID` header. Logs are JSON emitted through t
 
 ## UI and API client
 
-Both frontends use `@followup/ui` and `@followup/api-client-inmo24x7`. The client package owns the generated OpenAPI types and the `openapi-fetch` client. CI regenerates the schema and fails on drift.
+Every frontend uses `@followup/ui`, `@followup/app-shell` and its product's generated client (`@followup/api-client-inmo24x7`, `@followup/api-client-cuentas-claras`). The client packages own the generated OpenAPI types; the `openapi-fetch` client with the bearer token, the 5xx hook and `X-Request-ID` lives in `@followup/app-shell/api`. CI regenerates both schemas and fails on drift. Each panel maps error codes to Spanish with `errorMessages`, on top of the shared base messages.
 
 ## Agent
 
@@ -504,13 +596,11 @@ failures carry an hourly dedupe key. S9 "Actividad" shows the latest 20.
   both with 1,000 conversations a month. A conversation this month is a WhatsApp thread with
   at least one inbound message since the 1st (Buenos Aires time); the simulator does not count.
   No enforcement and no billing yet.
-- **"Dar de alta un negocio"** creates the tenant, its settings and onboarding, and an owner
-  claim for an email. The first sign-up with that email joins the business as owner instead of
-  creating another one, **only if the email is confirmed**. The access token does not say
-  so (Supabase documents no such claim), so the API asks Supabase Auth (`GET
-  /auth/v1/user` with the user's own token and the public anon key) for
-  `email_confirmed_at`, only when a claim matches. Unconfirmed, another email, or Supabase
-  unreachable: a new business as usual, and the claim keeps waiting.
+- **"Dar de alta un negocio"** creates the tenant, its settings and onboarding, an owner
+  claim for an email, and the owner's account and invitation (see "Accounts and
+  invitations"). The owner's first sign-in joins that business; there is no other way to get
+  one. The detail offers "Reenviar invitación" and "Generar clave temporal nueva" until the
+  owner comes in.
 
 ### Backoffice (S8, S9)
 
@@ -560,7 +650,7 @@ Three tools, each with its own job, and a hard line on personal data:
 - **Usage from every provider** comes from LangChain's normalised `usage_metadata`
   (`input_token_details.cache_read` for cached input: Anthropic, OpenAI, DeepSeek, Kimi and
   MiMo all map to it). No metadata: zeros and `usage_reported = false` ("sin datos").
-- **Prices are versioned in the repo** (`billing/llm_prices.toml`): USD per million input,
+- **Prices are versioned in the repo** (`followup_platform/billing/llm_prices.toml`, shared by every product): USD per million input,
   output and cached input tokens per `provider:model`, from an `effective_from` date, with the
   source URL. A call is priced at write time with the price in force on its date; a model
   without a price stores no cost, and Consumo flags it. Changing a price means adding a row;
@@ -587,7 +677,10 @@ internet ─▶ Caddy (80/443, Let's Encrypt) ─┬─ api.<domain>     ─▶ 
 - **One VM with Docker Compose** (`deploy/compose.prod.yml`): Oracle Cloud ARM in São Paulo,
   or any Linux VM (the images are amd64 + arm64). Only Caddy publishes ports. Images are
   pinned by `IMAGE_TAG=sha-<commit>`; the worker and the one-off `migrate` use the API image.
-- **Deploy** (`deploy/deploy.sh <sha>`): pull, `alembic upgrade head` once (a failure stops
+- **Cuentas Claras** runs on the same VM under the compose profile `cuentas-claras`
+  (`cc-api`, `cc-worker`, `cc-web`, `cc-backoffice`), with its three hosts in
+  `deploy/caddy/cuentas-claras.caddy`; both stay off until its go-live.
+- **Deploy** (`deploy/deploy.sh <sha>`): pull, `alembic upgrade heads` once (a failure stops
   there), start, wait for `/health/ready` to report that commit, and put the previous
   images back if it never does (migrations stay; see "Migrations"). Idempotent.
 - **Database connection:** Supabase's session pooler (port 5432, IPv4) or the direct

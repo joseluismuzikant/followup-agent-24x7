@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from ...product import PRODUCT
 from ..domain.rules import Onboarding, TenantRow
 
 _TENANTS = text(
@@ -38,7 +39,8 @@ _TENANTS = text(
     FROM tenants t
     LEFT JOIN tenant_onboarding o ON o.tenant_id = t.id
     LEFT JOIN whatsapp_connections w ON w.tenant_id = t.id
-    WHERE NOT EXISTS (
+    WHERE t.product = :product
+      AND NOT EXISTS (
       SELECT 1 FROM profiles a WHERE a.tenant_id = t.id AND a.is_platform_admin
     )
       AND (CAST(:tenant_id AS uuid) IS NULL OR t.id = CAST(:tenant_id AS uuid))
@@ -106,13 +108,20 @@ class SystemNumbers:
 
 
 class SqlAlchemyBackofficeQueries:
-    def __init__(self, session: Session) -> None:
+    """inmo24x7's businesses and jobs only (the other products have their own backoffice)."""
+
+    def __init__(self, session: Session, product: str = PRODUCT) -> None:
         self._session = session
+        self._product = str(product)
 
     def tenants(self, now: datetime, tenant_id: UUID | None = None) -> Sequence[TenantRow]:
         rows = self._session.execute(
             _TENANTS,
-            {"since": now - timedelta(days=7), "tenant_id": str(tenant_id) if tenant_id else None},
+            {
+                "since": now - timedelta(days=7),
+                "tenant_id": str(tenant_id) if tenant_id else None,
+                "product": self._product,
+            },
         )
         return [_row(row) for row in rows]
 
@@ -172,12 +181,13 @@ class SqlAlchemyBackofficeQueries:
             text(
                 """
                 SELECT t.plan, count(*) AS n FROM tenants t
-                WHERE NOT EXISTS (
+                WHERE t.product = :product AND NOT EXISTS (
                   SELECT 1 FROM profiles a WHERE a.tenant_id = t.id AND a.is_platform_admin
                 )
                 GROUP BY t.plan
                 """
-            )
+            ),
+            {"product": self._product},
         )
         return {row.plan: row.n for row in rows}
 
@@ -195,17 +205,21 @@ class SqlAlchemyBackofficeQueries:
                 text(
                     """
                     SELECT kind, status, count(*) AS n FROM jobs
-                    WHERE status IN ('queued', 'running', 'failed')
-                       OR (status = 'dead' AND coalesce(finished_at, created_at) >= :since)
+                    WHERE queue = :queue
+                      AND (status IN ('queued', 'running', 'failed')
+                           OR (status = 'dead' AND coalesce(finished_at, created_at) >= :since))
                     GROUP BY kind, status ORDER BY kind, status
                     """
                 ),
-                {"since": day_ago},
+                {"since": day_ago, "queue": self._product},
             )
         ]
         oldest = self._session.scalar(
-            text("SELECT min(run_at) FROM jobs WHERE status = 'queued' AND run_at <= :now"),
-            {"now": now},
+            text(
+                "SELECT min(run_at) FROM jobs "
+                "WHERE queue = :queue AND status = 'queued' AND run_at <= :now"
+            ),
+            {"now": now, "queue": self._product},
         )
         failed = [
             (row.code, row.n)

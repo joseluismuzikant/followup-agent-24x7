@@ -15,7 +15,6 @@ Time needed: about 2 hours of your own work, plus waiting for DNS and Meta's rev
 | An Oracle Cloud ARM VM in São Paulo (or any Linux VM with a public IPv4) | Oracle Cloud |
 | An Object Storage bucket and a Customer Secret Key (S3-compatible access) | Oracle Cloud |
 | A Supabase project in São Paulo (`sa-east-1`) | Supabase |
-| A Google OAuth client (Web application) | Google Cloud Console |
 | A transactional email provider with SMTP (Resend, Brevo, Amazon SES, ...) | the provider |
 | Meta: business verification, Tech Provider, an app with WhatsApp and Facebook Login for Business | Meta Business / App Dashboard |
 | An LLM API key with balance | your model provider |
@@ -65,42 +64,37 @@ in `/opt/inmo24x7`.
 
 4. **Authentication → URL Configuration:**
    - Site URL: `https://app.<domain>`
-   - Redirect URLs: `https://app.<domain>/**` and `https://admin.<domain>/**`
-5. **Authentication → Sign In / Providers → Email:** enabled, **"Confirm email" ON**. The
-   panel only offers Google and the magic link; Supabase has no separate switch that turns
-   off email+password sign-ups but keeps magic-link sign-ups ("Allow new users to sign up"
-   turns off both). With "Confirm email" on, anyone signing up through the API with a
-   password must still prove the email, and the API only lets a confirmed email join a
-   business an admin created for it.
-6. **Google:**
-   - In Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID → Web
-     application. Authorized JavaScript origins: `https://app.<domain>`. Authorized redirect
-     URI: the callback Supabase shows on its Google provider page
-     (`https://<ref>.supabase.co/auth/v1/callback`).
-   - OAuth consent screen: app name inmo24x7, your support email, publish it to production.
-   - Back in Supabase → Providers → Google: enable it, paste the client id and secret.
-7. **Authentication → Emails → SMTP settings:** your provider's host, port 587, user,
+   - Redirect URLs: `https://app.<domain>/**` and `https://admin.<domain>/**` (and the
+     Cuentas Claras hosts when that product goes live)
+5. **Authentication → Sign In / Providers:** turn **off "Allow new users to sign up"**.
+   Accounts are invitation-only: the APIs create each user through the admin API (with
+   `SUPABASE_SERVICE_ROLE_KEY`, already confirmed) when an admin uses "Dar de alta un
+   negocio". **Email** stays enabled (email and password); no Google, no magic link.
+6. **Authentication → Emails → SMTP settings:** your provider's host, port 587, user,
    password, sender `inmo24x7 <acceso@<domain>>`. The built-in sender is rate-limited and
    not for production. Verify the sending domain (SPF, DKIM) at the provider.
-8. **Authentication → Emails → Templates → Magic link**, subject `Tu link para entrar a
-   inmo24x7`, body:
+7. **Authentication → Emails → Templates → Reset password**, subject `Elegí una clave nueva`,
+   body:
 
    ```html
-   <h2>Entrá a inmo24x7</h2>
-   <p>Tocá el botón para entrar a tu panel. El link vale por una hora y sirve una sola vez.</p>
-   <p><a href="{{ .ConfirmationURL }}">Entrar a inmo24x7</a></p>
-   <p>Si no pediste este link, ignorá este email.</p>
+   <h2>Elegí una clave nueva</h2>
+   <p>Tocá el botón para elegir una clave nueva. El link vale por una hora y sirve una sola vez.</p>
+   <p><a href="{{ .ConfirmationURL }}">Elegir mi clave</a></p>
+   <p>Si no lo pediste, ignorá este email: tu clave no cambia.</p>
    ```
 
-   Use the same tone for "Confirm signup" (subject `Confirmá tu email`, button `Confirmar mi
-   email`).
+   The invitation email itself is ours (sent by the worker through `SMTP_*`), not Supabase's.
+8. **Authentication → Policies (or Providers → Email):** minimum password length 8, the
+   same rule the panels and the API check.
 9. **Authentication → JWT Keys:** use the asymmetric signing keys (migrate if the project
    still uses the legacy secret). The API verifies tokens with
    `SUPABASE_JWKS_URL=https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` and checks the
    issuer `https://<ref>.supabase.co/auth/v1`.
-10. **Settings → API Keys:** copy the anon (or publishable) key. It is public: it goes in
-    the panel builds and in `SUPABASE_ANON_KEY`. Never use the service role / secret key
-    anywhere in this app.
+10. **Settings → API Keys:** copy the anon (or publishable) key, which is public and goes
+    only in the panel builds (GitHub variable `SUPABASE_ANON_KEY`), and the **service role /
+    secret key**, which goes only in `.env.production` as `SUPABASE_SERVICE_ROLE_KEY` (the
+    APIs create invited users and set passwords with it). Never put the service-role key in a
+    panel build, a GitHub variable or a log.
 
 ## 4. GitHub (image builds)
 
@@ -119,9 +113,21 @@ Optional, for Sentry in the panels (section 12a): variables `SENTRY_ORG`, `SENTR
 `SENTRY_DSN_BACKOFFICE`, `SENTRY_PROJECT_PANEL`, `SENTRY_PROJECT_BACKOFFICE`, and the
 **secret** `SENTRY_AUTH_TOKEN` (source maps). Without them the panels build without Sentry.
 
-The `images` job fails on `master` until all six required variables are set. Then push (or re-run CI on)
-`master`: it builds `ghcr.io/<owner>/<repo>/inmo24x7-{api,web,backoffice}:sha-<commit>` for
-amd64 and arm64. Note the full commit sha: that is what you deploy.
+Images are published only once these variables exist. Until then CI's `release-gate` job
+prints a notice listing what is missing and skips `images-inmo24x7`; tests and checks still
+run (and must pass) on every push. With all six set, push (or re-run CI on) `master`: it
+builds `ghcr.io/<owner>/<repo>/inmo24x7-{api,web,backoffice}:sha-<commit>` for amd64 and
+arm64. Note the full commit sha: that is what you deploy.
+
+**Cuentas Claras** (its own go-live, later; off until then): the variables
+`CUENTAS_CLARAS_API_URL` (`https://cuentasclaras-api.<domain>`) and `CUENTAS_CLARAS_PANEL_URL`
+(`https://cuentasclaras.<domain>`), plus the Supabase ones above, turn on
+`images-cuentas-claras` (`cuentas-claras-{api,web,backoffice}`). Optional Sentry variables:
+`CUENTAS_CLARAS_SENTRY_DSN_PANEL`, `CUENTAS_CLARAS_SENTRY_DSN_BACKOFFICE`,
+`CUENTAS_CLARAS_SENTRY_PROJECT_PANEL`, `CUENTAS_CLARAS_SENTRY_PROJECT_BACKOFFICE`. On the VM,
+add `cuentas-claras` to `COMPOSE_PROFILES`, fill the `CC_*` and `CUENTAS_CLARAS_*` values of
+`.env.production`, point the three DNS records to the VM, and add both panel URLs to
+Supabase's redirect URLs.
 
 ## 5. Pulling the images on the VM
 
@@ -169,7 +175,7 @@ docker compose --project-name inmo24x7 --env-file .env.production -f compose.pro
 ./deploy.sh <full-commit-sha>
 ```
 
-`deploy.sh` pulls the images, runs `alembic upgrade head` once (it stops there if the
+`deploy.sh` pulls the images, runs `alembic upgrade heads` once (it stops there if the
 migration fails, and nothing restarts), starts the five services, and waits for
 `/health/ready` to report that commit. If the new version never gets ready it puts the
 previous one back, and says that migrations were **not** rolled back. Later deploys are the
@@ -206,18 +212,19 @@ After changing `.env.production`, restart: `./deploy.sh <same sha>` (idempotent)
 
 ## 9. The first platform admin
 
-Sign in at `https://admin.<domain>` (or the panel) with your email and finish the sign-up so
-your profile exists. Then:
+Nobody can sign up, so the first admin is created from the VM:
 
 ```bash
 cd /opt/inmo24x7
 docker compose --project-name inmo24x7 --env-file .env.production -f compose.prod.yml \
-  run --rm api python scripts/make_admin.py <your-email>
+  run --rm api python scripts/make_admin.py <your-email> --create
 ```
 
-Reload the backoffice: Negocios, Salud del sistema and Planes appear. Then check that an
-owner claim works once: Backoffice → Dar de alta un negocio with a second email you own,
-sign in with it (magic link), and it lands in that business.
+It prints a temporary password once. Sign in at `https://admin.<domain>` with it: you are asked
+to choose your own password, then Negocios, Salud del sistema and Planes appear. Then check an
+invitation once: Backoffice → Dar de alta un negocio with a second email you own. The dialog
+shows its temporary password; the invitation email arrives with the link. Open the link,
+choose a password, and you land in that business's wizard.
 
 ## 10. Backups
 
@@ -231,14 +238,14 @@ systemctl list-timers inmo24x7-backup.timer    # next run 06:00 UTC
 Then run the **restore drill** in `deploy/restore.md` (copy the identity file to the VM for
 it, `./restore.sh latest ~/inmo24x7-backup.agekey`, then `shred -u` it).
 
-## 11. Done when: from sign-up to a working agent on WhatsApp in under 10 minutes
+## 11. Done when: from invitation to a working agent on WhatsApp in under 10 minutes
 
-With a stopwatch, a brand-new account (a new email, a WhatsApp number that is not on the
+With a stopwatch, a brand-new business (a new email, a WhatsApp number that is not on the
 Cloud API, and a second phone):
 
 | Step | Target |
 | --- | --- |
-| `https://app.<domain>` → Continuar con Google (or the magic link) → business name → Crear | 1 min |
+| Backoffice → Dar de alta un negocio → open the invitation email → choose a password | 1 min |
 | Tu agente: name, tone, hours, questions → Guardar | 2 min |
 | Probalo: 3–4 messages in the simulator | 1 min |
 | Conectá WhatsApp: Meta's popup, choose or add the number, SMS code | 3–4 min |
@@ -311,7 +318,7 @@ traffic. Details, disk math and LogQL in `deploy/observability.md`.
    *Normal*; Contact points → *soporte* → **Test** delivers an email to `SUPPORT_EMAIL`.
 6. Optional: `LLM_MONTHLY_COST_ALERT_USD` (for example `20`) emails `SUPPORT_EMAIL` when a
    business's LLM cost passes it in a month (Backoffice → Consumo shows the numbers). Fill in
-   the real prices in `billing/llm_prices.toml` first, or costs stay empty.
+   the real prices in `packages/platform/src/followup_platform/billing/llm_prices.toml` first, or costs stay empty.
 
 ## After go-live
 
@@ -331,8 +338,8 @@ Record at 1080p, panel in Spanish, one real number connected and a second phone 
 
 1. **0:00 – The problem (15 s).** Inicio of a business with data: "una consulta a las 23:10,
    respondida en 5 segundos".
-2. **0:15 – Sign-up (25 s).** A new window: Continuar con Google → "Inmobiliaria Demo" →
-   the wizard opens.
+2. **0:15 – The invitation (25 s).** A new window with the invitation email's link: choose a
+   password → the wizard opens on "Inmobiliaria Demo".
 3. **0:40 – The agent (25 s).** Tu agente: name "Sofía", tone, hours; the questions list.
    Guardar.
 4. **1:05 – Probalo (30 s).** "Hola, busco alquilar en Palermo" → the agent asks, shows

@@ -1,0 +1,26 @@
+[project]
+name = "followup-platform"
+version = "0.1.0"
+description = "What every product API shares: settings, HTTP plumbing, auth dependencies, Sentry and LangSmith setup, the worker loop, the table reader and LLM prices"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115.8",
+    "followup-core",
+    "httpx==0.28.1",
+    "langsmith==0.14.15",
+    "openpyxl==3.1.5",
+    "psycopg[binary]>=3.2.4",
+    "python-multipart==0.0.33",
+    "sentry-sdk[fastapi,sqlalchemy]==2.72.0",
+    "sqlalchemy>=2.0.38",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/followup_platform"]
+
+[tool.uv.sources]
+followup-core = { workspace = true }

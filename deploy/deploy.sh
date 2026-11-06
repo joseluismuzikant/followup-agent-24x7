@@ -4,6 +4,7 @@
 # running commit again changes nothing.
 #
 #   ./deploy.sh <commit-sha>                 # images ${IMAGE_PREFIX}/inmo24x7-*:sha-<commit>
+#                                            # (and cuentas-claras-* with its profile on)
 #   ./deploy.sh <commit-sha> --local-images  # images already on this machine (the rehearsal)
 #
 # Migrations are never rolled back: they must stay compatible with the previous version
@@ -35,6 +36,9 @@ services=(api worker web backoffice caddy)
 if observability_enabled; then
 	services+=(loki alloy grafana)
 fi
+if cuentas_claras_enabled; then
+	services+=(cc-api cc-worker cc-web cc-backoffice)
+fi
 
 export IMAGE_TAG="$tag"
 say "Deploying $tag (running now: ${current:-nothing})"
@@ -44,7 +48,7 @@ if [[ "$local_images" == false ]]; then
 	compose pull "${services[@]}"
 fi
 
-say "Migrating the database (alembic upgrade head)"
+say "Migrating the database (alembic upgrade heads)"
 if ! compose --profile tools run --rm migrate; then
 	echo "Migration failed: nothing was restarted, ${current:-the current version} keeps running." >&2
 	exit 1

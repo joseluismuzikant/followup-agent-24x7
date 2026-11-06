@@ -1,60 +1,14 @@
-import type { Session } from "@supabase/supabase-js";
+import { pickAdapter } from "@followup/app-shell";
+import type { AuthAdapter } from "@followup/app-shell";
 
 import { authMode } from "./auth-mode";
-import { onDevSessionChange, readDevToken, signOutDev } from "./dev-session";
 import { getSupabase } from "./supabase";
 
-export interface AuthSession {
-  accessToken: string;
-  email: string;
-}
+export { devAdapter, type AuthAdapter, type AuthSession } from "@followup/app-shell";
 
-/** What AuthProvider needs from a sign-in method, so pages don't care which one is active. */
-export interface AuthAdapter {
-  getSession(): Promise<AuthSession | null>;
-  subscribe(onChange: (session: AuthSession | null) => void): () => void;
-  signOut(): Promise<void>;
-}
-
-function fromSupabase(session: Session | null): AuthSession | null {
-  return session ? { accessToken: session.access_token, email: session.user.email ?? "" } : null;
-}
-
-export const supabaseAdapter: AuthAdapter = {
-  async getSession() {
-    const { data } = await getSupabase().auth.getSession();
-    return fromSupabase(data.session);
-  },
-  subscribe(onChange) {
-    const { data } = getSupabase().auth.onAuthStateChange((_event, session) =>
-      onChange(fromSupabase(session)),
-    );
-    return () => data.subscription.unsubscribe();
-  },
-  async signOut() {
-    await getSupabase().auth.signOut();
-  },
-};
-
-function devSession(): AuthSession | null {
-  const token = readDevToken();
-  return token ? { accessToken: token, email: token.slice("dev:".length) } : null;
-}
-
-export const devAdapter: AuthAdapter = {
-  async getSession() {
-    return devSession();
-  },
-  subscribe(onChange) {
-    return onDevSessionChange(() => onChange(devSession()));
-  },
-  async signOut() {
-    signOutDev();
-  },
-};
-
+/** Dev tokens or Supabase, as VITE_AUTH_MODE says. */
 export function authAdapter(): AuthAdapter {
-  return authMode === "dev" ? devAdapter : supabaseAdapter;
+  return pickAdapter(authMode, getSupabase);
 }
 
 export async function getAccessToken(): Promise<string | null> {

@@ -2,7 +2,8 @@
 
 from dataclasses import replace
 from datetime import datetime, time
-from uuid import UUID
+from enum import StrEnum
+from uuid import UUID, uuid4
 
 from followup_core.identity.domain.profile import Profile
 from followup_core.tenancy.application.agent_setup import AgentConfigDraft, QuestionDraft
@@ -20,13 +21,45 @@ from followup_core.tenancy.domain.business_settings import (
     DEFAULT_TIMEZONE,
     TEAM_HOURS_WEEKDAYS_9_18,
     BusinessSettings,
-    BusinessType,
     ScheduleBlock,
 )
 from followup_core.tenancy.domain.errors import AgentConfigConflictError
 from followup_core.tenancy.domain.onboarding import Onboarding
 from followup_core.tenancy.domain.owner_claims import OwnerClaim
+from followup_core.tenancy.domain.product import Product, ProductDefinition
 from followup_core.tenancy.domain.tenant import Tenant
+
+
+class BusinessType(StrEnum):
+    """A sample product's business types (the tests' product mirrors inmo24x7)."""
+
+    AGENCY = "inmobiliaria"
+    NETWORK = "red_franquicia"
+    BROKER = "corredor"
+    DEVELOPER = "desarrolladora"
+
+
+class OnboardingStep(StrEnum):
+    BUSINESS = "business"
+    AGENT = "agent"
+    TRY = "try"
+    WHATSAPP = "whatsapp"
+    DONE = "done"
+
+
+STEPS = tuple(OnboardingStep)
+
+SAMPLE_PRODUCT = ProductDefinition(
+    product=Product.INMO24X7,
+    onboarding_steps=STEPS,
+    first_step=OnboardingStep.AGENT,
+    business_types=tuple(BusinessType),
+    checklist=(
+        ("account", "account_created"),
+        ("agent", "agent_configured"),
+        ("whatsapp", "whatsapp_connected"),
+    ),
+)
 
 
 class InMemoryTenantRepository:
@@ -59,8 +92,14 @@ class InMemoryProfileRepository:
     def __init__(self) -> None:
         self.profiles: dict[UUID, Profile] = {}
 
-    def get_by_id(self, user_id: UUID) -> Profile | None:
-        return self.profiles.get(user_id)
+    def get_by_id(self, profile_id: UUID) -> Profile | None:
+        return self.profiles.get(profile_id)
+
+    def get_for_user(self, user_id: UUID) -> Profile | None:
+        return next((p for p in self.profiles.values() if p.user_id == user_id), None)
+
+    def new_profile_id(self, user_id: UUID) -> UUID:
+        return uuid4() if user_id in self.profiles else user_id
 
     def get_by_email(self, email: str) -> Profile | None:
         wanted = email.strip().lower()
@@ -69,8 +108,8 @@ class InMemoryProfileRepository:
     def add(self, profile: Profile) -> None:
         self.profiles[profile.id] = profile
 
-    def set_platform_admin(self, user_id: UUID, value: bool) -> None:
-        self.profiles[user_id] = replace(self.profiles[user_id], is_platform_admin=value)
+    def set_platform_admin(self, profile_id: UUID, value: bool) -> None:
+        self.profiles[profile_id] = replace(self.profiles[profile_id], is_platform_admin=value)
 
 
 class InMemoryOnboardingRepository:
@@ -205,6 +244,9 @@ class InMemoryOwnerClaims:
         claim = self.claims.get(email.strip().lower())
         return claim if claim is not None and claim.claimed_at is None else None
 
+    def get_for_tenant(self, tenant_id: UUID) -> OwnerClaim | None:
+        return next((c for c in self.claims.values() if c.tenant_id == tenant_id), None)
+
     def exists(self, email: str) -> bool:
         return email.strip().lower() in self.claims
 
@@ -228,4 +270,4 @@ class RecordingAuditLog:
         return [e for e in reversed(self.events) if e.tenant_id == tenant_id][:limit]
 
     def actions(self) -> list[str]:
-        return [event.action.value for event in self.events]
+        return [str(event.action) for event in self.events]

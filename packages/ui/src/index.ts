@@ -20,7 +20,8 @@ export {
   type TranscriptAuthor,
   type TranscriptMessage,
 } from "./components/chat-transcript";
-export { DevSignIn } from "./components/dev-sign-in";
+export { AuthScreen } from "./components/auth-screen";
+export { BrandMark } from "./components/brand-mark";
 export { Dialog } from "./components/dialog";
 export { FileDropzone } from "./components/file-dropzone";
 export { ChecklistCard, type ChecklistItem } from "./components/checklist-card";
@@ -33,6 +34,11 @@ export { SegmentedControl, type SegmentedOption } from "./components/segmented-c
 export { WizardStepper, type WizardStep } from "./components/wizard-stepper";
 export { Pagination } from "./components/pagination";
 export { PanelLayout, type PanelNavItem } from "./components/panel-layout";
+export {
+  PanelSessionProvider,
+  usePanelSession,
+  type PanelSession,
+} from "./components/panel-session";
 export {
   Table,
   TableBody,

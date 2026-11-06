@@ -217,24 +217,45 @@ cp .env.example .env
 uv run --all-packages python scripts/dev.py --seed
 ```
 
-`dev.py` installs dependencies, starts Postgres and Mailpit, applies migrations, seeds the dev
-accounts (`--seed`, safe to repeat) and starts the API, the job worker and both panels. Press
+`dev.py` installs dependencies, starts Postgres and Mailpit, applies every migration
+(`alembic upgrade heads`), seeds the dev accounts (`--seed`, safe to repeat) and starts both
+products: each one's API, job worker, panel and backoffice. `--product inmo24x7` or
+`--product cuentas-claras` starts only one (the database is shared either way). Press
 `Ctrl+C` to stop everything.
 
-- Panel: http://localhost:5173
-- Backoffice: http://localhost:5174
-- API: http://localhost:8001 (documentation at `/docs`, readiness at `/health/ready`)
-- Mailpit (emails sent locally): http://localhost:8025
+| | inmo24x7 | Cuentas Claras |
+| --- | --- | --- |
+| Panel | http://localhost:5173 | http://localhost:5175 |
+| Backoffice | http://localhost:5174 | http://localhost:5176 |
+| API (`/docs`, `/health/ready`) | http://localhost:8001 | http://localhost:8002 |
 
-`.env.example` sets `AUTH_MODE=dev` and `VITE_AUTH_MODE=dev`. The sign-in screens then show a
-**Modo desarrollo** box: type an email and press **Entrar**, no password. The session is the
-token `dev:<email>`, and the API maps each email to a fixed user id. Seeded accounts:
+Mailpit (emails sent locally): http://localhost:8025.
 
-| Email | What you get |
-| --- | --- |
-| `dueno@inmobiliariasur.test` | Owner of "Inmobiliaria Sur": agent configured, onboarding finished, the 20 properties of `docs/samples/propiedades.csv`, and a fake WhatsApp number (`dev-phone-1`, log sender) for the simulate script. |
-| `admin@local.test` | Platform admin (its own business "Plataforma"): use it in the backoffice. |
-| `nuevo@local.test` | No account yet: try sign-up and the wizard from scratch. Any other email works the same way. |
+Accounts are **invitation-only**: nobody signs up. An admin creates the business in the
+backoffice ("Dar de alta un negocio"); that creates the owner's account with a temporary
+password (shown once to the admin) and emails an invitation link (Mailpit locally). The owner
+comes in either with the temporary password or through the link, and must choose their own
+password first (`/cambiar-clave` or `/invitacion`); then the wizard starts. Sign-in is email
+and password everywhere; "¿Olvidaste tu clave?" uses Supabase's reset email.
+
+`.env.example` sets `AUTH_MODE=dev` and `VITE_AUTH_MODE=dev`: passwords are checked by the API
+(`POST /auth/dev/sign-in`, hashes in the `dev_passwords` table) instead of Supabase, and the
+session is the token `dev:<email>`. Seeded accounts (`scripts/seed_dev.py` prints them, with
+the invitation links):
+
+| Email | Password | What you get |
+| --- | --- | --- |
+| `dueno@inmobiliariasur.test` | `local-1234` | Owner of "Inmobiliaria Sur": agent configured, onboarding finished, the 20 properties of `docs/samples/propiedades.csv`, and a fake WhatsApp number (`dev-phone-1`, log sender) for the simulate script. |
+| `admin@local.test` | `local-1234` | Platform admin of both backoffices (its own business "Plataforma" in each product). |
+| `nuevo@local.test` | `temporal-1234` | Invited to both products ("Nuevo Inmo", "Nuevo Negocio") and never came in: the forced password change, then the wizard from scratch. |
+| `invitada@villaurquiza.test` | `temporal-1234` | Invited to "Villa Urquiza Propiedades": try the invitation link (seed output or Mailpit). |
+| `dueno@ascensoresdelta.test` | `local-1234` | Cuentas Claras: owner of "Ascensores Delta", onboarding finished, the 40 invoices of `docs/samples/cuentas-claras/facturas.csv` (25 clients) with dates shifted so the sample's reference date is today. |
+| `dueno@monitoreosur.test` | `local-1234` | Cuentas Claras: "Monitoreo Sur", suspended. |
+| `duena@soporteitnorte.test` | `local-1234` | Cuentas Claras: "Soporte IT Norte", wizard stopped at "Tus facturas", no invoices. |
+| `invitado@matafuegosnorte.test` | `temporal-1234` | Cuentas Claras: invited to "Matafuegos Norte", never came in (the invitation link). |
+
+One email is one person (one account, one password), with a separate profile and business in
+each product. An email nobody invited signs in to "Tu cuenta no está habilitada".
 
 Dev sign-in is refused when `APP_ENV=production` (the API does not start), and the panels'
 production builds fail with `VITE_AUTH_MODE=dev`, so it can never ship. Without `LLM_MODEL`
@@ -244,7 +265,7 @@ Local Postgres uses port 5433 to avoid conflicts with other databases.
 
 ### b) Local Supabase (Supabase CLI)
 
-To test the real sign-in (magic link, optionally Google) without a cloud project. Install the
+To test the real sign-in (Supabase passwords, the reset email) without a cloud project. Install the
 [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started); the
 repository already has a `supabase/config.toml` for this (only Supabase Auth is used, the app
 keeps its own Postgres). With Docker running:
@@ -260,6 +281,7 @@ Copy the values from `supabase status` into `.env`:
 | --- | --- |
 | API URL (`http://127.0.0.1:54321`) | `SUPABASE_URL` and `VITE_SUPABASE_URL` |
 | anon key (or "Publishable key") | `VITE_SUPABASE_ANON_KEY` |
+| service_role key (or "Secret key") | `SUPABASE_SERVICE_ROLE_KEY` (the APIs create invited users with it) |
 | JWT secret | `SUPABASE_JWT_SECRET` (HS256 tokens) |
 | — | or `SUPABASE_JWKS_URL=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json` when the CLI signs with asymmetric keys |
 
@@ -267,23 +289,23 @@ Then set `AUTH_MODE=supabase` and `VITE_AUTH_MODE=supabase` and restart `dev.py`
 
 - `SUPABASE_URL` must match the token issuer exactly: tokens say `http://127.0.0.1:54321/auth/v1`,
   so `http://localhost:54321` is rejected with 401. Use the same host the CLI prints.
-- `supabase/config.toml` already lists `http://localhost:5173` and `http://localhost:5174` as
-  redirect URLs. If you edit it, run `supabase stop && supabase start`.
-- Magic-link emails are not sent: open the local mail UI the CLI prints
-  (http://127.0.0.1:54324) and click the link there.
-- Google sign-in is optional and needs a Google OAuth client: set
-  `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`, and turn
-  on `[auth.external.google]` in `supabase/config.toml`.
-- The seed's accounts use dev user ids, so with Supabase sign up through the panel instead and
-  grant the backoffice with `uv run --all-packages python scripts/make_admin.py <email>`.
+- `supabase/config.toml` already lists the four local apps as redirect URLs and turns sign-up
+  off (`enable_signup = false`). If you edit it, run `supabase stop && supabase start`.
+- Supabase's own emails ("¿Olvidaste tu clave?") are not sent: open the local mail UI the CLI
+  prints (http://127.0.0.1:54324) and click the link there. Invitations go through Mailpit.
+- The seed's accounts use dev user ids, so with Supabase start from an empty database and make
+  your first admin with `uv run --all-packages python scripts/make_admin.py <email> --create`
+  (it prints a temporary password); invite everyone else from the backoffice.
 
 ### c) A Supabase cloud project
 
-What production uses. In the project's dashboard: Authentication → URL Configuration, add
-`http://localhost:5173` and `http://localhost:5174` as redirect URLs; Project Settings → API
-gives the URL and anon key (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_URL`) and
+What production uses. In the project's dashboard: Authentication → Sign In / Providers, turn
+off "Allow new users to sign up" (accounts are invitation-only); Authentication → URL
+Configuration, add the local apps (`http://localhost:5173/**` to `5176`) as redirect URLs;
+Project Settings → API gives the URL, the anon key and the service-role key
+(`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) and
 the JWT secret or JWKS URL (`SUPABASE_JWT_SECRET` or `SUPABASE_JWKS_URL`). Set both auth modes
-to `supabase`, then `make_admin.py <email>` for your own user once you signed up.
+to `supabase`, then `make_admin.py <email> --create` for your own user.
 
 ### A real model and LangSmith
 
@@ -452,6 +474,10 @@ resumes everything; nothing is deleted.
 price, invalid link, invalid operation). The seed and the tests use them; import them from
 Propiedades to see the report.
 
+`docs/samples/cuentas-claras/` has `facturas.csv` (40 invoices of 25 clients of an elevator
+maintenance company), the same rows as `facturas.xlsx`, and `facturas-con-errores.csv` (four
+row errors and one warning). Its README explains the reference date.
+
 ### Reset the dev database
 
 ```bash
@@ -467,18 +493,27 @@ Drops and recreates the local database (only `localhost` or `127.0.0.1`; it asks
 uv sync --all-packages
 corepack pnpm install --frozen-lockfile
 docker compose up -d --wait db
-uv run alembic upgrade head
+uv run alembic upgrade heads
 ```
 
 Then, in separate terminals:
 
 ```bash
 uv --directory apps/inmo24x7/api run uvicorn inmo24x7_api.main:app --reload --port 8001
+uv --directory apps/inmo24x7/api run python -m inmo24x7_api.worker
 corepack pnpm --filter @inmo24x7/web dev
 corepack pnpm --filter @inmo24x7/backoffice dev
+
+uv --directory apps/cuentas-claras/api run uvicorn cuentas_claras_api.main:app --reload --port 8002
+uv --directory apps/cuentas-claras/api run python -m cuentas_claras_api.worker
+corepack pnpm --filter @cuentas-claras/web dev
+corepack pnpm --filter @cuentas-claras/backoffice dev
 ```
 
-One root `alembic.ini` loads every version location against one database and one version table. Core revisions live in `packages/core/migrations`; product revisions live in each product API. Product revision chains start from the current core head.
+One root `alembic.ini` loads every version location against one database and one version
+table. Migrations are named branches: `core` (`packages/core/migrations`), `inmo24x7` and
+`cuentas_claras` (in each product API). A product revision that needs new core tables declares
+`depends_on` that core revision. Always `upgrade heads` (plural): every branch's head.
 
 ### Monitoring locally (logs, errors and LLM cost)
 
@@ -491,7 +526,7 @@ One root `alembic.ini` loads every version location against one database and one
   is sent and the button says so.
 - **LLM cost:** every model call is a row in `llm_usage`; Backoffice → Consumo shows them. The
   fake model costs USD 0 and reports no tokens ("sin datos"). Prices live in
-  `apps/inmo24x7/api/src/inmo24x7_api/billing/llm_prices.toml`; after fixing one, recompute
+  `packages/platform/src/followup_platform/billing/llm_prices.toml`; after fixing one, recompute
   with `uv run --all-packages python scripts/recompute_llm_costs.py --from 2026-11-01`
   (dry run; add `--apply`).
 
@@ -510,6 +545,10 @@ Copy `.env.example` to `.env` to change the defaults. The development script and
 
 Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`, startup fails if `DATABASE_URL` or `CORS_ORIGINS` is missing.
 
+Both products read the same variables, except `CORS_ORIGINS` and `PANEL_URL`, which are per
+product: inmo24x7 reads them as they are, Cuentas Claras as `CUENTAS_CLARAS_CORS_ORIGINS` and
+`CUENTAS_CLARAS_PANEL_URL` (table below). Its panels read `VITE_CUENTAS_CLARAS_API_URL`.
+
 | Variable | Local default | Used by | Description |
 | --- | --- | --- | --- |
 | `APP_ENV` | `development` | API | `development` or `production`. |
@@ -521,7 +560,7 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` | API | Allowed origins, separated by commas. Required in production. |
 | `VITE_API_URL` | `http://localhost:8001` | Web, backoffice | Public API URL. It is embedded in the panel builds. |
 | `AUTH_MODE` | `dev` (`.env.example`); unset: `dev` in development, `supabase` in production | API | `supabase` verifies Supabase JWTs; `dev` accepts only `dev:<email>` tokens (local development). `AUTH_MODE=dev` with `APP_ENV=production` stops the API at startup. |
-| `VITE_AUTH_MODE` | `dev` (`.env.example`); unset: `supabase` | Web, backoffice | `dev` shows the "Modo desarrollo" sign-in instead of Google and the magic link. A production build (`vite build`) fails with `dev`. |
+| `VITE_AUTH_MODE` | `dev` (`.env.example`); unset: `supabase` | Web, backoffice | `dev` checks passwords with the API (`/auth/dev/sign-in`) instead of Supabase. A production build (`vite build`) fails with `dev`. |
 | `SUPABASE_URL` | *(empty)* | API | Supabase project URL. Required in production; tokens must be issued by `{SUPABASE_URL}/auth/v1`. |
 | `SUPABASE_JWT_SECRET` | *(empty)* | API | Supabase JWT secret (HS256). `AUTH_MODE=supabase` requires this or `SUPABASE_JWKS_URL`. |
 | `SUPABASE_JWKS_URL` | *(empty)* | API | JWKS URL for tokens signed with ES256 or RS256. `AUTH_MODE=supabase` requires this or `SUPABASE_JWT_SECRET`. |
@@ -556,7 +595,7 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `VITE_META_APP_ID`, `VITE_META_EMBEDDED_SIGNUP_CONFIG_ID`, `VITE_META_GRAPH_API_VERSION` | *(empty)*, *(empty)*, `v26.0` | Web | The same ids for the Facebook SDK in the panel (build time). Without them "Conectar WhatsApp" is disabled. |
 | `SUPPORT_EMAIL` | `soporte@inmo24x7.local` | API | Shown on the suspended-account screen. Required in production. |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | `5`, `1` | API, worker | Database connections per process. Supabase's session pooler gives each its own server connection, so keep the total under the plan's pool (docs/go-live.md has the math). The worker needs at least `WORKER_CONCURRENCY + 1`. A `DATABASE_URL` on port 6543 (the transaction pooler) is refused. |
-| `SUPABASE_ANON_KEY` | *(empty)* | API | The public anon / publishable key. The API asks Supabase Auth whether an email is confirmed before a sign-up joins a business an admin created for it. Required in production. |
+| `SUPABASE_SERVICE_ROLE_KEY` | *(empty)* | API | The service-role (secret) key: the APIs create invited users and set passwords through Supabase Auth's admin API. Server-side only, never in a panel build. Required in production. |
 | `SUPABASE_SERVER_URL` | *(empty: `SUPABASE_URL`)* | API | Where the API reaches Supabase Auth when that differs from the token issuer. Only the local rehearsal needs it. |
 | `REHEARSAL` | `false` | API, worker | Only for the local production rehearsal (`deploy/rehearsal.md`): with `APP_ENV=production`, allows the fake model and the log sender. Never set on a server. |
 | `SENTRY_DSN` | *(empty: off)* | API, worker | Sends errors to Sentry (unhandled exceptions, dead jobs, WhatsApp connections in error, LLM failures after the retry). No bodies, query strings, cookies or personal data: see ARCHITECTURE.md, "Observability". |
@@ -568,6 +607,10 @@ Local defaults apply only while `APP_ENV=development`. With `APP_ENV=production`
 | `GRAFANA_URL`, `LOKI_DATASOURCE` | *(empty)*, `loki` | API | The backoffice's "Ver logs" and "Buscar por código de referencia" links into Grafana Explore. Empty: the links are hidden. |
 | `COMPOSE_PROFILES`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_DOMAIN`, `GRAFANA_ALLOWED_IPS`, `LOKI_RETENTION_DAYS`, `ALERTS_EMAIL_FROM` | *(production only)* | Loki, Alloy, Grafana | The self-hosted logs stack on the VM (`deploy/observability.md`). |
 | `LLM_MONTHLY_COST_ALERT_USD` | *(empty: off)* | Worker | A daily job emails `SUPPORT_EMAIL` once per business and month when its LLM cost reaches this many USD. |
+| `CUENTAS_CLARAS_CORS_ORIGINS` | `http://localhost:5175,http://localhost:5176` | Cuentas Claras API | Its allowed origins. Required in production. |
+| `CUENTAS_CLARAS_PANEL_URL` | `http://localhost:5175` | Cuentas Claras API, worker | Its panel's public URL. Required in production. |
+| `VITE_CUENTAS_CLARAS_API_URL` | `http://localhost:8002` | Cuentas Claras web, backoffice | Its API's public URL, embedded in the builds (its own name: `VITE_API_URL` is inmo24x7's). |
+| `CUENTAS_CLARAS_SENTRY_DSN`, `CC_*_DOMAIN`, `CC_*_DB_POOL_SIZE` | *(production only)* | Compose, Caddy | Cuentas Claras on the VM (`deploy/.env.production.example`), off until its profile is on. |
 | `VITE_PANEL_URL` | `http://localhost:5173` | Backoffice | Panel origin, used to open sample property links from the backoffice simulator. Optional Docker build argument. |
 | `APP_VERSION` | `0.1.0` | API, Docker | Version returned by readiness. Passed as a Docker build argument. |
 | `GIT_COMMIT` | `unknown` | API, Docker | Commit returned by readiness. Passed as a Docker build argument. |
@@ -599,7 +642,7 @@ corepack pnpm typecheck
 corepack pnpm test
 ```
 
-The generated OpenAPI schema lives in `packages/api-client-inmo24x7/src/schema.ts`. CI regenerates it and fails when the committed file is out of date.
+The generated OpenAPI schemas live in `packages/api-client-inmo24x7/src/schema.ts` and `packages/api-client-cuentas-claras/src/schema.ts`. CI regenerates both and fails when a committed file is out of date.
 
 ## API
 
@@ -628,7 +671,10 @@ All routes below need an access token (Supabase, or `dev:<email>` with `AUTH_MOD
 
 | Route | Purpose |
 | --- | --- |
-| `POST /me/sign-up` | Create the business, owner profile, default settings and onboarding record. Body: `{business_name, business_type}`. |
+| `POST /me/sign-up` | No body. Joins the business an admin created for the signed-in email (owner profile); idempotent. `403 not_invited` when nobody invited this email to this product. |
+| `GET /account`, `POST /account/password` `{password}` | The account (`must_change_password`) and the password change. Until a temporary password is changed every other route answers `403 password_change_required`. `422 password_too_short`, `password_too_long`, `password_is_email`. |
+| `GET /invitations/{token}`, `POST /invitations/accept` `{token, password}` | No access token: the emailed link (`status valid\|expired\|used`, `needs_password`) and choosing the password through it. `404 invitation_not_found`, `409 invitation_used`, `410 invitation_expired`. Links last 7 days; a resend replaces the previous one. |
+| `POST /auth/dev/sign-in` `{email, password}` | `AUTH_MODE=dev` only (404 otherwise): the `dev:<email>` token for the right password, `401 invalid_credentials` otherwise. |
 | `GET /onboarding`, `POST /onboarding/advance` | Wizard progress and setup checklist. |
 | `GET /agent-setup`, `PUT /agent-setup` | Agent configuration plus team hours and notification emails, saved together. |
 | `GET /agent-setup/versions` | Latest 20 agent configuration versions. |
@@ -657,13 +703,31 @@ All routes below need an access token (Supabase, or `dev:<email>` with `AUTH_MOD
 | `GET/PUT /admin/tenants/{id}/whatsapp`, `POST .../test`, `.../subscribe`, `.../test-message`, `.../disconnect` | Platform admins: manual connection. The token is never returned. `whatsapp_api_error` includes `meta_code`. |
 | `POST /admin/tenants/{id}/whatsapp/retry-signup`, `.../reconnect-link` | "Reintentar configuración" and "Enviarle link para reconectar" (emails the owners a link to Configuración → WhatsApp). |
 | `GET /admin/tenants?filter=all\|needs_help\|trial&q=&page=` | S8: businesses with plan, onboarding "N de 5", WhatsApp badge, inquiries in 7 days, and the four KPIs. |
-| `POST /admin/tenants` `{business_name, owner_email}` | "Dar de alta un negocio": the owner joins it when they sign up with that email. `409 owner_email_taken`. |
+| `POST /admin/tenants` `{business_name, owner_email}` | "Dar de alta un negocio": the business, the owner's account and the invitation email. Returns the detail plus `temporary_password` (once; null when the person already had an account). `409 owner_email_taken`. |
+| `POST /admin/tenants/{id}/invitation`, `POST /admin/tenants/{id}/temporary-password` | While the owner has not come in: resend the invitation (a new link) or a new temporary password (shown once). `409 owner_already_joined`. |
 | `GET /admin/tenants/{id}`, `POST .../suspend {reason}`, `.../reactivate` | S9: WhatsApp diagnosis (WABA masked), activity (audit log), onboarding, plan usage, users; suspension. |
 | `GET /admin/system`, `GET /admin/plans` | Salud del sistema (jobs, webhooks, signature rejections, failed sends by Meta code, version, database, monitoring links) and Planes. |
 | `GET /admin/errors?project=all\|api\|panel\|backoffice&period=24h\|7d\|14d&tenant_id=` | Errores: open Sentry issues (cached one minute). `{configured: false}` without the Sentry settings, `{available: false}` when Sentry fails; never a 500. |
 | `POST /admin/errors/test` | Fails on purpose (500, `SentryTestError`) to check Sentry end to end. |
 | `GET /admin/usage?month=YYYY-MM`, `GET /admin/usage/{tenant_id}?month=`, `GET /admin/usage/export.csv?month=` | Consumo (UTC months): LLM cost, tokens, conversations, cost per conversation, simulator share and WhatsApp templates per business; one business's daily series and split by task and model; the table as CSV. |
 | `GET /leads/{id}` | The same plus answers (the configured questions, in order), status history, visits, the transcript (system events, team authors, delivery), who controls the conversation and the WhatsApp 24-hour window. `404 lead_not_found`. |
+
+### Cuentas Claras API (port 8002)
+
+The same `/me`, sign-up, `/account`, `/invitations`, `/onboarding`, `/tenant/settings` and
+`/health` routes (shared from `followup_platform`), scoped to Cuentas Claras's businesses,
+plus:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /invoices?tab=pending\|overdue\|promised\|paid_this_month&q=&page=` | Facturas: 25 per page with `counts` per tab. Each item has the client, the number (`B 0003-00001245`), amount and currency, due date, display status `{kind, label, days_overdue}` in the business's timezone, and `next_action` (null until Day 9). `q` matches the client, a CUIT, or a number as `1245`, `0003-00001245` or `B 3-1245`. |
+| `POST /invoices`, `GET/PATCH /invoices/{id}` | Create, detail (client and payment), edit. `422 invoice_invalid`, `409 invoice_number_taken`, `404 invoice_not_found`. |
+| `POST /invoices/{id}/mark-paid` `{paid_at, paid_via, reference?}`, `POST /invoices/{id}/cancel` `{reason}` | "Marcar como pagada" and "Anular" (only open invoices: `409 invoice_already_paid`). |
+| `POST /invoices/import` | Multipart `file` (CSV or XLSX, 5 MB, 5,000 rows): `{created, updated, skipped, failed, errors[], warnings[]}`. Re-importing updates open invoices and never reopens a paid one. |
+| `GET /invoices/import/{id}/errors.csv`, `GET /invoices/import-template.csv` | The failed rows with an `error` column; the template. |
+| `GET /summary` | Inicio's "Total a cobrar" and "Vencido" (ARS, and USD apart). |
+| `GET /clients?q=&missing_whatsapp=&page=`, `POST /clients`, `GET/PATCH /clients/{id}` | Clientes with open invoices and amount owed per currency; the detail includes its invoices. `422 cuit_invalid`, `409 cuit_taken`, `422 client_invalid`. |
+| `GET /admin/tenants?q=&page=`, `POST /admin/tenants`, `GET /admin/tenants/{id}`, `POST .../suspend`, `.../reactivate`, `.../invitation`, `.../temporary-password` | Platform admins: Cuentas Claras's businesses only, "Dar de alta un negocio" and the invitation actions as in inmo24x7. |
 
 Errors return stable codes instead of user-facing text:
 
@@ -679,25 +743,33 @@ The frontends map those codes to Spanish messages. Every response includes an `X
 apps/inmo24x7/api                  FastAPI API and product migrations
 apps/inmo24x7/web                  customer panel
 apps/inmo24x7/backoffice           internal administration
-apps/cuentas-claras                second product scope
+apps/cuentas-claras/api            Cuentas Claras API (clients, invoices, import) and its migrations
+apps/cuentas-claras/web            Cuentas Claras panel
+apps/cuentas-claras/backoffice     Cuentas Claras administration
 packages/core                      shared domain, application, adapters, core migrations
+packages/platform                  shared API plumbing (followup_platform): settings, auth,
+                                   errors, logging, Sentry, worker loop, shared routers
 packages/ui                        shared React components (@followup/ui)
+packages/app-shell                 shared panel pieces (@followup/app-shell): auth, sign-in,
+                                   guards, wizard frame, checklist, settings fields, API client
 packages/api-client-inmo24x7       generated OpenAPI types and typed client
+packages/api-client-cuentas-claras generated OpenAPI types for Cuentas Claras
 packages/observability             Sentry setup, PII scrubbing and error boundary for the panels
 alembic.ini                        single migration configuration
 migrations                         root Alembic environment
 scripts                            local startup, dev seed, make_admin and type generation
-docs/samples                       sample property files (CSV, XLSX, CSV with errors)
+docs/samples                       sample property and invoice files (CSV, XLSX, CSV with errors)
 supabase                           local Supabase CLI configuration (auth only)
 ```
 
 ## Images
 
-On every push to `master`, after the tests, CI builds amd64 + arm64 images for the API, web
-and backoffice and pushes them to GitHub Container Registry as `sha-<commit>` (and
-`latest`). The panel builds embed only public values (`VITE_API_URL`, the Supabase URL and
-anon key, the Meta app and Embedded Signup ids) from repository variables; the job fails
-when any is missing. Secrets are runtime environment only. Deploying is
+On every push to `master`, after the tests, CI's `release-gate` job checks each product's
+repository variables, and for each product that has them builds amd64 + arm64 images for its
+API, web and backoffice and pushes them to GitHub Container Registry as `sha-<commit>` (and
+`latest`). A product without them is skipped with a notice, never a failure. The panel
+builds embed only public values (the API URL, the Supabase URL and anon key, and for
+inmo24x7 the Meta app and Embedded Signup ids). Secrets are runtime environment only. Deploying is
 `deploy/deploy.sh <commit>` on the VM: see [docs/go-live.md](docs/go-live.md).
 
 ## License

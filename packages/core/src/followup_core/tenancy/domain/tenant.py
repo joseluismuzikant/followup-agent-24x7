@@ -6,6 +6,7 @@ from enum import StrEnum
 from uuid import UUID, uuid4
 
 from .errors import InvalidSuspensionReasonError, InvalidTenantNameError, InvalidTenantSlugError
+from .product import FIRST_PRODUCT, Product
 
 _SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _TRIAL_DAYS = 14
@@ -40,9 +41,11 @@ class Tenant:
     # Why an admin suspended it (shown to admins only) and when.
     suspended_reason: str | None = None
     suspended_at: datetime | None = None
+    # Which product the business uses; slugs are unique per product.
+    product: Product = FIRST_PRODUCT
 
     @classmethod
-    def create(cls, name: str) -> "Tenant":
+    def create(cls, name: str, product: Product = FIRST_PRODUCT) -> "Tenant":
         now = datetime.now(UTC)
         return cls(
             id=uuid4(),
@@ -51,6 +54,7 @@ class Tenant:
             created_at=now,
             status=TenantStatus.ACTIVE,
             trial_ends_at=now + timedelta(days=_TRIAL_DAYS),
+            product=product,
         )
 
     def rename(self, name: str) -> "Tenant":

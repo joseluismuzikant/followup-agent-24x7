@@ -6,6 +6,8 @@
 # Only Caddy publishes ports (80 and 443; Grafana also listens on the VM's 127.0.0.1:3000 for
 # an SSH tunnel). The app reads .env.production (chmod 600); the observability services
 # (profile `observability`, deploy/observability.md) get only the values they need.
+# Cuentas Claras (profile `cuentas-claras`) runs next to inmo24x7 on the same VM and database;
+# it stays off until its go-live (COMPOSE_PROFILES=cuentas-claras in .env.production).
 
 name: inmo24x7
 
@@ -16,6 +18,7 @@ x-logging: &logging
     max-file: "5"
 
 x-api-image: &api-image ${IMAGE_PREFIX:?set IMAGE_PREFIX}/inmo24x7-api:${IMAGE_TAG:?set IMAGE_TAG}
+x-cc-api-image: &cc-api-image ${IMAGE_PREFIX}/cuentas-claras-api:${IMAGE_TAG}
 
 services:
   api:
@@ -77,6 +80,7 @@ services:
     volumes:
       - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
       - ${CADDY_GRAFANA_SITE:-./caddy/no-grafana.caddy}:/etc/caddy/grafana.caddy:ro
+      - ${CADDY_CUENTAS_CLARAS_SITE:-./caddy/no-cuentas-claras.caddy}:/etc/caddy/cuentas-claras.caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -89,10 +93,63 @@ services:
     networks: [internal, edge]
     logging: *logging
 
+  # --- Cuentas Claras (profile `cuentas-claras`) ---------------------------------------------
+  cc-api:
+    image: *cc-api-image
+    env_file: ${ENV_FILE:-.env.production}
+    environment:
+      DB_POOL_SIZE: ${CC_API_DB_POOL_SIZE:-3}
+      DB_MAX_OVERFLOW: ${CC_API_DB_MAX_OVERFLOW:-1}
+      # Its own Sentry project (empty = off), never inmo24x7's.
+      SENTRY_DSN: ${CUENTAS_CLARAS_SENTRY_DSN:-}
+    profiles: [cuentas-claras]
+    restart: unless-stopped
+    networks: [internal]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health/ready', timeout=4)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    logging: *logging
+
+  cc-worker:
+    image: *cc-api-image
+    command: ["python", "-m", "cuentas_claras_api.worker"]
+    env_file: ${ENV_FILE:-.env.production}
+    environment:
+      DB_POOL_SIZE: ${CC_WORKER_DB_POOL_SIZE:-2}
+      DB_MAX_OVERFLOW: "0"
+      SENTRY_DSN: ${CUENTAS_CLARAS_SENTRY_DSN:-}
+    profiles: [cuentas-claras]
+    restart: unless-stopped
+    stop_grace_period: 70s
+    networks: [internal]
+    logging: *logging
+
+  cc-web:
+    image: ${IMAGE_PREFIX}/cuentas-claras-web:${IMAGE_TAG}
+    profiles: [cuentas-claras]
+    restart: unless-stopped
+    networks: [internal]
+    logging: *logging
+
+  cc-backoffice:
+    image: ${IMAGE_PREFIX}/cuentas-claras-backoffice:${IMAGE_TAG}
+    profiles: [cuentas-claras]
+    restart: unless-stopped
+    networks: [internal]
+    logging: *logging
+
   # One-off: `docker compose run --rm migrate` (deploy.sh runs it before every deploy).
+  # `heads`: core's and every product's migration branch (one database, one version table).
   migrate:
     image: *api-image
-    command: ["alembic", "upgrade", "head"]
+    command: ["alembic", "upgrade", "heads"]
     env_file: ${ENV_FILE:-.env.production}
     environment:
       DB_POOL_SIZE: "1"

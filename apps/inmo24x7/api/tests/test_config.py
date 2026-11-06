@@ -32,7 +32,7 @@ def _production_env(monkeypatch, *, database_url: str | None = None, cors: str |
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "jwt-secret")
-    monkeypatch.setenv("SUPABASE_ANON_KEY", "public-anon-key")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key")
     monkeypatch.setenv("LLM_MODEL", "anthropic:claude-sonnet-5-5")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.delenv("AUTH_MODE", raising=False)
@@ -103,15 +103,15 @@ def test_production_accepts_jwks_without_the_jwt_secret(monkeypatch) -> None:
     assert get_settings().supabase_jwks_url.endswith("jwks.json")
 
 
-def test_production_needs_the_public_anon_key_to_check_owner_claims(monkeypatch) -> None:
+def test_production_needs_the_service_role_key_to_create_invited_users(monkeypatch) -> None:
     _production_env(
         monkeypatch,
         database_url="postgresql+psycopg://db/app",
         cors="https://app.example.com",
     )
-    monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
 
-    with pytest.raises(ConfigurationError, match="SUPABASE_ANON_KEY"):
+    with pytest.raises(ConfigurationError, match="SUPABASE_SERVICE_ROLE_KEY"):
         get_settings()
 
 
@@ -417,7 +417,7 @@ def test_the_production_env_example_never_enables_the_rehearsal() -> None:
     }
 
     assert "REHEARSAL" not in names
-    assert {"APP_ENV", "DATABASE_URL", "SUPABASE_JWKS_URL", "SUPABASE_ANON_KEY"} <= names
+    assert {"APP_ENV", "DATABASE_URL", "SUPABASE_JWKS_URL", "SUPABASE_SERVICE_ROLE_KEY"} <= names
     assert ":6543/" not in example.read_text(encoding="utf-8")
 
 

@@ -12,9 +12,12 @@ from followup_core.infrastructure.db import Base
 class TenantModel(Base):
     __tablename__ = "tenants"
 
+    __table_args__ = (UniqueConstraint("product", "slug", name="uq_tenants_product_slug"),)
+
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    product: Mapped[str] = mapped_column(String(20), nullable=False, server_default="inmo24x7")
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    slug: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     trial_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -26,6 +29,7 @@ class TenantModel(Base):
 class OwnerClaimModel(Base):
     __tablename__ = "tenant_owner_claims"
 
+    product: Mapped[str] = mapped_column(String(20), primary_key=True, server_default="inmo24x7")
     email: Mapped[str] = mapped_column(String(320), primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

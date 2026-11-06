@@ -5,6 +5,8 @@
 
 Everything goes through the real use cases (sign-up, agent setup, onboarding, property
 import, suspension, the WhatsApp health rules), so the seed stays valid as the domain changes.
+Both products are seeded: inmo24x7 as described below, then Cuentas Claras (admin@local.test
+as administrator of its backoffice too, and "Ascensores Delta" with the sample invoices).
 The backoffice gets one business in each state S8 shows: trial with WhatsApp (verification
 pending), onboarding 2 de 5 for three days, WhatsApp in error with Meta's code 190, suspended,
 and one created by an admin whose owner has not signed up yet. The inbox and the dashboard get about
@@ -18,8 +20,9 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from contextlib import suppress
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -29,7 +32,19 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 SAMPLE_PROPERTIES = ROOT / "docs" / "samples" / "propiedades.csv"
+SAMPLE_INVOICES = ROOT / "docs" / "samples" / "cuentas-claras" / "facturas.csv"
+# The sample's due dates are relative to this day (docs/samples/cuentas-claras/README.md).
+SAMPLE_REFERENCE = date(2026, 11, 2)
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
+# Filled while seeding: each invited email's link token (None if invited by an earlier run).
+INVITATION_LINKS: dict[str, str | None] = {}
+CC_INVITATION_LINKS: dict[str, str | None] = {}
+
+
+# Every seeded account signs in with this password; invited ones get the temporary one and
+# must change it first (docs/local-test-guide.md).
+DEV_PASSWORD = "local-1234"
+TEMPORARY_PASSWORD = "temporal-1234"
 
 
 @dataclass(frozen=True)
@@ -46,7 +61,11 @@ OWNER = DevAccount(
     "dueño de Inmobiliaria Sur: 20 propiedades y WhatsApp de prueba (dev-phone-1)",
 )
 DEV_PHONE_NUMBER_ID = "dev-phone-1"
-NEW = DevAccount("nuevo@local.test", None, "sin cuenta: para probar el alta y el asistente")
+NEW = DevAccount(
+    "nuevo@local.test",
+    "Nuevo Inmo",
+    f"invitado ({TEMPORARY_PASSWORD}): cambio de clave obligatorio y el asistente desde cero",
+)
 PALERMO = DevAccount(
     "duena@palermoprop.test",
     "Palermo Propiedades",
@@ -64,9 +83,39 @@ NORTE = DevAccount("dueno@nortebienes.test", "Norte Bienes Raíces", "cuenta sus
 INVITED = DevAccount(
     "invitada@villaurquiza.test",
     "Villa Urquiza Propiedades",
-    "sin cuenta: un admin le dio de alta el negocio; al entrar queda como dueña",
+    f"invitada ({TEMPORARY_PASSWORD}), todavía no entró: probá el link de la invitación",
 )
 ACCOUNTS = (ADMIN, OWNER, NEW, PALERMO, BELGRANO, CABALLITO, NORTE, INVITED)
+
+# Cuentas Claras. The same email is a different profile in each product; nuevo@local.test is
+# invited here too (one account, one password, a business in each product).
+CC_ADMIN = DevAccount(
+    "admin@local.test", "Plataforma", "administrador de la plataforma (backoffice)"
+)
+CC_OWNER = DevAccount(
+    "dueno@ascensoresdelta.test",
+    "Ascensores Delta",
+    "dueño de Ascensores Delta: 40 facturas de 25 clientes, onboarding terminado",
+)
+CC_NEW = DevAccount(
+    NEW.email,
+    "Nuevo Negocio",
+    f"invitado ({TEMPORARY_PASSWORD}): el asistente de Cuentas Claras desde cero",
+)
+CC_SUSPENDED = DevAccount(
+    "dueno@monitoreosur.test", "Monitoreo Sur", "cuenta suspendida (Tu cuenta está suspendida)"
+)
+CC_SETUP = DevAccount(
+    "duena@soporteitnorte.test",
+    "Soporte IT Norte",
+    "asistente sin terminar (en Tus facturas), sin facturas: Inicio vacío",
+)
+CC_INVITED = DevAccount(
+    "invitado@matafuegosnorte.test",
+    "Matafuegos Norte",
+    f"invitado ({TEMPORARY_PASSWORD}), todavía no entró: probá el link de la invitación",
+)
+CC_ACCOUNTS = (CC_ADMIN, CC_OWNER, CC_SUSPENDED, CC_SETUP, CC_NEW, CC_INVITED)
 
 
 class SeedError(RuntimeError):
@@ -102,28 +151,97 @@ def reset_database(database_url: str) -> None:
     engine.dispose()
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
-    command.upgrade(config, "head")
+    command.upgrade(config, "heads")
 
 
-def _sign_up(session: Session, account: DevAccount):
+def _directory(session: Session):
+    from followup_platform.identity import build_account_directory
+    from inmo24x7_api.config import get_settings
+
+    return build_account_directory(get_settings(), session)
+
+
+def _business(session: Session, container, account: DevAccount, business_type: str):
+    """The business an admin created for this email ("Dar de alta"); none twice."""
     from followup_core.identity.infrastructure.dev_verifier import dev_user_id
-    from inmo24x7_api.container import sign_up_use_case
+    from followup_core.tenancy.domain.errors import OwnerEmailTakenError
 
     assert account.business is not None
-    return sign_up_use_case(session).execute(
-        dev_user_id(account.email), account.email, account.business, "inmobiliaria"
+    # Created (or claimed) by a previous run: nothing to do.
+    with suppress(OwnerEmailTakenError):
+        container.create_business_use_case(session).execute(
+            dev_user_id(ADMIN.email), account.business, business_type, account.email
+        )
+
+
+def _ready(session: Session, account: DevAccount, container=None, business_type=""):
+    """A business and its owner, signed up with DEV_PASSWORD (no forced change): the real
+    invitation path minus the email, then the owner's first sign-in."""
+    from followup_core.identity.domain.account import Account
+    from followup_core.identity.infrastructure.accounts import SqlAlchemyAccountRepository
+
+    if container is None:
+        import inmo24x7_api.container as container
+
+        business_type = business_type or "inmobiliaria"
+    _business(session, container, account, business_type)
+    accounts = SqlAlchemyAccountRepository(session)
+    found = accounts.get_by_email(account.email)
+    if found is None:
+        user_id = _directory(session).create_user(account.email, DEV_PASSWORD)
+        now = datetime.now(UTC)
+        accounts.add(Account(user_id, account.email, False, now, now))
+    else:
+        user_id = found.user_id
+    return container.sign_up_use_case(session).execute(user_id, account.email)
+
+
+def _invite(session: Session, account: DevAccount, container, business_type: str) -> str | None:
+    """Invited and not in yet: the account has TEMPORARY_PASSWORD and the invitation email is
+    queued. The link's token, or None when a previous run already invited them."""
+    from followup_core.identity.application.accounts import InviteOwner
+    from followup_core.identity.infrastructure.accounts import (
+        SqlAlchemyAccountRepository,
+        SqlAlchemyInvitationRepository,
+    )
+    from followup_core.identity.infrastructure.dev_verifier import dev_user_id
+    from followup_core.scheduling.infrastructure.queue import SqlAlchemyJobQueue
+    from followup_core.tenancy.infrastructure.audit_repository import (
+        SqlAlchemyAuditLog,
+        SqlAlchemyOwnerClaimRepository,
+    )
+
+    product = container.PRODUCT
+    if SqlAlchemyInvitationRepository(session).latest_for(product, account.email):
+        return None
+    _business(session, container, account, business_type)
+    claim = SqlAlchemyOwnerClaimRepository(session, product).get_open(account.email)
+    assert claim is not None
+    return (
+        InviteOwner(
+            product,
+            SqlAlchemyAccountRepository(session),
+            _directory(session),
+            SqlAlchemyOwnerClaimRepository(session, product),
+            SqlAlchemyInvitationRepository(session),
+            SqlAlchemyJobQueue(session, queue=product),
+            SqlAlchemyAuditLog(session),
+            password_factory=lambda: TEMPORARY_PASSWORD,
+        )
+        .execute(dev_user_id(ADMIN.email), claim.tenant_id)
+        .token
     )
 
 
 def _configure_owner(session: Session, tenant_id, profile_id) -> None:
     from followup_core.tenancy.application.agent_setup import AgentConfigDraft, QuestionDraft
-    from followup_core.tenancy.domain.onboarding import OnboardingStep
     from inmo24x7_api.container import (
         advance_onboarding_use_case,
         get_agent_setup_use_case,
         import_properties_use_case,
         save_agent_setup_use_case,
     )
+    from inmo24x7_api.product import OnboardingStep
     from inmo24x7_api.properties.infrastructure.repositories import SqlAlchemyPropertyRepository
 
     setup = get_agent_setup_use_case(session).execute(tenant_id)
@@ -191,13 +309,81 @@ def seed(session: Session) -> None:
     from followup_core.identity.application.set_platform_admin import SetPlatformAdmin
     from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
 
-    _sign_up(session, ADMIN)
+    _ready(session, ADMIN)
     SetPlatformAdmin(SqlAlchemyProfileRepository(session)).execute(ADMIN.email)
-    owner = _sign_up(session, OWNER)
+    owner = _ready(session, OWNER)
     _configure_owner(session, owner.tenant.id, owner.profile.id)
     session.commit()
     seed_inbox(session, owner.tenant.id, owner.profile.id)
     seed_backoffice(session)
+    seed_cuentas_claras(session)
+
+
+# --- Cuentas Claras ---------------------------------------------------------------------------
+
+
+def shifted_invoices(today: date) -> bytes:
+    """The sample CSV with every date moved so that its reference date is `today`: the same
+    mix of overdue, due soon and paid invoices whenever the seed runs."""
+    delta = today - SAMPLE_REFERENCE
+    lines = SAMPLE_INVOICES.read_text(encoding="utf-8").splitlines()
+    header = lines[0].split(";")
+    dates = [header.index(name) for name in ("fecha_emision", "vencimiento", "fecha_pago")]
+    out = [lines[0]]
+    for line in lines[1:]:
+        cells = line.split(";")
+        for index in dates:
+            if cells[index]:
+                moved = datetime.strptime(cells[index], "%d/%m/%Y").date() + delta
+                cells[index] = moved.strftime("%d/%m/%Y")
+        out.append(";".join(cells))
+    return ("\n".join(out) + "\n").encode("utf-8")
+
+
+def seed_cuentas_claras(session: Session) -> None:
+    """Runs Cuentas Claras's real sign-up, import and onboarding; again, it changes nothing."""
+    import cuentas_claras_api.container as container
+    from cuentas_claras_api.container import (
+        advance_onboarding_use_case,
+        import_invoices_use_case,
+        timezone_of,
+        utc_now,
+    )
+    from cuentas_claras_api.invoices.domain.status import today_in
+    from cuentas_claras_api.invoices.infrastructure.repository import SqlAlchemyInvoiceRepository
+    from cuentas_claras_api.product import PRODUCT
+    from followup_core.identity.application.set_platform_admin import SetPlatformAdmin
+    from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
+
+    admin = _ready(session, CC_ADMIN, container, "otro")
+    SetPlatformAdmin(SqlAlchemyProfileRepository(session, PRODUCT)).execute(CC_ADMIN.email)
+    owner = _ready(session, CC_OWNER, container, "mantenimiento")
+    tenant_id = owner.tenant.id
+    if not SqlAlchemyInvoiceRepository(session).has_any(tenant_id):
+        today = today_in(timezone_of(session)(tenant_id), utc_now())
+        report = import_invoices_use_case(session, utc_now).execute(
+            tenant_id, owner.profile.id, "facturas.csv", shifted_invoices(today)
+        )
+        if report.failed_rows:
+            raise SeedError(
+                f"The sample invoices did not import: {len(report.failed_rows)} rows failed."
+            )
+    advance = advance_onboarding_use_case(session)
+    for step in ("reminders", "connect", "done"):
+        advance.execute(tenant_id, step)
+    CC_INVITATION_LINKS[CC_NEW.email] = _invite(session, CC_NEW, container, "otro")
+
+    # Suspended, with a reason only admins see.
+    suspended = _ready(session, CC_SUSPENDED, container, "seguridad")
+    if not suspended.tenant.is_suspended:
+        container.tenant_suspension_use_case(session).suspend(
+            admin.profile.id, suspended.tenant.id, "Pidió pausar el servicio hasta marzo."
+        )
+    # Came in once and stopped at "Tus facturas": no invoices, Inicio's empty state.
+    _ready(session, CC_SETUP, container, "soporte_it")
+    # Invited by an admin; has not come in yet.
+    CC_INVITATION_LINKS[CC_INVITED.email] = _invite(session, CC_INVITED, container, "mantenimiento")
+    session.commit()
 
 
 # --- Backoffice (S8, S9) ----------------------------------------------------------------------
@@ -233,19 +419,14 @@ def seed_backoffice(session: Session) -> None:
     from followup_core.messaging.infrastructure.repositories import (
         SqlAlchemyConnectionRepository,
     )
-    from followup_core.tenancy.domain.errors import OwnerEmailTakenError
-    from inmo24x7_api.container import (
-        connection_health,
-        create_business_use_case,
-        tenant_suspension_use_case,
-    )
+    from inmo24x7_api.container import connection_health, tenant_suspension_use_case
     from sqlalchemy import text
 
     admin = dev_user_id(ADMIN.email)
     connections = SqlAlchemyConnectionRepository(session)
 
     # Trial, everything done, WhatsApp connected while Meta reviews the business.
-    palermo = _sign_up(session, PALERMO)
+    palermo = _ready(session, PALERMO)
     _configure_owner_without_inbox(session, palermo.tenant.id, palermo.profile.id, "dev-phone-2")
     connection = connections.get_by_tenant(palermo.tenant.id)
     if connection is not None and connection.business_verification is not (
@@ -254,7 +435,7 @@ def seed_backoffice(session: Session) -> None:
         connections.save(replace(connection, business_verification=BusinessVerification.PENDING))
 
     # Onboarding 2 de 5 (account + agent), stuck for three days: "Necesitan ayuda".
-    belgrano = _sign_up(session, BELGRANO)
+    belgrano = _ready(session, BELGRANO)
     _save_default_agent(session, belgrano.tenant.id, belgrano.profile.id)
     session.execute(
         text("UPDATE tenants SET created_at = :at WHERE id = :id AND created_at > :at"),
@@ -262,7 +443,7 @@ def seed_backoffice(session: Session) -> None:
     )
 
     # WhatsApp in error: the customer removed the app's access (190) 26 hours ago.
-    caballito = _sign_up(session, CABALLITO)
+    caballito = _ready(session, CABALLITO)
     _configure_owner_without_inbox(
         session, caballito.tenant.id, caballito.profile.id, "dev-phone-3"
     )
@@ -272,28 +453,25 @@ def seed_backoffice(session: Session) -> None:
         connection_health(session, lambda: failed_at).failed(connection, "190")
 
     # Suspended, with a reason only admins see.
-    norte = _sign_up(session, NORTE)
+    norte = _ready(session, NORTE)
     _save_default_agent(session, norte.tenant.id, norte.profile.id)
     if not norte.tenant.is_suspended:
         tenant_suspension_use_case(session).suspend(
             admin, norte.tenant.id, "Pidió pausar el servicio hasta marzo."
         )
 
-    # Created by an admin; the owner joins it when she signs up with this email.
-    try:
-        assert INVITED.business is not None
-        create_business_use_case(session).execute(
-            admin, INVITED.business, "inmobiliaria", INVITED.email
-        )
-    except OwnerEmailTakenError:
-        pass  # already created (or claimed) by a previous run
+    # Created by an admin and invited; she has not come in yet.
+    import inmo24x7_api.container as container
+
+    INVITATION_LINKS[INVITED.email] = _invite(session, INVITED, container, "inmobiliaria")
+    INVITATION_LINKS[NEW.email] = _invite(session, NEW, container, "inmobiliaria")
     session.commit()
 
 
 def _configure_owner_without_inbox(session: Session, tenant_id, profile_id, phone: str) -> None:
     """Agent saved, wizard finished, the sample properties and a log-sender number."""
-    from followup_core.tenancy.domain.onboarding import OnboardingStep
     from inmo24x7_api.container import advance_onboarding_use_case, import_properties_use_case
+    from inmo24x7_api.product import OnboardingStep
     from inmo24x7_api.properties.infrastructure.repositories import SqlAlchemyPropertyRepository
 
     _save_default_agent(session, tenant_id, profile_id)
@@ -498,11 +676,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {error}", file=sys.stderr)
         return 2
 
-    print("\nListo. Con AUTH_MODE=dev entrá con cualquiera de estos emails:")
+    print("\nListo. Entrá con estos emails (AUTH_MODE=dev).")
+    print(f"Clave de todas las cuentas listas: {DEV_PASSWORD}")
+    print("\ninmo24x7 (panel http://localhost:5173, backoffice http://localhost:5174):")
     for account in ACCOUNTS:
         print(f"  {account.email:<30} {account.what}")
-    print("\nPanel: http://localhost:5173   Backoffice: http://localhost:5174")
+    _print_links("http://localhost:5173", INVITATION_LINKS)
+    print("\nCuentas Claras (panel http://localhost:5175, backoffice http://localhost:5176):")
+    for account in CC_ACCOUNTS:
+        print(f"  {account.email:<30} {account.what}")
+    _print_links("http://localhost:5175", CC_INVITATION_LINKS)
     return 0
+
+
+def _print_links(panel: str, links: dict[str, str | None]) -> None:
+    for email, token in links.items():
+        if token:
+            print(f"  link de invitación de {email}: {panel}/invitacion?token={token}")
+        else:
+            print(f"  {email}: ya invitado antes (el link está en Mailpit, http://localhost:8025)")
 
 
 if __name__ == "__main__":

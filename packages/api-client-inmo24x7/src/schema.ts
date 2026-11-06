@@ -47,7 +47,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sign Up */
+        /**
+         * Sign Up
+         * @description Joins the business an admin created for the signed-in email (403 not_invited
+         *     otherwise). Idempotent: an existing profile is returned with 200.
+         */
         post: operations["sign_up_me_sign_up_post"];
         delete?: never;
         options?: never;
@@ -83,6 +87,95 @@ export interface paths {
         get: operations["tenant_tenant_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Account */
+        get: operations["account_account_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Password */
+        post: operations["change_password_account_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/invitations/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Invitation */
+        get: operations["invitation_invitations__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Invitation */
+        post: operations["accept_invitation_invitations_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/dev/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dev Sign In
+         * @description AUTH_MODE=dev only: checks the local password and returns a `dev:<email>` token
+         *     (Supabase Auth does this in production).
+         */
+        post: operations["dev_sign_in_auth_dev_sign_in_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -767,7 +860,10 @@ export interface paths {
         /** List Businesses */
         get: operations["list_businesses_admin_tenants_get"];
         put?: never;
-        /** Create Business */
+        /**
+         * Create Business
+         * @description The business, its owner's account and the invitation email.
+         */
         post: operations["create_business_admin_tenants_post"];
         delete?: never;
         options?: never;
@@ -898,6 +994,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/tenants/{tenant_id}/invitation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resend */
+        post: operations["resend_admin_tenants__tenant_id__invitation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/temporary-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset */
+        post: operations["reset_admin_tenants__tenant_id__temporary_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/usage": {
         parameters: {
             query?: never;
@@ -971,6 +1101,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccountRead */
+        AccountRead: {
+            /** Email */
+            email: string;
+            /** Must Change Password */
+            must_change_password: boolean;
+        };
         /** ActivityRead */
         ActivityRead: {
             /**
@@ -1080,6 +1217,58 @@ export interface components {
             business_type: string;
             /** Owner Email */
             owner_email: string;
+        };
+        /** BusinessCreatedRead */
+        BusinessCreatedRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "suspended";
+            /** Owner Email */
+            owner_email: string | null;
+            /** Owner Pending */
+            owner_pending: boolean;
+            plan: components["schemas"]["PlanRead"];
+            /** Onboarding Done */
+            onboarding_done: number;
+            /** Onboarding Total */
+            onboarding_total: number;
+            /**
+             * Whatsapp
+             * @enum {string}
+             */
+            whatsapp: "connected" | "verification_pending" | "action_required" | "not_connected";
+            /** Needs Help */
+            needs_help: boolean;
+            /** Leads Last 7 Days */
+            leads_last_7_days: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Suspended Reason */
+            suspended_reason: string | null;
+            /** Suspended At */
+            suspended_at: string | null;
+            /** Onboarding */
+            onboarding: components["schemas"]["OnboardingItemRead"][];
+            whatsapp_connection: components["schemas"]["BusinessWhatsAppRead"];
+            usage: components["schemas"]["PlanUsageRead"];
+            /** Users */
+            users: components["schemas"]["UserRead"][];
+            /** Activity */
+            activity: components["schemas"]["ActivityRead"][];
+            /** Temporary Password */
+            temporary_password: string | null;
         };
         /** BusinessDetailRead */
         BusinessDetailRead: {
@@ -1326,6 +1515,18 @@ export interface components {
             /** Attention Today */
             attention_today: components["schemas"]["TodayLeadRead"][];
         };
+        /** DevSession */
+        DevSession: {
+            /** Access Token */
+            access_token: string;
+        };
+        /** DevSignIn */
+        DevSignIn: {
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
+        };
         /**
          * EmbeddedSignupWrite
          * @description What Meta's popup gave the panel: the 30-second code and the ids (FINISH event).
@@ -1389,6 +1590,37 @@ export interface components {
             failed: number;
             /** Errors */
             errors: string[];
+        };
+        /** InvitationAccept */
+        InvitationAccept: {
+            /** Token */
+            token: string;
+            /** Password */
+            password: string;
+        };
+        /** InvitationAccepted */
+        InvitationAccepted: {
+            /** Email */
+            email: string;
+        };
+        /** InvitationRead */
+        InvitationRead: {
+            /** Email */
+            email: string;
+            /** Business Name */
+            business_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "valid" | "expired" | "used";
+            /** Needs Password */
+            needs_password: boolean;
+        };
+        /** InvitationSentRead */
+        InvitationSentRead: {
+            /** Sent */
+            sent: boolean;
         };
         /** IssueRead */
         IssueRead: {
@@ -1642,6 +1874,11 @@ export interface components {
             /** Finished */
             finished: boolean;
             checklist: components["schemas"]["ChecklistRead"];
+        };
+        /** PasswordChange */
+        PasswordChange: {
+            /** Password */
+            password: string;
         };
         /** PersonRead */
         PersonRead: {
@@ -1956,13 +2193,6 @@ export interface components {
             /** Meta Business Verified */
             meta_business_verified: boolean;
         };
-        /** SignUpRequest */
-        SignUpRequest: {
-            /** Business Name */
-            business_name: string;
-            /** Business Type */
-            business_type: string;
-        };
         /** SignUpResponse */
         SignUpResponse: {
             profile: components["schemas"]["ProfileRead"];
@@ -2089,6 +2319,11 @@ export interface components {
         TeamMessageWrite: {
             /** Text */
             text: string;
+        };
+        /** TemporaryPasswordRead */
+        TemporaryPasswordRead: {
+            /** Temporary Password */
+            temporary_password: string;
         };
         /** TenantCreate */
         TenantCreate: {
@@ -2545,11 +2780,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SignUpRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2560,14 +2791,12 @@ export interface operations {
                     "application/json": components["schemas"]["SignUpResponse"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
+                content?: never;
             };
         };
     };
@@ -2607,6 +2836,206 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantSummaryRead"];
+                };
+            };
+        };
+    };
+    account_account_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountRead"];
+                };
+            };
+        };
+    };
+    change_password_account_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    invitation_invitations__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationRead"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_invitation_invitations_accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationAccept"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationAccepted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dev_sign_in_auth_dev_sign_in_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevSignIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevSession"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4004,7 +4433,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BusinessDetailRead"];
+                    "application/json": components["schemas"]["BusinessCreatedRead"];
                 };
             };
             /** @description Conflict */
@@ -4022,6 +4451,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -4218,6 +4654,103 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PlanSummaryRead"][];
                 };
+            };
+        };
+    };
+    resend_admin_tenants__tenant_id__invitation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationSentRead"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_admin_tenants__tenant_id__temporary_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemporaryPasswordRead"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

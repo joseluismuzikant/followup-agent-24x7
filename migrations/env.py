@@ -1,11 +1,15 @@
 from logging.config import fileConfig
 
 from alembic import context
+from cuentas_claras_api.clients.infrastructure import models as clients_models  # noqa: F401
+from cuentas_claras_api.invoices.infrastructure import models as invoices_models  # noqa: F401
 from followup_core.conversation.infrastructure import models as conversation_models  # noqa: F401
 from followup_core.identity.infrastructure import models as identity_models  # noqa: F401
 from followup_core.infrastructure.db import Base
+from followup_core.messaging.infrastructure import models as messaging_models  # noqa: F401
+from followup_core.scheduling.infrastructure import models as scheduling_models  # noqa: F401
 from followup_core.tenancy.infrastructure import models as tenancy_models  # noqa: F401
-from inmo24x7_api.config import get_settings
+from followup_platform.settings import ProductSpec, load_settings
 from inmo24x7_api.leads.infrastructure import models as leads_models  # noqa: F401
 from inmo24x7_api.properties.infrastructure import models as properties_models  # noqa: F401
 from sqlalchemy import engine_from_config, pool
@@ -19,7 +23,8 @@ configured_url = config.get_main_option("sqlalchemy.url")
 if not configured_url:
     config.set_main_option(
         "sqlalchemy.url",
-        get_settings().database_url.replace("%", "%%"),
+        # One database for every product: any product's settings name it (DATABASE_URL).
+        load_settings(ProductSpec()).database_url.replace("%", "%%"),
     )
 
 target_metadata = Base.metadata

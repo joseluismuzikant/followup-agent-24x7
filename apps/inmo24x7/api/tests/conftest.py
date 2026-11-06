@@ -6,7 +6,7 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 import re
 from collections.abc import Iterator
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
@@ -17,7 +17,12 @@ from followup_core.conversation.infrastructure.usage import SqlAlchemyLlmUsageRe
 from followup_core.identity.domain.token_verifier import VerifiedToken
 from followup_core.identity.infrastructure.supabase_verifier import FakeTokenVerifier
 from inmo24x7_api.billing.infrastructure.prices import load_prices
-from inmo24x7_api.container import get_language_model, get_token_verifier, get_usage_recorder
+from inmo24x7_api.container import (
+    create_business_use_case,
+    get_language_model,
+    get_token_verifier,
+    get_usage_recorder,
+)
 from inmo24x7_api.database import get_session
 from inmo24x7_api.main import app
 from sqlalchemy import create_engine, text
@@ -71,7 +76,7 @@ def migrate_database(engine) -> None:
         "sqlalchemy.url",
         TEST_DATABASE_URL.replace("%", "%%"),
     )
-    command.upgrade(config, "head")
+    command.upgrade(config, "heads")
 
 
 @pytest.fixture
@@ -129,6 +134,17 @@ def auth(fake_verifier, db_session):
             token = f"tok-{user_id}"
             fake_verifier.register(token, VerifiedToken(user_id=user_id, email=email))
             return token
+
+        @staticmethod
+        def invite(
+            email: str, name: str = "Inmobiliaria Sur", business_type: str = "inmobiliaria"
+        ) -> UUID:
+            """An admin's "Dar de alta" for this email (sign-up is invitation-only)."""
+            tenant = create_business_use_case(db_session).execute(
+                uuid4(), name, business_type, email
+            )
+            db_session.commit()
+            return tenant.id
 
         @staticmethod
         def make_admin(user_id: UUID) -> None:

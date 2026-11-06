@@ -1,10 +1,12 @@
-// Development: scripts/dev.py --observability writes the API's and the worker's output to
+// Development: scripts/dev.py --observability writes each product's API and worker output to
 // .dev-logs/ (they run on the host, not in Docker); this tails those files into Loki.
 
 local.file_match "dev" {
 	path_targets = [
 		{"__path__" = "/dev-logs/api.log", "service" = "api"},
 		{"__path__" = "/dev-logs/worker.log", "service" = "worker"},
+		{"__path__" = "/dev-logs/cc-api.log", "service" = "cc-api"},
+		{"__path__" = "/dev-logs/cc-worker.log", "service" = "cc-worker"},
 	]
 }
 

@@ -45,16 +45,16 @@ from followup_core.conversation.infrastructure.repositories import (
     SqlAlchemyThreadRepository,
 )
 from followup_core.conversation.infrastructure.usage import SqlAlchemyLlmUsageRecorder
-from followup_core.identity.domain.email_confirmation import EmailConfirmation
+from followup_core.identity.application.accounts import (
+    INVITATION_EMAIL_JOB,
+    InviteOwner,
+    ResendInvitation,
+    ResetTemporaryPassword,
+)
+from followup_core.identity.domain.account import AccountDirectory
 from followup_core.identity.domain.token_verifier import TokenVerifier
-from followup_core.identity.infrastructure.dev_verifier import DevTokenVerifier
 from followup_core.identity.infrastructure.models import ProfileModel
 from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
-from followup_core.identity.infrastructure.supabase_email import (
-    DevEmailConfirmation,
-    SupabaseEmailConfirmation,
-)
-from followup_core.identity.infrastructure.supabase_verifier import SupabaseJwtVerifier
 from followup_core.messaging.application.connections import (
     ConnectionDefaults,
     GraphPort,
@@ -126,7 +126,7 @@ from followup_core.tenancy.application.get_setup_checklist import GetSetupCheckl
 from followup_core.tenancy.application.get_tenant import GetTenant
 from followup_core.tenancy.application.list_tenants import ListTenants
 from followup_core.tenancy.application.onboarding_flow import AdvanceOnboarding, GetOnboarding
-from followup_core.tenancy.application.setup_facts import SetupFactProviders
+from followup_core.tenancy.application.setup_facts import FactProvider, always
 from followup_core.tenancy.application.sign_up import SignUp
 from followup_core.tenancy.application.tenant_settings import (
     GetTenantSettings,
@@ -146,6 +146,8 @@ from followup_core.tenancy.infrastructure.setup_repositories import (
     SqlAlchemyBusinessSettingsRepository,
     SqlAlchemyOnboardingRepository,
 )
+from followup_platform import invitations
+from followup_platform.identity import build_account_directory, build_token_verifier
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import StateGraph
 from sqlalchemy import select
@@ -183,6 +185,7 @@ from .leads.infrastructure.repositories import SqlAlchemyLeadRepository
 from .leads.llm import build_language_model
 from .leads.tools import lead_tools
 from .leads.whatsapp import LeadMessageRenderer
+from .product import DEFINITION, PRODUCT
 from .properties.application.properties import (
     CreateProperty,
     GetImportErrors,
@@ -205,47 +208,29 @@ logger = logging.getLogger("inmo24x7.container")
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
-def _issuer(supabase_url: str) -> str | None:
-    return f"{supabase_url.rstrip('/')}/auth/v1" if supabase_url else None
-
-
 @lru_cache
 def get_token_verifier() -> TokenVerifier:
-    settings = get_settings()
-    if settings.auth_mode == "dev":
-        logger.warning(
-            "dev_auth_active",
-            extra={"detail": "Only `dev:<email>` tokens are accepted. Development only."},
-        )
-        return DevTokenVerifier()
-    return SupabaseJwtVerifier(
-        secret=settings.supabase_jwt_secret or None,
-        jwks_url=settings.supabase_jwks_url or None,
-        issuer=_issuer(settings.supabase_url),
-    )
+    return build_token_verifier(get_settings())
 
 
-@lru_cache
-def get_email_confirmation() -> EmailConfirmation:
-    """Proof that an email is confirmed, asked only when a sign-up matches an owner claim."""
-    settings = get_settings()
-    if settings.auth_mode == "dev":
-        return DevEmailConfirmation()
-    return SupabaseEmailConfirmation(
-        settings.supabase_server_url or settings.supabase_url, settings.supabase_anon_key
-    )
+def get_account_directory(session: SessionDep) -> AccountDirectory:
+    """Where passwords live: Supabase Auth, or the local table in AUTH_MODE=dev."""
+    return build_account_directory(get_settings(), session)
+
+
+AccountDirectoryDep = Annotated[AccountDirectory, Depends(get_account_directory)]
 
 
 def create_tenant_use_case(session: SessionDep) -> CreateTenant:
-    return CreateTenant(SqlAlchemyTenantRepository(session))
+    return CreateTenant(SqlAlchemyTenantRepository(session, PRODUCT))
 
 
 def list_tenants_use_case(session: SessionDep) -> ListTenants:
-    return ListTenants(SqlAlchemyTenantRepository(session))
+    return ListTenants(SqlAlchemyTenantRepository(session, PRODUCT))
 
 
 def get_tenant_use_case(session: SessionDep) -> GetTenant:
-    return GetTenant(SqlAlchemyTenantRepository(session))
+    return GetTenant(SqlAlchemyTenantRepository(session, PRODUCT))
 
 
 @lru_cache
@@ -253,47 +238,65 @@ def get_setup_defaults() -> SetupDefaults:
     return build_setup_defaults()
 
 
-def get_fact_providers(session: SessionDep) -> SetupFactProviders:
-    """Later days plug their providers in here (WhatsApp, Meta)."""
-    return SetupFactProviders(
-        agent_tested=SqlAlchemyConversationFacts(session).agent_tested,
+def get_fact_providers(session: SessionDep) -> dict[str, FactProvider]:
+    """inmo24x7's setup facts (product.FACTS), one provider each."""
+    agent_configs = SqlAlchemyAgentConfigRepository(session)
+    return {
+        "account_created": always,
+        "agent_configured": lambda tenant_id: agent_configs.latest(tenant_id) is not None,
+        "agent_tested": SqlAlchemyConversationFacts(session).agent_tested,
+        "whatsapp_connected": get_whatsapp_fact(session),
         # Done after the first import (or the first property added by hand).
-        own_properties=SqlAlchemyPropertyRepository(session).has_any,
-        whatsapp_connected=get_whatsapp_fact(session),
-        meta_business_verified=get_meta_verified_fact(session),
-    )
+        "own_properties": SqlAlchemyPropertyRepository(session).has_any,
+        "meta_business_verified": get_meta_verified_fact(session),
+    }
 
 
 def sign_up_use_case(session: SessionDep) -> SignUp:
     return SignUp(
-        SqlAlchemyTenantRepository(session),
-        SqlAlchemyProfileRepository(session),
-        SqlAlchemyOnboardingRepository(session),
-        SqlAlchemyBusinessSettingsRepository(session),
-        get_setup_defaults(),
-        SqlAlchemyOwnerClaimRepository(session),
+        SqlAlchemyProfileRepository(session, PRODUCT),
+        SqlAlchemyTenantRepository(session, PRODUCT),
+        SqlAlchemyOwnerClaimRepository(session, PRODUCT),
         SqlAlchemyAuditLog(session),
+        definition=DEFINITION,
     )
+
+
+def invite_owner_use_case(session: SessionDep, directory: AccountDirectoryDep) -> InviteOwner:
+    return invitations.invite_owner(session, PRODUCT, directory)
+
+
+def resend_invitation_use_case(session: SessionDep) -> ResendInvitation:
+    return invitations.resend_invitation(session, PRODUCT)
+
+
+def reset_temporary_password_use_case(
+    session: SessionDep, directory: AccountDirectoryDep
+) -> ResetTemporaryPassword:
+    return invitations.reset_temporary_password(session, PRODUCT, directory)
 
 
 def create_business_use_case(session: SessionDep) -> CreateBusinessForOwner:
     return CreateBusinessForOwner(
-        SqlAlchemyTenantRepository(session),
-        SqlAlchemyProfileRepository(session),
+        SqlAlchemyTenantRepository(session, PRODUCT),
+        SqlAlchemyProfileRepository(session, PRODUCT),
         SqlAlchemyOnboardingRepository(session),
         SqlAlchemyBusinessSettingsRepository(session),
-        SqlAlchemyOwnerClaimRepository(session),
+        SqlAlchemyOwnerClaimRepository(session, PRODUCT),
         get_setup_defaults(),
         SqlAlchemyAuditLog(session),
+        definition=DEFINITION,
     )
 
 
 def tenant_suspension_use_case(session: SessionDep) -> SetTenantSuspension:
-    return SetTenantSuspension(SqlAlchemyTenantRepository(session), SqlAlchemyAuditLog(session))
+    return SetTenantSuspension(
+        SqlAlchemyTenantRepository(session, PRODUCT), SqlAlchemyAuditLog(session)
+    )
 
 
 def setup_checklist_use_case(session: SessionDep) -> GetSetupChecklist:
-    return GetSetupChecklist(SqlAlchemyAgentConfigRepository(session), get_fact_providers(session))
+    return GetSetupChecklist(DEFINITION.checklist, get_fact_providers(session))
 
 
 def get_onboarding_use_case(session: SessionDep) -> GetOnboarding:
@@ -302,7 +305,9 @@ def get_onboarding_use_case(session: SessionDep) -> GetOnboarding:
 
 def advance_onboarding_use_case(session: SessionDep) -> AdvanceOnboarding:
     return AdvanceOnboarding(
-        SqlAlchemyOnboardingRepository(session), setup_checklist_use_case(session)
+        SqlAlchemyOnboardingRepository(session),
+        setup_checklist_use_case(session),
+        DEFINITION.onboarding_steps,
     )
 
 
@@ -326,20 +331,20 @@ def save_agent_setup_use_case(session: SessionDep) -> SaveAgentSetup:
 def list_agent_versions_use_case(session: SessionDep) -> ListAgentConfigVersions:
     return ListAgentConfigVersions(
         SqlAlchemyAgentConfigRepository(session),
-        SqlAlchemyProfileRepository(session),
+        SqlAlchemyProfileRepository(session, PRODUCT),
     )
 
 
 def get_tenant_settings_use_case(session: SessionDep) -> GetTenantSettings:
     return GetTenantSettings(
-        SqlAlchemyTenantRepository(session),
+        SqlAlchemyTenantRepository(session, PRODUCT),
         SqlAlchemyBusinessSettingsRepository(session),
     )
 
 
 def update_tenant_settings_use_case(session: SessionDep) -> UpdateTenantSettings:
     return UpdateTenantSettings(
-        SqlAlchemyTenantRepository(session),
+        SqlAlchemyTenantRepository(session, PRODUCT),
         SqlAlchemyBusinessSettingsRepository(session),
     )
 
@@ -382,7 +387,7 @@ def warn_if_model_unpriced(settings: Settings) -> None:
             "llm_model_unpriced",
             extra={
                 "model": settings.llm_model,
-                "detail": "Add its price to billing/llm_prices.toml; costs stay empty.",
+                "detail": "Add its price to llm_prices.toml (followup_platform); costs stay empty.",
             },
         )
 
@@ -406,7 +411,7 @@ RuntimeDep = Annotated[LangGraphRuntime, Depends(agent_runtime)]
 
 
 def _business_context(session: Session) -> BusinessContextSource:
-    tenants = SqlAlchemyTenantRepository(session)
+    tenants = SqlAlchemyTenantRepository(session, PRODUCT)
     settings = SqlAlchemyBusinessSettingsRepository(session)
 
     def load(tenant_id: UUID) -> BusinessContext:
@@ -467,7 +472,11 @@ def send_simulator_message_use_case(
         runtime,
         _agent_configs(session),
         business,
-        observers=[RecordLeadTurn(SqlAlchemyLeadRepository(session), SqlAlchemyJobQueue(session))],
+        observers=[
+            RecordLeadTurn(
+                SqlAlchemyLeadRepository(session), SqlAlchemyJobQueue(session, queue=PRODUCT)
+            )
+        ],
     )
     return SendSimulatorMessage(threads, messages, handle, business, daily_limit)
 
@@ -617,7 +626,7 @@ def ingest_webhook_use_case(session: SessionDep, services: ServicesDep) -> Inges
         connections,
         SqlAlchemyInboundEventRepository(session),
         ApplyDeliveryStatus(outbound),
-        SqlAlchemyJobQueue(session),
+        SqlAlchemyJobQueue(session, queue=PRODUCT),
         timedelta(seconds=services.settings.inbound_debounce_seconds),
         account_updates=ApplyAccountUpdate(
             connections, connection_health(session), SqlAlchemyAuditLog(session)
@@ -649,7 +658,7 @@ def manage_connection_use_case(session: SessionDep, services: ServicesDep) -> Ma
     return ManageConnection(
         SqlAlchemyConnectionRepository(session),
         graph_for(services),
-        sender_for(services, SqlAlchemyJobQueue(session)),
+        sender_for(services, SqlAlchemyJobQueue(session, queue=PRODUCT)),
         audit=SqlAlchemyAuditLog(session),
         resume=connection_health(session),
     )
@@ -669,7 +678,7 @@ def connection_health(
     return ConnectionHealth(
         SqlAlchemyConnectionRepository(session),
         SqlAlchemyOutboundRepository(session),
-        SqlAlchemyJobQueue(session, clock),
+        SqlAlchemyJobQueue(session, clock, PRODUCT),
         SqlAlchemyAuditLog(session),
         clock,
     )
@@ -729,7 +738,10 @@ def business_name(session: Session) -> Callable[[UUID], str]:
 
 def reconnect_link_use_case(session: SessionDep) -> Callable[[UUID, UUID], int]:
     return RequestReconnectLink(
-        owner_emails(session), SqlAlchemyJobQueue(session), SqlAlchemyAuditLog(session), utc_now
+        owner_emails(session),
+        SqlAlchemyJobQueue(session, queue=PRODUCT),
+        SqlAlchemyAuditLog(session),
+        utc_now,
     )
 
 
@@ -748,7 +760,7 @@ def job_handlers(
     """Every job kind and its one handler (the worker builds this per job, on the job's
     own session and transaction)."""
     settings = services.settings
-    queue = SqlAlchemyJobQueue(session, clock)
+    queue = SqlAlchemyJobQueue(session, clock, PRODUCT)
     connections = SqlAlchemyConnectionRepository(session)
     events = SqlAlchemyInboundEventRepository(session)
     outbound = SqlAlchemyOutboundRepository(session)
@@ -824,6 +836,12 @@ def job_handlers(
             ),
             (PURGE_JOB, PurgePayloads(events, queue, clock)),
             (
+                INVITATION_EMAIL_JOB,
+                invitations.invitation_email_handler(
+                    session, PRODUCT, services.email, "inmo24x7", settings.panel_url
+                ),
+            ),
+            (
                 COST_ALERT_JOB,
                 CheckCostAlerts(
                     SqlAlchemyUsageQueries(session),
@@ -850,7 +868,7 @@ def _deliver(
     queue_outbound = QueueOutbound(
         SqlAlchemyOutboundRepository(session),
         LeadMessageRenderer(settings.panel_url),
-        SqlAlchemyJobQueue(session, clock),
+        SqlAlchemyJobQueue(session, clock, PRODUCT),
     )
 
     def deliver(thread: Thread, messages: Sequence[Message]) -> None:
@@ -936,7 +954,7 @@ def list_businesses_use_case(session: SessionDep) -> ListBusinesses:
 def get_business_use_case(session: SessionDep) -> GetBusiness:
     return GetBusiness(
         SqlAlchemyBackofficeQueries(session),
-        SqlAlchemyTenantRepository(session).get_by_id,
+        SqlAlchemyTenantRepository(session, PRODUCT).get_by_id,
         SqlAlchemyConnectionRepository(session).get_by_tenant,
         SqlAlchemySignupRepository(session).get,
         utc_now,

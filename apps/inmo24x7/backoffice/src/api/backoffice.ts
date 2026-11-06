@@ -3,6 +3,7 @@ import type {
   ErrorList,
   TenantUsage,
   UsageReport,
+  BusinessCreated,
   BusinessCreateInput,
   BusinessDetail,
   BusinessFilter,
@@ -32,8 +33,26 @@ export async function fetchBusinesses(
   return data ?? fail(response, error);
 }
 
-export async function createBusiness(input: BusinessCreateInput): Promise<BusinessDetail> {
+export async function createBusiness(input: BusinessCreateInput): Promise<BusinessCreated> {
   const { data, error, response } = await apiClient.POST("/admin/tenants", { body: input });
+  return data ?? fail(response, error);
+}
+
+export async function resendInvitation(tenantId: string): Promise<{ sent: boolean }> {
+  const { data, error, response } = await apiClient.POST(
+    "/admin/tenants/{tenant_id}/invitation",
+    tenantPath(tenantId),
+  );
+  return data ?? fail(response, error);
+}
+
+export async function resetTemporaryPassword(
+  tenantId: string,
+): Promise<{ temporary_password: string }> {
+  const { data, error, response } = await apiClient.POST(
+    "/admin/tenants/{tenant_id}/temporary-password",
+    tenantPath(tenantId),
+  );
   return data ?? fail(response, error);
 }
 

@@ -1,4 +1,5 @@
 import { createApiClient, serverErrorInfo } from "@followup/api-client-inmo24x7";
+import { createAccountApi } from "@followup/app-shell";
 import { reportServerError } from "@followup/observability";
 
 import { getAccessToken } from "../lib/auth-adapter";
@@ -9,6 +10,9 @@ export const apiClient = createApiClient(baseUrl, {
   getAccessToken,
   onServerError: reportServerError,
 });
+
+/** Sign-in, the invitation link and the password change (the same in every product). */
+export const account = createAccountApi(baseUrl, getAccessToken);
 
 /** For requests openapi-fetch does not cover well: file uploads and CSV downloads. */
 export async function authorizedFetch(path: string, init: RequestInit = {}): Promise<Response> {

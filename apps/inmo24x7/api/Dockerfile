@@ -7,16 +7,22 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+# The whole Python workspace: `uv sync --all-packages` needs every member, and the migrate
+# service runs `alembic upgrade heads` (every product's migration branch) from this image.
 COPY pyproject.toml uv.lock ./
 COPY packages/core/pyproject.toml packages/core/pyproject.toml
+COPY packages/platform/pyproject.toml packages/platform/pyproject.toml
 COPY apps/inmo24x7/api/pyproject.toml apps/inmo24x7/api/pyproject.toml
+COPY apps/cuentas-claras/api/pyproject.toml apps/cuentas-claras/api/pyproject.toml
 
 RUN uv sync --frozen --no-dev --all-packages --no-install-project
 
 COPY alembic.ini alembic.ini
 COPY migrations migrations
 COPY packages/core packages/core
+COPY packages/platform packages/platform
 COPY apps/inmo24x7/api apps/inmo24x7/api
+COPY apps/cuentas-claras/api apps/cuentas-claras/api
 
 RUN uv sync --frozen --no-dev --all-packages
 
@@ -34,7 +40,9 @@ COPY --from=builder /app/.venv .venv
 COPY --from=builder /app/alembic.ini alembic.ini
 COPY --from=builder /app/migrations migrations
 COPY --from=builder /app/packages/core packages/core
+COPY --from=builder /app/packages/platform packages/platform
 COPY --from=builder /app/apps/inmo24x7/api apps/inmo24x7/api
+COPY --from=builder /app/apps/cuentas-claras/api apps/cuentas-claras/api
 # One-off admin commands: `docker compose run --rm api python scripts/make_admin.py <email>`.
 COPY scripts/_cli.py scripts/make_admin.py scripts/recompute_llm_costs.py scripts/
 

@@ -62,6 +62,6 @@ and delete it afterwards (`shred -u`).
 Only after a real loss, with the app stopped (`docker compose --project-name inmo24x7
 --env-file .env.production -f compose.prod.yml stop api worker`):
 restore the chosen dump into the Supabase database with `pg_restore --clean --if-exists
---no-owner --no-privileges --dbname "<session pooler URL>"`, run `alembic upgrade head`
+--no-owner --no-privileges --dbname "<session pooler URL>"`, run `alembic upgrade heads`
 (`docker compose ... run --rm migrate`), and start the app again. Practise it in the drill
 first.

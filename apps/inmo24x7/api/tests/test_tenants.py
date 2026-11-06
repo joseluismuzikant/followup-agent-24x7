@@ -8,11 +8,8 @@ def _admin_headers(client: TestClient, auth) -> dict[str, str]:
     user_id = uuid4()
     token = auth.register(user_id, email="admin@example.com")
     headers = {"Authorization": f"Bearer {token}"}
-    client.post(
-        "/me/sign-up",
-        json={"business_name": "Inmobiliaria Admin", "business_type": "inmobiliaria"},
-        headers=headers,
-    )
+    auth.invite("admin@example.com", "Inmobiliaria Admin")
+    client.post("/me/sign-up", headers=headers)
     auth.make_admin(user_id)
     return headers
 

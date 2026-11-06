@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 
 from ..domain.agent_config import AgentConfig
 from ..domain.agent_config_repository import AgentConfigVersion
-from ..domain.business_settings import BusinessSettings, BusinessType, ScheduleBlock
+from ..domain.business_settings import BusinessSettings, ScheduleBlock
 from ..domain.errors import AgentConfigConflictError
-from ..domain.onboarding import Onboarding, OnboardingStep
+from ..domain.onboarding import Onboarding
 from .models import AgentConfigVersionModel, BusinessSettingsModel, OnboardingModel
 
 
@@ -28,9 +28,9 @@ class SqlAlchemyOnboardingRepository:
             return None
         return Onboarding(
             tenant_id=model.tenant_id,
-            current_step=OnboardingStep(model.current_step),
+            current_step=model.current_step,
             completed_steps={
-                OnboardingStep(step): _aware(datetime.fromisoformat(completed_at))
+                step: _aware(datetime.fromisoformat(completed_at))
                 for step, completed_at in model.completed_steps.items()
             },
             finished_at=_aware(model.finished_at) if model.finished_at else None,
@@ -51,9 +51,9 @@ class SqlAlchemyOnboardingRepository:
 
     @staticmethod
     def _apply(model: OnboardingModel, onboarding: Onboarding) -> None:
-        model.current_step = onboarding.current_step.value
+        model.current_step = onboarding.current_step
         model.completed_steps = {
-            step.value: completed_at.isoformat()
+            step: completed_at.isoformat()
             for step, completed_at in onboarding.completed_steps.items()
         }
         model.finished_at = onboarding.finished_at
@@ -74,7 +74,7 @@ class SqlAlchemyBusinessSettingsRepository:
             return None
         return BusinessSettings(
             tenant_id=model.tenant_id,
-            business_type=BusinessType(model.business_type),
+            business_type=model.business_type,
             timezone=model.timezone,
             team_hours=tuple(
                 ScheduleBlock(
@@ -102,7 +102,7 @@ class SqlAlchemyBusinessSettingsRepository:
 
     @staticmethod
     def _apply(model: BusinessSettingsModel, settings: BusinessSettings) -> None:
-        model.business_type = settings.business_type.value
+        model.business_type = settings.business_type
         model.timezone = settings.timezone
         model.team_hours = [
             {

@@ -43,6 +43,20 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  cc-api:
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  cc-worker:
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   migrate:
     depends_on:
       db:

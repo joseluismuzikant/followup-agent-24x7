@@ -7,71 +7,103 @@ import time
 
 from _cli import PNPM, ROOT, exit_on_signal, load_env_file, run, spawn, stop
 
-API_DIR = "apps/inmo24x7/api"
-# Where the API's and the worker's output is copied for the local Alloy (--observability).
+# Where each product's API, port, panels and log files live. Both run by default.
+PRODUCTS = {
+    "inmo24x7": {
+        "api_dir": "apps/inmo24x7/api",
+        "module": "inmo24x7_api",
+        "port": "8001",
+        "web": "@inmo24x7/web",
+        "backoffice": "@inmo24x7/backoffice",
+        "urls": ("http://localhost:5173", "http://localhost:5174"),
+        "logs": ("api.log", "worker.log"),
+    },
+    "cuentas-claras": {
+        "api_dir": "apps/cuentas-claras/api",
+        "module": "cuentas_claras_api",
+        "port": "8002",
+        "web": "@cuentas-claras/web",
+        "backoffice": "@cuentas-claras/backoffice",
+        "urls": ("http://localhost:5175", "http://localhost:5176"),
+        "logs": ("cc-api.log", "cc-worker.log"),
+    },
+}
+# Where the APIs' and the workers' output is copied for the local Alloy (--observability).
 DEV_LOGS = ROOT / ".dev-logs"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run the API, the worker, the panel and the backoffice."
+        description="Run each product's API, worker, panel and backoffice (both by default)."
+    )
+    parser.add_argument(
+        "--product",
+        choices=sorted(PRODUCTS),
+        help="run only this product (the database and the migrations are shared)",
     )
     parser.add_argument("--seed", action="store_true", help="seed the dev accounts after migrating")
     parser.add_argument(
         "--observability",
         action="store_true",
-        help="also start Loki, Alloy and Grafana (http://localhost:3000) with the API's logs",
+        help="also start Loki, Alloy and Grafana (http://localhost:3000) with the APIs' logs",
     )
     args = parser.parse_args(argv)
     load_env_file(ROOT / ".env")
     signal.signal(signal.SIGTERM, exit_on_signal)
+    products = [args.product] if args.product else list(PRODUCTS)
 
     run(["uv", "sync", "--all-packages"])
     run([*PNPM, "install", "--frozen-lockfile"])
     run(["docker", "compose", "up", "-d", "--wait", "db", "mailpit"])
-    api_log = worker_log = None
     if args.observability:
         DEV_LOGS.mkdir(exist_ok=True)
-        api_log, worker_log = DEV_LOGS / "api.log", DEV_LOGS / "worker.log"
         # Log lines go through a pipe: unbuffered, so they reach Grafana right away.
         os.environ["PYTHONUNBUFFERED"] = "1"
         run(["docker", "compose", "--profile", "observability", "up", "-d", "--wait"])
-    run(["uv", "run", "alembic", "upgrade", "head"])
+    # Every product's migration branch, and core's.
+    run(["uv", "run", "alembic", "upgrade", "heads"])
     if args.seed:
         run(["uv", "run", "--all-packages", "python", "scripts/seed_dev.py"])
 
-    processes = [
-        spawn(
-            [
-                "uv",
-                "--directory",
-                API_DIR,
-                "run",
-                "uvicorn",
-                "inmo24x7_api.main:app",
-                "--reload",
-                "--host",
-                "0.0.0.0",
-                "--port",
-                "8001",
-            ],
-            tee=api_log,
-        ),
-        # Background jobs: WhatsApp processing and sending, new-lead emails.
-        spawn(
-            ["uv", "--directory", API_DIR, "run", "python", "-m", "inmo24x7_api.worker"],
-            tee=worker_log,
-        ),
-        spawn([*PNPM, "--filter", "@inmo24x7/web", "dev"]),
-        spawn([*PNPM, "--filter", "@inmo24x7/backoffice", "dev"]),
-    ]
+    processes = []
+    for name in products:
+        product = PRODUCTS[name]
+        api_log, worker_log = (
+            (DEV_LOGS / product["logs"][0], DEV_LOGS / product["logs"][1])
+            if args.observability
+            else (None, None)
+        )
+        api = ["uv", "--directory", product["api_dir"], "run"]
+        processes += [
+            spawn(
+                [
+                    *api,
+                    "uvicorn",
+                    f"{product['module']}.main:app",
+                    "--reload",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    product["port"],
+                ],
+                tee=api_log,
+            ),
+            # Background jobs (each product claims only its own queue).
+            spawn([*api, "python", "-m", f"{product['module']}.worker"], tee=worker_log),
+            spawn([*PNPM, "--filter", product["web"], "dev"]),
+            spawn([*PNPM, "--filter", product["backoffice"], "dev"]),
+        ]
 
-    print("\nPanel:      http://localhost:5173", flush=True)
-    print("Backoffice: http://localhost:5174", flush=True)
-    print("API:        http://localhost:8001/docs", flush=True)
-    print("Mailpit:    http://localhost:8025", flush=True)
+    for name in products:
+        product = PRODUCTS[name]
+        panel, backoffice = product["urls"]
+        print(f"\n{name}", flush=True)
+        print(f"  Panel:      {panel}", flush=True)
+        print(f"  Backoffice: {backoffice}", flush=True)
+        print(f"  API:        http://localhost:{product['port']}/docs", flush=True)
+    print("\nMailpit:      http://localhost:8025", flush=True)
     if args.observability:
-        print("Grafana:    http://localhost:3000 (admin / admin)", flush=True)
+        print("Grafana:      http://localhost:3000 (admin / admin)", flush=True)
 
     exit_code = 0
     try:

@@ -10,12 +10,21 @@ interface DialogProps {
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  /** "drawer": a full-height panel on the right (details next to a list). */
+  variant?: "modal" | "drawer";
 }
 
 /** A modal panel. Escape and the close button call `onClose`; focus moves into it. */
-function Dialog({ open, title, onClose, children, className }: DialogProps) {
+function Dialog({ open, title, onClose, children, className, variant = "modal" }: DialogProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // The latest onClose, so a parent's new function each render never re-runs the effect
+  // below (it would move focus out of the field being typed in).
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) {
@@ -24,18 +33,25 @@ function Dialog({ open, title, onClose, children, className }: DialogProps) {
     panelRef.current?.focus();
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) {
     return null;
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-10">
+    <div
+      className={cn(
+        "fixed inset-0 z-50 flex bg-black/40",
+        variant === "drawer"
+          ? "justify-end"
+          : "items-start justify-center overflow-y-auto px-4 py-10",
+      )}
+    >
       <div
         ref={panelRef}
         role="dialog"
@@ -43,7 +59,9 @@ function Dialog({ open, title, onClose, children, className }: DialogProps) {
         aria-labelledby={titleId}
         tabIndex={-1}
         className={cn(
-          "w-full max-w-lg rounded-lg border bg-card p-5 shadow-lg outline-none",
+          variant === "drawer"
+            ? "h-full w-full max-w-md overflow-y-auto border-l bg-card p-5 shadow-lg outline-none"
+            : "w-full max-w-lg rounded-lg border bg-card p-5 shadow-lg outline-none",
           className,
         )}
       >

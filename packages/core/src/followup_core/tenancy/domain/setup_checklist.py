@@ -1,51 +1,30 @@
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from enum import StrEnum
-
-
-@dataclass(frozen=True, slots=True)
-class SetupFacts:
-    """Everything the product knows about a tenant's setup. Later days own most facts."""
-
-    account_created: bool
-    agent_configured: bool
-    agent_tested: bool
-    whatsapp_connected: bool
-    own_properties: bool
-    meta_business_verified: bool
-
-
-class ChecklistItemKey(StrEnum):
-    ACCOUNT = "account"
-    AGENT = "agent"
-    WHATSAPP = "whatsapp"
-    PROPERTIES = "properties"
-    META = "meta"
+from types import MappingProxyType
 
 
 @dataclass(frozen=True, slots=True)
 class ChecklistItem:
-    key: ChecklistItemKey
+    key: str
     done: bool
 
 
 @dataclass(frozen=True, slots=True)
 class SetupChecklist:
-    """The five items shown on the panel, plus every fact for the backoffice."""
+    """The items shown on the panel (defined by the product), plus every fact for the
+    backoffice."""
 
     items: tuple[ChecklistItem, ...]
-    facts: SetupFacts
+    facts: Mapping[str, bool]
 
     @classmethod
-    def from_facts(cls, facts: SetupFacts) -> "SetupChecklist":
+    def from_facts(
+        cls, items: Sequence[tuple[str, str]], facts: Mapping[str, bool]
+    ) -> "SetupChecklist":
+        """`items` are (item key, fact key) pairs, in display order."""
         return cls(
-            items=(
-                ChecklistItem(ChecklistItemKey.ACCOUNT, facts.account_created),
-                ChecklistItem(ChecklistItemKey.AGENT, facts.agent_configured),
-                ChecklistItem(ChecklistItemKey.WHATSAPP, facts.whatsapp_connected),
-                ChecklistItem(ChecklistItemKey.PROPERTIES, facts.own_properties),
-                ChecklistItem(ChecklistItemKey.META, facts.meta_business_verified),
-            ),
-            facts=facts,
+            items=tuple(ChecklistItem(key, facts[fact]) for key, fact in items),
+            facts=MappingProxyType(dict(facts)),
         )
 
     @property

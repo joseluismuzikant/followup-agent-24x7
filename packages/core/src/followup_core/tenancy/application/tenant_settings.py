@@ -3,7 +3,6 @@ from uuid import UUID
 
 from ..domain.business_settings import (
     BusinessSettings,
-    BusinessType,
     ScheduleBlock,
 )
 from ..domain.business_settings_repository import BusinessSettingsRepository
@@ -51,7 +50,7 @@ class UpdateTenantSettings:
         self,
         tenant_id: UUID,
         business_name: str,
-        business_type: BusinessType,
+        business_type: str,
         team_hours: tuple[ScheduleBlock, ...],
         notification_emails: tuple[str, ...],
     ) -> TenantSettingsView:

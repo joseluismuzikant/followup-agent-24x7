@@ -261,7 +261,7 @@ Moved forward from Day 12 so production does not start blind.
 It goes live with 7B. You still need to:
 
 - create the Sentry projects;
-- fill in the real prices in `billing/llm_prices.toml`.
+- fill in the real prices in `packages/platform/src/followup_platform/billing/llm_prices.toml`.
 
 **Out of scope:** charging for usage, ARS conversion, Meta template prices, self-hosted
 Sentry, Grafana Cloud, metrics and traces backends, session replay.
@@ -282,6 +282,27 @@ Sentry, Grafana Cloud, metrics and traces backends, session replay.
 
 **Done when:** a service company signs up with the same onboarding and sees its imported
 invoices in the panel.
+
+**Status: done locally**, together with a Part 0 that makes the platform multi-product:
+
+- tenants per product, profiles per (user, product), job queues per product;
+- onboarding steps, business types and the checklist defined by each product;
+- named migration branches (`alembic upgrade heads`) instead of merge revisions;
+- `packages/platform` (shared API plumbing) and `@followup/app-shell` (shared panel pieces);
+- CI's `release-gate`, which publishes each product's images only once its variables exist.
+
+inmo24x7 behaves as before. Cuentas Claras runs locally on ports 8002, 5175 and 5176, and in
+production behind the compose profile `cuentas-claras`, off until its go-live (Day 12).
+
+**Added with Day 8: invitation-only accounts and the new look.**
+
+- Nobody signs up. "Dar de alta un negocio" (both backoffices) creates the business, the
+  owner's account with a temporary password (shown once to the admin) and an emailed
+  invitation link. Either way in, the owner chooses their own password first, then the wizard.
+- Sign-in is email and password only (Google and the magic link are gone), with "¿Olvidaste tu
+  clave?"; Supabase's self sign-up is off and the APIs need `SUPABASE_SERVICE_ROLE_KEY`.
+- inmo24x7's panel and backoffice take inmo24x7.com's palette (navy, blue and green);
+  Cuentas Claras's take naranjax.com's (orange and purple). Inter is bundled.
 
 ### Day 9: scheduling, reminders and payments
 

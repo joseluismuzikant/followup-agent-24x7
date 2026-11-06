@@ -39,15 +39,15 @@ function WizardStepper({
                 onClick={() => onSelect(step.id)}
                 className={cn(
                   "flex items-center gap-2 rounded-md text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed",
-                  isCurrent ? "font-semibold text-foreground" : "text-muted-foreground",
+                  isCurrent ? "font-semibold text-brand" : "text-muted-foreground",
                 )}
               >
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "flex size-6 items-center justify-center rounded-full border text-xs",
-                    isCurrent && "border-primary bg-primary text-primary-foreground",
-                    isPast && "border-primary text-primary",
+                    "flex size-7 items-center justify-center rounded-full border text-xs font-semibold",
+                    isCurrent && "border-primary bg-primary text-primary-foreground shadow-[0_0_0_4px_var(--highlight-soft)]",
+                    isPast && "border-success bg-success-soft text-success",
                   )}
                 >
                   {isPast ? "✓" : index + 1}

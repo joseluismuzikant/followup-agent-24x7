@@ -18,11 +18,7 @@ from followup_core.tenancy.domain.errors import (
     InvalidTeamHoursError,
     TenantSetupNotFoundError,
 )
-from pydantic import BaseModel
-
-from .auth import current_profile, require_role
-from .http_errors import ApiError
-from .setup_schemas import (
+from followup_platform.routers.setup_schemas import (
     AgentConfigInputModel,
     AgentConfigModel,
     ScheduleBlockModel,
@@ -31,6 +27,10 @@ from .setup_schemas import (
     hours_from_models,
     hours_to_models,
 )
+from pydantic import BaseModel
+
+from .auth import current_profile, require_role
+from .http_errors import ApiError
 
 GetAgentSetupFactory = Callable[..., GetAgentSetup]
 SaveAgentSetupFactory = Callable[..., SaveAgentSetup]
