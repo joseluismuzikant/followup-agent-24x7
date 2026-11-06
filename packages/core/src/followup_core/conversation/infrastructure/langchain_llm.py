@@ -93,6 +93,17 @@ def strip_introduction(text: str, agent_name: str) -> str:
     return rest[0].upper() + rest[1:]
 
 
+_TRAILING_QUESTION = re.compile(r"(?<=[.!?])\s+[^.!?]*\?\s*$")
+
+
+def strip_trailing_question(text: str) -> str:
+    """Drops the closing question sentences ("… Contame, ¿qué estás buscando?") of a message
+    that must not ask anything. Text that is only a question is returned unchanged."""
+    while (rest := _TRAILING_QUESTION.sub("", text, count=1)) != text and rest.strip():
+        text = rest
+    return text
+
+
 class LangChainLanguageModel:
     """LanguageModel on any LangChain chat model.
 
@@ -168,7 +179,8 @@ class LangChainLanguageModel:
 
     def compose_reply(self, request: ReplyRequest) -> Reply:
         """Words the reply. Only GREET may introduce the agent: if the model opens any other
-        message with "(¡Hola!) Soy <agent>…", that sentence is dropped."""
+        message with "(¡Hola!) Soy <agent>…", that sentence is dropped. A GREET without a
+        question asks nothing (the next message asks): a closing question is dropped."""
         question = request.question
         system = Template(self._reply.template).safe_substitute(
             intent=request.intent.value,
@@ -183,6 +195,8 @@ class LangChainLanguageModel:
         text = _content(result).strip()
         if request.intent is not ReplyIntent.GREET:
             text = strip_introduction(text, request.agent_name)
+        elif question is None:
+            text = strip_trailing_question(text)
         if not text:
             raise LlmUnavailableError("The model returned an empty reply.")
         return Reply(text=text, usage=_usage(result))

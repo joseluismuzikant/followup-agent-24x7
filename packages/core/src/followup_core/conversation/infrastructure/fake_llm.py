@@ -124,6 +124,14 @@ _GREETINGS = {
         "Buen día. Mi nombre es {agent}, de {business}, y voy a acompañarte en tu búsqueda."
     ),
 }
+# The greeting when the lead already said what they look for: introduce, then acknowledge.
+_LOOKING_FOR = {
+    Tone.WARM: "¡Hola! Soy {agent}, de {business}. Buenísimo, te busco opciones de {looking_for}.",
+    Tone.PROFESSIONAL: "Hola, soy {agent}, de {business}. Te busco opciones de {looking_for}.",
+    Tone.FORMAL: (
+        "Buen día. Mi nombre es {agent}, de {business}. Le busco opciones de {looking_for}."
+    ),
+}
 _QUESTION_PREFIX = {
     Tone.WARM: "Contame: ¿{label}?",
     Tone.PROFESSIONAL: "¿{label}?",
@@ -203,6 +211,21 @@ _TEMPLATES: dict[ReplyIntent, dict[Tone, str]] = {
         Tone.FORMAL: "Su consulta ya fue derivada al equipo, que se comunicará a la brevedad.",
     },
 }
+# A slot noted in the turn that also hands off: one message says both.
+_SLOT_HAND_OFF = {
+    Tone.WARM: (
+        "¡Listo{name}! Te anoté para el {slot}. Una persona del equipo te lo confirma "
+        "y sigue con tu consulta muy pronto."
+    ),
+    Tone.PROFESSIONAL: (
+        "Anotado para el {slot}{name}. Una persona del equipo te lo confirma y sigue con tu "
+        "consulta."
+    ),
+    Tone.FORMAL: (
+        "Queda registrado para el {slot}{name}. Una persona del equipo se lo confirmará y "
+        "continuará con su consulta."
+    ),
+}
 _AFTER_HOURS = {
     Tone.WARM: " Ahora el equipo no está, así que te lo confirman apenas vuelvan.",
     Tone.PROFESSIONAL: " El equipo lo confirma cuando vuelva a estar disponible.",
@@ -266,15 +289,20 @@ class FakeLanguageModel:
             if question.options:
                 asked += f" ({' / '.join(question.options)})"
         if request.intent is ReplyIntent.GREET:
-            greeting = _GREETINGS[tone].format(
-                agent=request.agent_name, business=request.business_name
+            looking_for = request.facts.get("looking_for")
+            greeting = (_LOOKING_FOR if looking_for else _GREETINGS)[tone].format(
+                agent=request.agent_name, business=request.business_name, looking_for=looking_for
             )
+            # Without a question the greeting asks nothing: the next message does.
             return Reply(f"{greeting} {asked}".strip())
         if request.intent is ReplyIntent.ASK:
             return Reply(asked)
         facts = dict(request.facts)
         name = facts.get("visitor_name")
-        text = _TEMPLATES[request.intent][tone].format(
+        template = _TEMPLATES[request.intent][tone]
+        if request.intent is ReplyIntent.SLOT_CHOSEN and facts.get("hand_off"):
+            template = _SLOT_HAND_OFF[tone]
+        text = template.format(
             name=f", {name}" if name else "",
             option=facts.get("option", "esa propiedad"),
             slots=facts.get("slots", ""),

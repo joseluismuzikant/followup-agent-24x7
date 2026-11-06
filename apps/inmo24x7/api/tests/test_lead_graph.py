@@ -458,7 +458,71 @@ def test_each_reply_only_gets_the_facts_of_its_own_step() -> None:
     slot = offer["slots"][0]
     chat.say(slot["label"], choice_id=slot["id"])
 
-    chosen, hand_off = chat.llm.replies[-2:]
-    assert (chosen.intent, hand_off.intent) == (ReplyIntent.SLOT_CHOSEN, ReplyIntent.HAND_OFF)
-    assert "slot" in chosen.facts
-    assert set(hand_off.facts) == {"visitor_name"}
+    # The hand-off is said in the slot's own message: no second reply is composed.
+    chosen = chat.llm.replies[-1]
+    assert chosen.intent is ReplyIntent.SLOT_CHOSEN
+    assert set(chosen.facts) == {"visitor_name", "slot", "hand_off"}
+    assert [m["author"] for m in chat.turns[-1]] == ["agent", "system"]
+    # The greeting's facts stay with the greeting.
+    assert all("looking_for" not in r.facts for r in chat.llm.replies[1:])
+
+
+def _rent(slug: str, address: str, rooms: int, price: int) -> Listing:
+    return Listing(
+        id=slug,
+        title=f"{rooms} ambientes",
+        address=address,
+        operation=Operation.RENT,
+        zone="Palermo",
+        price=price,
+        currency=Currency.ARS,
+        rooms=rooms,
+        link=f"https://www.inmobiliariasur.example/propiedades/{slug}",
+        is_sample=False,
+    )
+
+
+# The production conversation of 7 November 2026, with one more 2-room listing so the exact
+# matches fill every slot.
+PALERMO = [
+    _rent("guatemala-5200", "Guatemala 5200", 3, 1_250_000),
+    _rent("gorriti-4800", "Gorriti 4800", 2, 850_000),
+    _rent("thames-1500", "Thames 1500", 2, 900_000),
+    _rent("soler-4500", "Soler 4500", 2, 950_000),
+]
+
+
+def test_the_production_transcript_greets_without_asking_and_closes_once() -> None:
+    saturday = datetime(2026, 11, 7, 14, 0, tzinfo=UTC)
+    chat = Chat(search=ListingSearch(PALERMO), now=saturday, visitor_contact="+5491151060793")
+
+    greeting, options, budget = chat.say("Hola, busco un 2 ambientes para alquilar en Palermo")
+    # (1) The greeting acknowledges the search and asks nothing; only the next message asks.
+    assert greeting["text"] == (
+        "¡Hola! Soy Sofía, de Inmobiliaria Sur. Buenísimo, te busco opciones de 2 ambientes "
+        "en alquiler en Palermo."
+    )
+    assert "?" not in greeting["text"] and "?" in budget["text"]
+    # (2) Exact room matches fill the slots: the 3-room listing is not shown.
+    assert [card["rooms"] for card in options["cards"]] == [2, 2, 2]
+    assert "guatemala-5200" not in {card["id"] for card in options["cards"]}
+
+    chat.say("hasta 900 mil")
+    chat.say("Jose Luis")
+    assert chat.intents()[-1] == "offer_visit"
+    (offer,) = chat.say("la de gorriti me interesa")
+    slot = offer["slots"][0]
+    assert slot["label"] == "lunes 9/11, 09:00"
+
+    # (3) The pick is one lead-facing message plus the hand-off system event.
+    picked = chat.say(slot["short_label"], choice_id=slot["id"])
+    assert [m["author"] for m in picked] == ["agent", "system"]
+    assert picked[0]["text"] == (
+        "¡Listo, Jose Luis! Te anoté para el lunes 9/11, 09:00. Una persona del equipo te lo "
+        "confirma y sigue con tu consulta muy pronto."
+    )
+    assert picked[1]["text"] == HAND_OFF_EVENT
+    assert chat.tool_calls.count("hand_off") == 1
+    state = chat.state()
+    assert state["hand_off_reason"] == "visit"
+    assert state["visit"]["property_id"] == "gorriti-4800"

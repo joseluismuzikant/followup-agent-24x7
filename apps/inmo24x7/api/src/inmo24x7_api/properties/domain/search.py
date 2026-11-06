@@ -72,8 +72,10 @@ def zone_matches(wanted: str, zone: str) -> bool:
 
 
 def rank(listings: Iterable[Listing], query: PropertyQuery) -> list[PropertyMatch]:
-    """Operation, zone and rooms filter; with a budget, same currency only (no conversion),
-    within budget first, then up to OVER_BUDGET_TOLERANCE over it, cheapest first."""
+    """Operation, zone and rooms filter. Listings with exactly the rooms asked for come first;
+    bigger ones only fill the slots they leave. Within each group, with a budget, same
+    currency only (no conversion), within budget first, then up to OVER_BUDGET_TOLERANCE over
+    it, cheapest first."""
     candidates = [
         item
         for item in listings
@@ -81,10 +83,18 @@ def rank(listings: Iterable[Listing], query: PropertyQuery) -> list[PropertyMatc
         and (query.zone is None or zone_matches(query.zone, item.zone))
         and (query.rooms is None or item.rooms >= query.rooms)
     ]
+    if query.rooms is None:
+        return _by_budget(candidates, query)[:MAX_RESULTS]
+    exact = [item for item in candidates if item.rooms == query.rooms]
+    bigger = [item for item in candidates if item.rooms > query.rooms]
+    return (_by_budget(exact, query) + _by_budget(bigger, query))[:MAX_RESULTS]
+
+
+def _by_budget(candidates: Sequence[Listing], query: PropertyQuery) -> list[PropertyMatch]:
     budget = query.max_budget
     if budget is None or query.budget_currency is None:
         ranked = sorted(candidates, key=lambda item: item.price)
-        return [PropertyMatch(item, False) for item in ranked[:MAX_RESULTS]]
+        return [PropertyMatch(item, False) for item in ranked]
 
     comparable = [item for item in candidates if item.currency == query.budget_currency]
     within = sorted((i for i in comparable if i.price <= budget), key=lambda i: i.price)
@@ -92,5 +102,4 @@ def rank(listings: Iterable[Listing], query: PropertyQuery) -> list[PropertyMatc
         (i for i in comparable if budget < i.price <= budget * OVER_BUDGET_TOLERANCE),
         key=lambda i: i.price,
     )
-    matches = [PropertyMatch(i, False) for i in within] + [PropertyMatch(i, True) for i in over]
-    return matches[:MAX_RESULTS]
+    return [PropertyMatch(i, False) for i in within] + [PropertyMatch(i, True) for i in over]
