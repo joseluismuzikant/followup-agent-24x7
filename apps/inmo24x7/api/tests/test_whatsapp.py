@@ -16,6 +16,7 @@ from whatsapp_fakes import (
     PHONE_NUMBER_ID,
     VERIFY_TOKEN,
     VISITOR,
+    VISITOR_TO,
     FakeGraph,
     WhatsAppWorld,
     build_services,
@@ -164,6 +165,27 @@ def test_each_conversation_has_its_own_thread(world: World) -> None:
     assert [row[0] for row in threads] == ["5491155550188", "5493515550000"]
 
 
+def test_an_argentine_mobile_with_or_without_the_9_is_one_conversation(world: World) -> None:
+    # Meta may send the same person's wa_id with the mobile 9 or without it.
+    world.say("Hola", sender="5491151060793")
+    world.run()
+    world.say("Quiero alquilar", sender="541151060793")
+    world.run()
+
+    threads = world.sql("SELECT visitor_id FROM conversation_threads")
+    assert threads == [("5491151060793",)]
+    assert {row[0] for row in world.sql("SELECT wa_id FROM whatsapp_inbound_events")} == {
+        "5491151060793"
+    }
+    inbound = [
+        text for direction, _, text in world.transcript("5491151060793") if direction == "inbound"
+    ]
+    assert inbound == ["Hola", "Quiero alquilar"]
+    (lead,) = world.owner.get("/leads").json()["items"]
+    assert lead["contact"] == "+54 9 11 5106-0793"
+    assert {body["to"] for body in world.graph.sent()} == {"541151060793"}
+
+
 def test_whatsapp_leads_are_real_and_never_asked_for_a_phone(world: World) -> None:
     world.chat("Hola", "Quiero alquilar", "Palermo", "Me interesa la primera")
     offer = world.graph.sent()[-1]
@@ -237,7 +259,8 @@ def test_cards_are_one_text_each_with_the_link_and_slots_are_buttons(world: Worl
     assert title.startswith("*") and title.endswith("*") and "$" in price
     # Sample listings link to the panel's absolute /ejemplo page.
     assert rest[-1].startswith("https://panel.example.com/ejemplo/")
-    assert all(body["to"] == VISITOR for body in sent)
+    # Stored with the 9, sent without it (Meta error 131030 otherwise).
+    assert all(body["to"] == VISITOR_TO for body in sent)
 
     world.chat("Me interesa la primera")
     buttons = world.graph.sent()[-1]["interactive"]["action"]["buttons"]
@@ -381,12 +404,25 @@ def test_test_subscribe_and_template_call_the_graph_api(world: World) -> None:
     calls = [(method, url.rsplit("/", 1)[-1]) for method, url, _ in world.graph.requests]
     assert ("GET", PHONE_NUMBER_ID) in calls and ("POST", "subscribed_apps") in calls
     template = world.graph.sent()[-1]
-    assert template["to"] == "5491155550188"
+    assert template["to"] == VISITOR_TO
     assert template["template"] == {"name": "hello_world", "language": {"code": "en_US"}}
     authorization = [
         request for request in world.graph.requests if request[1].endswith("/subscribed_apps")
     ]
     assert authorization
+
+
+def test_a_long_meta_name_status_is_saved(world: World) -> None:
+    # Meta's display-name review can answer AVAILABLE_WITHOUT_REVIEW (24 characters).
+    world.graph.name_status = "AVAILABLE_WITHOUT_REVIEW"
+    path = f"/admin/tenants/{world.owner.tenant_id}/whatsapp"
+
+    response = world.client.post(f"{path}/test", headers=world.admin.headers)
+
+    assert response.status_code == 200, response.json()
+    assert world.sql("SELECT name_status, quality_rating FROM whatsapp_connections") == [
+        ("AVAILABLE_WITHOUT_REVIEW", "GREEN")
+    ]
 
 
 def test_graph_errors_mark_the_connection_and_show_the_meta_code(world: World) -> None:

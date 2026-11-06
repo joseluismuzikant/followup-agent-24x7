@@ -1,5 +1,5 @@
-"""Phone numbers: stored as E.164, shown the Argentine way. Replies always go to the wa_id
-exactly as Meta sent it, never to a re-formatted number."""
+"""Phone numbers: stored as E.164, shown the Argentine way. Argentine mobiles are kept with
+the 9 everywhere inside (leads, wa_ids, threads); only the Cloud API's `to` drops it."""
 
 import phonenumbers
 
@@ -31,6 +31,27 @@ def to_e164(number: str, region: str = DEFAULT_REGION) -> str | None:
     if not phonenumbers.is_valid_number(parsed):
         return None
     return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+
+
+def canonical_wa_id(wa_id: str) -> str:
+    """An inbound wa_id in our form: "541151060793" (an Argentine mobile without the 9, as
+    Meta may send it) becomes "5491151060793", so both reach the same thread and lead. Every
+    other wa_id is kept as Meta sent it."""
+    if len(wa_id) == 12 and wa_id.startswith("54") and not wa_id.startswith("549"):
+        e164 = to_e164(wa_id)
+        if e164 is not None and e164.startswith("+549"):
+            return e164[1:]
+    return wa_id
+
+
+def to_cloud_api_recipient(e164: str) -> str:
+    """The Cloud API's `to` (digits only). Argentine mobiles go without the 9: Meta answers
+    "+549" + 10 digits with error 131030 (not in the allowed list) and expects "54" + the 10
+    digits. Every other number is unchanged."""
+    digits = e164.lstrip("+")
+    if digits.startswith("549") and len(digits) == 13 and digits.isdigit():
+        return "54" + digits[3:]
+    return digits
 
 
 def _argentine_mobile(parsed: phonenumbers.PhoneNumber) -> phonenumbers.PhoneNumber:

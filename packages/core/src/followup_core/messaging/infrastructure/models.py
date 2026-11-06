@@ -34,8 +34,10 @@ class WhatsAppConnectionModel(Base):
     connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     business_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    quality_rating: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    name_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Meta's raw values: GREEN | YELLOW | RED | UNKNOWN | NA, and APPROVED | PENDING_REVIEW |
+    # DECLINED | EXPIRED | NONE | AVAILABLE_WITHOUT_REVIEW (24 characters).
+    quality_rating: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    name_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     business_verification: Mapped[str] = mapped_column(
         String(10), nullable=False, default="unknown"
     )

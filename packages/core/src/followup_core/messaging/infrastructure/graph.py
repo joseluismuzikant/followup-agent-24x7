@@ -11,6 +11,7 @@ import httpx
 from ..application.connections import PhoneInfo
 from ..domain.connection import BusinessVerification, WhatsAppConnection
 from ..domain.outbound import SendError, template_body
+from ..domain.phones import to_cloud_api_recipient
 from .crypto import TokenCipher
 
 logger = logging.getLogger("followup.whatsapp")
@@ -102,7 +103,7 @@ class GraphClient:
             json={
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
-                "to": to,
+                "to": to_cloud_api_recipient(to),
                 **body,
             },
         )
