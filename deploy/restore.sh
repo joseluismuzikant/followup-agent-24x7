@@ -24,6 +24,7 @@ scratch="${COMPOSE_PROJECT}-restore-scratch"
 network="${COMPOSE_PROJECT}_internal"
 cleanup() { docker rm -f "$scratch" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
+ensure_backup_image
 
 if [[ "$object" == "latest" ]]; then
 	# shellcheck disable=SC2016 # expanded inside the container, where BACKUP_REMOTE is set

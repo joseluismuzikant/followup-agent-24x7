@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from .phones import canonical_wa_id
+
 # Delivered by WhatsApp but not readable by the agent (it answers with a fixed text).
 MEDIA_TYPES = frozenset(
     {"audio", "image", "video", "document", "sticker", "location", "contacts", "voice"}
@@ -65,7 +67,7 @@ def _message(phone_number_id: str, item: Mapping[str, Any]) -> IncomingMessage |
     return IncomingMessage(
         wamid=str(wamid),
         phone_number_id=phone_number_id,
-        wa_id=str(wa_id),
+        wa_id=canonical_wa_id(str(wa_id)),
         type=kind,
         sent_at=_timestamp(item.get("timestamp")),
         text=text,

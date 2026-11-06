@@ -171,11 +171,11 @@ Never set `REHEARSAL` here.
 
 ```bash
 cd /opt/inmo24x7
-docker compose --project-name inmo24x7 --env-file .env.production -f compose.prod.yml build backup
 ./deploy.sh <full-commit-sha>
 ```
 
-`deploy.sh` pulls the images, runs `alembic upgrade heads` once (it stops there if the
+`deploy.sh` builds the backup image the first time (it is built on the VM from
+`backup/`, not pulled; `backup-now.sh` and `restore.sh` do the same if it is missing), pulls the images, runs `alembic upgrade heads` once (it stops there if the
 migration fails, and nothing restarts), starts the five services, and waits for
 `/health/ready` to report that commit. If the new version never gets ready it puts the
 previous one back, and says that migrations were **not** rolled back. Later deploys are the
@@ -207,6 +207,15 @@ In the [App Dashboard](https://developers.facebook.com/apps):
    **Live** mode (top bar).
 6. **WhatsApp Manager → Message templates:** `confirmacion_visita` (README, "Testing the
    inbox") approved; enter it per business in the backoffice.
+
+**Argentine numbers and error 131030.** Inside the app an Argentine mobile always keeps the
+mobile 9 (`+5491151060793`: leads, wa_ids, threads). The Cloud API's `to` must not carry it:
+Meta registers and delivers to `541151060793`, and `5491151060793` is answered with error
+**131030** (recipient not in the allowed list), most visibly on the Meta test number. The Graph
+client drops the 9 when it builds `to` (`to_cloud_api_recipient`), and inbound wa_ids with or
+without the 9 reach the same conversation. Add Argentine test recipients in WhatsApp → API
+Setup the way Meta shows them; a 131030 for any other number means it really is not on the
+test number's allowed list.
 
 After changing `.env.production`, restart: `./deploy.sh <same sha>` (idempotent).
 

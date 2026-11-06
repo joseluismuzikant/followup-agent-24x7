@@ -48,6 +48,8 @@ if [[ "$local_images" == false ]]; then
 	compose pull "${services[@]}"
 fi
 
+ensure_backup_image
+
 say "Migrating the database (alembic upgrade heads)"
 if ! compose --profile tools run --rm migrate; then
 	echo "Migration failed: nothing was restarted, ${current:-the current version} keeps running." >&2

@@ -16,7 +16,12 @@ from followup_core.messaging.domain.outbound import (
     overall_status,
     within_service_window,
 )
-from followup_core.messaging.domain.phones import display, to_e164
+from followup_core.messaging.domain.phones import (
+    canonical_wa_id,
+    display,
+    to_cloud_api_recipient,
+    to_e164,
+)
 from followup_core.messaging.domain.webhook import parse_webhook
 from followup_core.messaging.infrastructure.crypto import TokenCipher, TokenCipherError
 from inmo24x7_api.container import job_handlers
@@ -102,6 +107,46 @@ def test_argentine_formats_normalize_to_one_e164(number: str) -> None:
 )
 def test_other_numbers(number: str, expected: str | None) -> None:
     assert to_e164(number) == expected
+
+
+@pytest.mark.parametrize(
+    ("e164", "recipient"),
+    [
+        ("+5491151060793", "541151060793"),
+        ("+5493415551234", "543415551234"),  # Rosario
+        ("+541151060793", "541151060793"),  # landline-style, no 9
+        ("+14155550100", "14155550100"),
+        ("+525512345678", "525512345678"),  # Mexico
+        ("5491151060793", "541151060793"),  # a wa_id, already without "+"
+    ],
+)
+def test_the_cloud_api_recipient_drops_the_argentine_mobile_9(e164: str, recipient: str) -> None:
+    assert to_cloud_api_recipient(e164) == recipient
+
+
+@pytest.mark.parametrize(
+    ("wa_id", "expected"),
+    [
+        ("541151060793", "5491151060793"),
+        ("5491151060793", "5491151060793"),
+        ("14155550100", "14155550100"),
+        ("5215512345678", "5215512345678"),
+    ],
+)
+def test_inbound_wa_ids_keep_the_argentine_mobile_9(wa_id: str, expected: str) -> None:
+    assert canonical_wa_id(wa_id) == expected
+
+
+def test_the_graph_client_sends_argentine_mobiles_without_the_9() -> None:
+    graph = FakeGraph()
+    client = build_services(graph).graph
+
+    client.send_message(
+        "pn-1", "token", "+5491151060793", {"type": "text", "text": {"body": "Hola"}}
+    )
+
+    (body,) = graph.sent()
+    assert body["to"] == "541151060793"
 
 
 # --- Webhook parsing ------------------------------------------------------------------------

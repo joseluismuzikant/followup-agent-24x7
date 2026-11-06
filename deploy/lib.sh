@@ -63,6 +63,17 @@ compose() {
 
 say() { printf '==> %s\n' "$*"; }
 
+# The backup image is built on this machine (deploy/backup), not pulled: build it the first
+# time deploy.sh, backup-now.sh or restore.sh needs it.
+ensure_backup_image() {
+	local image="${BACKUP_IMAGE:-$(env_value BACKUP_IMAGE)}"
+	image="${image:-inmo24x7-backup:local}"
+	if ! docker image inspect "$image" >/dev/null 2>&1; then
+		say "Building the backup image ($image)"
+		compose --profile tools build backup
+	fi
+}
+
 # The commit /health/ready reports, or nothing while the API is not ready.
 ready_commit() {
 	compose exec -T api python -c '

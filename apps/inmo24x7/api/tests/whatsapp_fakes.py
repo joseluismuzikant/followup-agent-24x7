@@ -32,6 +32,8 @@ APP_SECRET = "test-app-secret"
 VERIFY_TOKEN = "test-verify-token"
 PHONE_NUMBER_ID = "pn-test-1"
 VISITOR = "5491155550188"
+# What the Cloud API's `to` carries for VISITOR: Argentine mobiles go without the 9.
+VISITOR_TO = "541155550188"
 
 
 class FakeGraph:
@@ -45,6 +47,7 @@ class FakeGraph:
         self.fail_on: dict[str, list[tuple[int, int]]] = {}
         self.verification_status = "verified"
         self.quality_rating = "GREEN"
+        self.name_status = "APPROVED"
         self._sent = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -80,7 +83,7 @@ class FakeGraph:
                     "display_phone_number": "+54 9 11 5555-0100",
                     "verified_name": "Inmo Sur",
                     "quality_rating": self.quality_rating,
-                    "name_status": "APPROVED",
+                    "name_status": self.name_status,
                 },
             )
         return httpx.Response(404, json={"error": {"code": 100}})
