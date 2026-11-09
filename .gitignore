@@ -35,3 +35,6 @@ caddy-rehearsal-root.crt
 supabase/.branches/
 supabase/.temp/
 .dev-logs/
+
+# Local screenshots (scripts/screenshot_panel.py)
+scratch/

@@ -47,4 +47,5 @@ export {
   TableHeader,
   TableRow,
 } from "./components/table";
+export { LG_UP, MD_UP, useMediaQuery } from "./lib/use-media-query";
 export { cn } from "./lib/utils";

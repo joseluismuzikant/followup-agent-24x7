@@ -6,8 +6,11 @@ import {
   Dialog,
   FormField,
   Input,
+  cn,
   KnownFactsPanel,
+  LG_UP,
   type TranscriptMessage,
+  useMediaQuery,
 } from "@followup/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
@@ -65,6 +68,9 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
     refetchInterval: DETAIL_REFRESH_MS,
   });
   const meQuery = useQuery({ queryKey: ["me"], queryFn: fetchMe });
+  // Below `lg` the panel is the whole screen: facts fold up, the reply box sticks to the
+  // bottom.
+  const wide = useMediaQuery(LG_UP);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"confirm" | "cancel" | "takeover" | null>(null);
 
@@ -183,12 +189,21 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
         />
       ) : null}
 
-      <KnownFactsPanel title="Lo que contó" facts={lead.answers} />
+      <KnownFactsPanel title="Lo que contó" facts={lead.answers} collapsible={!wide} />
 
       <section aria-label="Conversación" className="flex flex-col gap-3 rounded-lg border bg-card p-4">
         <h3 className="text-sm font-semibold">Conversación</h3>
         <ChatTranscript messages={lead.transcript.map(transcriptMessage)} />
-        {canAct ? <Composer lead={lead} mine={mine} onSent={() => void leadQuery.refetch()} /> : null}
+        {canAct ? (
+          <Composer
+            lead={lead}
+            mine={mine}
+            sticky={!wide}
+            busy={busy}
+            onTakeOver={askTakeOver}
+            onSent={() => void leadQuery.refetch()}
+          />
+        ) : null}
       </section>
 
       {visit ? (
@@ -387,10 +402,17 @@ function CancelVisitDialog({
 function Composer({
   lead,
   mine,
+  sticky,
+  busy,
+  onTakeOver,
   onSent,
 }: {
   lead: LeadDetail;
   mine: boolean;
+  /** Phones: pinned to the bottom of the screen, with "Responder yo" when it is not yours. */
+  sticky: boolean;
+  busy: boolean;
+  onTakeOver: () => void;
   onSent: () => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -421,9 +443,26 @@ function Composer({
     hint = `Respondés ${channelLabel(lead.channel)}`;
   }
 
+  if (sticky && !mine) {
+    return (
+      <div className="sticky bottom-0 -mx-4 -mb-4 flex flex-col gap-2 rounded-b-lg border-t bg-card px-4 py-3 shadow-[0_-6px_16px_rgba(15,23,42,0.06)]">
+        <Button disabled={busy} onClick={onTakeOver}>
+          Responder yo
+        </Button>
+        <p className="text-center text-xs text-muted-foreground">
+          El agente deja de responder mientras atendés vos.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <form
-      className="flex flex-col gap-2 border-t pt-3"
+      className={cn(
+        "flex flex-col gap-2 border-t pt-3",
+        sticky &&
+          "sticky bottom-0 -mx-4 -mb-4 rounded-b-lg bg-card px-4 pb-3 shadow-[0_-6px_16px_rgba(15,23,42,0.06)]",
+      )}
       onSubmit={(event) => {
         event.preventDefault();
         const text = draft.trim();

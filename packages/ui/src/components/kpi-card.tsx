@@ -18,12 +18,12 @@ function KpiCard({ label, value, hint, className }: KpiCardProps) {
       data-slot="kpi-card"
       aria-label={label}
       className={cn(
-        "flex flex-col gap-1 rounded-2xl border bg-card p-5 shadow-[0_8px_24px_-14px_rgba(30,58,138,0.18)]",
+        "flex min-w-0 flex-col gap-1 rounded-2xl border bg-card p-4 shadow-[0_8px_24px_-14px_rgba(30,58,138,0.18)] sm:p-5",
         className,
       )}
     >
       <h3 className="text-sm text-muted-foreground">{label}</h3>
-      <p className="text-3xl font-semibold tabular-nums text-brand">{value}</p>
+      <p className="text-2xl font-semibold tabular-nums text-brand sm:text-3xl">{value}</p>
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </section>
   );

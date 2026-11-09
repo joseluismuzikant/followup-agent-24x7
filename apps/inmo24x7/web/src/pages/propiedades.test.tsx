@@ -3,7 +3,7 @@ import type { ImportReport, Property, PropertyList } from "@followup/api-client-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchMe } from "../api/me";
 import {
@@ -13,7 +13,7 @@ import {
   importProperties,
   setPropertyPublished,
 } from "../api/properties";
-import { me } from "../test-fixtures";
+import { me, phoneViewport } from "../test-fixtures";
 import { PropiedadesPage } from "./propiedades";
 
 vi.mock("../api/me", () => ({ fetchMe: vi.fn() }));
@@ -220,5 +220,40 @@ describe("PropiedadesPage", () => {
       operation: "sale",
       page: 1,
     });
+  });
+});
+
+describe("PropiedadesPage on a phone", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    phoneViewport(390);
+    vi.mocked(fetchMe).mockResolvedValue(me());
+    vi.mocked(fetchProperties).mockResolvedValue(
+      page([property(), property({ id: "p2", title: "Loft", operation: "sale", currency: "USD", price: 155000, status: "paused" })], 23),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows one card per listing instead of the table, with the same actions", async () => {
+    vi.mocked(setPropertyPublished).mockResolvedValue(property({ status: "paused" }));
+    const user = renderPage();
+
+    const cards = within(await screen.findByRole("list", { name: "Propiedades" }));
+    expect(screen.queryByRole("table")).toBeNull();
+    const first = within(cards.getByText("2 ambientes luminoso").closest("li") as HTMLElement);
+    expect(first.getByText("$ 850.000")).toBeTruthy();
+    expect(first.getByText("Publicada")).toBeTruthy();
+    expect(first.getByText(/3 consultas/)).toBeTruthy();
+    expect(first.getByRole("link", { name: "ver aviso" }).getAttribute("href")).toContain(
+      "gorriti-4800",
+    );
+    expect(cards.getByText("Pausada")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Importar CSV o Excel" })).toBeTruthy();
+
+    await user.click(first.getByRole("button", { name: "Pausar: 2 ambientes luminoso" }));
+
+    expect(vi.mocked(setPropertyPublished)).toHaveBeenCalledWith("p1", false);
   });
 });

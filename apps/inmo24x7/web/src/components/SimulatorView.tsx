@@ -1,6 +1,6 @@
 import { ApiRequestError } from "@followup/api-client-inmo24x7";
 import type { SimulatorMessage, SimulatorState } from "@followup/api-client-inmo24x7";
-import { Button, ChatSimulator, KnownFactsPanel } from "@followup/ui";
+import { Button, ChatSimulator, KnownFactsPanel, MD_UP, useMediaQuery } from "@followup/ui";
 import type { ChatMessage } from "@followup/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -35,6 +35,8 @@ function toChatMessage(message: SimulatorMessage): ChatMessage {
 /** The Probalo chat: used by wizard step 3 and the /probar page. */
 export function SimulatorView() {
   const queryClient = useQueryClient();
+  // Below `md` the facts fold up under the chat.
+  const wide = useMediaQuery(MD_UP);
   const simulatorQuery = useQuery({
     queryKey: SIMULATOR_KEY,
     queryFn: fetchSimulator,
@@ -168,7 +170,7 @@ export function SimulatorView() {
             ) : null
           }
         />
-        <KnownFactsPanel facts={state.known} />
+        <KnownFactsPanel facts={state.known} collapsible={!wide} />
       </div>
     </div>
   );
