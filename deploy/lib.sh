@@ -63,14 +63,25 @@ compose() {
 
 say() { printf '==> %s\n' "$*"; }
 
-# The backup image is built on this machine (deploy/backup), not pulled: build it the first
-# time deploy.sh, backup-now.sh or restore.sh needs it.
+# A hash of the files under the given paths (relative to deploy/), to notice changes.
+files_hash() {
+	(cd "$DEPLOY_DIR" && find "$@" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum |
+		cut -d' ' -f1)
+}
+
+# The backup image is built on this machine (deploy/backup), not pulled: build it when it is
+# missing or when deploy/backup changed since it was built (deploy.sh, backup-now.sh and
+# restore.sh call this).
 ensure_backup_image() {
-	local image="${BACKUP_IMAGE:-$(env_value BACKUP_IMAGE)}"
+	local image="${BACKUP_IMAGE:-$(env_value BACKUP_IMAGE)}" hash built
 	image="${image:-inmo24x7-backup:local}"
-	if ! docker image inspect "$image" >/dev/null 2>&1; then
+	hash="$(files_hash backup)"
+	built="$(cat "$STATE_DIR/backup_image_hash" 2>/dev/null || true)"
+	if ! docker image inspect "$image" >/dev/null 2>&1 || [[ "$built" != "$hash" ]]; then
 		say "Building the backup image ($image)"
 		compose --profile tools build backup
+		mkdir -p "$STATE_DIR"
+		echo "$hash" >"$STATE_DIR/backup_image_hash"
 	fi
 }
 

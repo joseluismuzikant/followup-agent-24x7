@@ -163,7 +163,10 @@ Every variable has a comment. Where each value comes from:
 - `SMTP_*`, `EMAIL_FROM`, `SUPPORT_EMAIL`.
 - `BACKUP_AGE_RECIPIENT`: the `age1...` public key.
 - `BACKUP_REMOTE` and `RCLONE_S3_*`: Oracle → Storage → Buckets (namespace, bucket) and
-  User settings → Customer secret keys.
+  User settings → Customer secret keys. Write the endpoint **without** `https://`
+  (`endpoint=<namespace>.compat.objectstorage.<region>.oraclecloud.com`; rclone uses HTTPS):
+  a `:` inside the connection string ends its parameters, so `endpoint=https://…` fails with
+  "Custom endpoint `https` was not a valid URI". `backup.sh` refuses that form.
 
 Never set `REHEARSAL` here.
 
@@ -175,11 +178,19 @@ cd /opt/inmo24x7
 ```
 
 `deploy.sh` builds the backup image the first time (it is built on the VM from
-`backup/`, not pulled; `backup-now.sh` and `restore.sh` do the same if it is missing), pulls the images, runs `alembic upgrade heads` once (it stops there if the
+`backup/`, not pulled, and rebuilt whenever `backup/` changes; `backup-now.sh` and
+`restore.sh` do the same), pulls the images, runs `alembic upgrade heads` once (it stops there if the
 migration fails, and nothing restarts), starts the five services, and waits for
 `/health/ready` to report that commit. If the new version never gets ready it puts the
-previous one back, and says that migrations were **not** rolled back. Later deploys are the
-same command with a newer sha (or the Deploy workflow, step 12).
+previous one back, and says that migrations were **not** rolled back. Later deploys are
+automatic after each merge, with your approval (step 12).
+
+For any other `docker compose` command on the VM use `./dc.sh` (it sets the deployed image
+tag, the profiles and the Caddy and Grafana settings `deploy.sh` uses), for example
+`./dc.sh ps`, `./dc.sh logs -f api worker`, `./dc.sh up -d grafana`. A plain
+`docker compose ...` fails with "required variable IMAGE_TAG is missing", and with only
+`IMAGE_TAG` set an `up` recreates Caddy and Grafana with the wrong settings. If you had a
+`dc` alias, replace it: `echo "alias dc=/opt/inmo24x7/dc.sh" >> ~/.bashrc`.
 
 Check from your machine:
 
@@ -225,8 +236,7 @@ Nobody can sign up, so the first admin is created from the VM:
 
 ```bash
 cd /opt/inmo24x7
-docker compose --project-name inmo24x7 --env-file .env.production -f compose.prod.yml \
-  run --rm api python scripts/make_admin.py <your-email> --create
+./dc.sh run --rm api python scripts/make_admin.py <your-email> --create
 ```
 
 It prints a temporary password once. Sign in at `https://admin.<domain>` with it: you are asked
@@ -266,13 +276,42 @@ WhatsApp app (S4 explains it in Spanish), Meta's popup blocked by the browser, o
 business verification still pending (the agent works; "Pendiente en Meta" shows the links).
 When it passes, mark Day 7 done in `docs/roadmap-mvp.md`.
 
-## 12. Optional: deploy from GitHub
+## 12. Deploys from GitHub (automatic after a merge, with approval)
 
-Repository → Settings → Environments → **production**: secrets `DEPLOY_HOST` (the VM IP),
-`DEPLOY_USER` (`deploy`), `DEPLOY_SSH_KEY` (a private key whose public half is in
-`/home/deploy/.ssh/authorized_keys`), `DEPLOY_KNOWN_HOSTS` (`ssh-keyscan <vm-ip>`); and the
-repository variable `DEPLOY_ENABLED=true`. Then Actions → Deploy → Run workflow with the full
-sha. It runs the same `deploy.sh` over SSH.
+**Once, in GitHub** (Settings):
+
+1. **Environments → production:** the secrets `DEPLOY_HOST` (the VM IP), `DEPLOY_USER`
+   (`deploy`), `DEPLOY_SSH_KEY` (a private key whose public half is in
+   `/home/deploy/.ssh/authorized_keys`) and `DEPLOY_KNOWN_HOSTS` (`ssh-keyscan <vm-ip>`).
+2. **Environments → production → Required reviewers:** add yourself (and "Prevent
+   self-review" off if you are the only reviewer). Without it, deploys run without asking.
+3. **Variables:** `DEPLOY_ENABLED=true`, and `INMO24X7_API_URL` (already set for the
+   images: the deploy checks `$INMO24X7_API_URL/health/ready` with it).
+
+**Every merge to the default branch:** CI tests, builds the images (`sha-<commit>`), and its
+`deploy-inmo24x7` job calls the Deploy workflow with that commit. The run stops at
+**Waiting for review**: open it (Actions, or the email GitHub sends) and **Approve and
+deploy**. The Deploy workflow then, over SSH:
+
+1. uploads `deploy/` at that commit to `/opt/inmo24x7/releases/<sha>/` and installs it with
+   `install-files.sh`: the scripts (`deploy.sh`, `lib.sh`, `dc.sh`, `backup-now.sh`,
+   `restore.sh`), `compose.prod.yml`, `Caddyfile`, `caddy/`, `observability/` and `backup/`.
+   It never touches `.env.production` or `state/`, and keeps the last 5 release folders;
+2. runs `deploy.sh <sha>` (migrate, start, wait for `/health/ready`, roll back if the new
+   images never get ready). It also reloads Caddy and restarts the logs stack when their
+   configuration changed, and rebuilds the backup image when `backup/` changed;
+3. checks `https://<api>/health/ready` from GitHub and fails unless it reports that commit;
+4. writes a summary on the run page: commit, previous version, result, health URL.
+
+If `deploy/systemd/` changed, the run shows a warning with the one command to run as root
+on the VM (the units are never installed from GitHub). Skipped without an error: a push whose
+images were skipped (missing variables, step 4), or `DEPLOY_ENABLED` not `true`. One deploy
+runs at a time, and a running one is never cancelled.
+
+**Redeploy or roll back:** Actions → Deploy → Run workflow with any full sha whose images CI
+built (`state/previous_tag` on the VM, or the previous run's summary, has the last one). It
+installs the deploy files of that commit too; a commit older than `install-files.sh` keeps
+the VM's current files. It waits for the same approval.
 
 ## 12a. Monitoring: Sentry (errors)
 
@@ -335,8 +374,9 @@ traffic. Details, disk math and LogQL in `deploy/observability.md`.
   errors). Errors: Backoffice → Errores, or Sentry. Costs: Backoffice → Consumo.
 - A customer reports "Código de referencia: 1a2b3c4d": Backoffice → Errores → Buscar por código
   de referencia (logs in Grafana, errors in Sentry).
-- Logs: Grafana, or `docker compose --project-name inmo24x7 --env-file .env.production -f compose.prod.yml logs -f api worker`.
-- Rollback to the previous version: `./deploy.sh <previous sha>` (`state/previous_tag`).
+- Logs: Grafana, or `./dc.sh logs -f api worker` on the VM.
+- Rollback to the previous version: Actions → Deploy → Run workflow with the previous sha
+  (step 12), or on the VM `./deploy.sh <previous sha>` (`state/previous_tag` holds its tag).
   Migrations stay applied, which is why they must be backward compatible.
 
 ---

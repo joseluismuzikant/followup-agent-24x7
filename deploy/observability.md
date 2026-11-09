@@ -32,11 +32,10 @@ On a small VM (1–2 GB of RAM), remove `observability` from `COMPOSE_PROFILES`,
 
 ```bash
 cd /opt/inmo24x7
-docker compose --project-name inmo24x7 --env-file .env.production -f compose.prod.yml \
-  --profile observability stop loki alloy grafana
+./dc.sh --profile observability stop loki alloy grafana
 ```
 
-Logs then stay in Docker only (`docker compose ... logs`, 10 MB × 5 per container), and the
+Logs then stay in Docker only (`./dc.sh logs`, 10 MB × 5 per container), and the
 backoffice hides its Grafana links when `GRAFANA_URL` is empty.
 
 ## Reaching Grafana

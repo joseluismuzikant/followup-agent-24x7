@@ -3,8 +3,13 @@
 # Run as root: sudo ./bootstrap.sh "<your ssh public key>". Safe to run again.
 #
 # Installs Docker and the compose plugin, creates the `deploy` user (SSH keys only), opens
-# only 22/80/443 (UFW, plus Oracle's own iptables rules), turns on unattended security
-# upgrades, adds swap on small VMs, sets UTC, and installs the backup timer.
+# only 22/80/443, turns on unattended security upgrades, adds swap on small VMs, sets UTC, and
+# installs the backup timer.
+#
+# Firewall: Oracle's Ubuntu images already filter with iptables (/etc/iptables/rules.v4, a
+# final REJECT, iptables-persistent installed), and ufw cannot be installed next to it ("ufw
+# Breaks iptables-persistent"). There, 80/443 are added to rules.v4 after the SSH rule. On any
+# other Ubuntu (no rules.v4 with that SSH rule), UFW is used as before.
 set -euo pipefail
 
 [[ $EUID -eq 0 ]] || {
@@ -21,7 +26,7 @@ say "Timezone UTC and base packages"
 timedatectl set-timezone UTC
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q ca-certificates curl gnupg ufw unattended-upgrades iptables-persistent
+apt-get install -y -q ca-certificates curl gnupg unattended-upgrades
 
 say "Docker Engine and the compose plugin (Docker's apt repository)"
 if ! command -v docker >/dev/null; then
@@ -56,20 +61,48 @@ SSHD
 systemctl reload ssh
 
 say "Firewall: only 22, 80 and 443"
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 443/udp
-ufw --force enable
-# Oracle's Ubuntu images ship iptables rules that REJECT everything but SSH, before UFW's
-# chains: let HTTP and HTTPS in ahead of them, and keep it across reboots.
-for rule in "-p tcp --dport 80" "-p tcp --dport 443" "-p udp --dport 443"; do
-	# shellcheck disable=SC2086
-	iptables -C INPUT $rule -j ACCEPT 2>/dev/null || iptables -I INPUT 1 $rule -j ACCEPT
-done
-netfilter-persistent save
+rules=/etc/iptables/rules.v4
+ssh_rule='--dport 22 -j ACCEPT'
+web_rules=(
+	"-A INPUT -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT"
+	"-A INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT"
+	"-A INPUT -p udp -m state --state NEW -m udp --dport 443 -j ACCEPT"
+)
+if [[ -f "$rules" ]] && grep -q -- "$ssh_rule" "$rules"; then
+	# Oracle's image. The saved rules: add the missing lines right after the SSH rule.
+	missing=()
+	for rule in "${web_rules[@]}"; do
+		grep -qxF -- "$rule" "$rules" || missing+=("$rule")
+	done
+	if ((${#missing[@]})); then
+		cp "$rules" "$rules.bak"
+		SSH_RULE="$ssh_rule" ADD="$(printf '%s\n' "${missing[@]}")" awk '
+			{ print }
+			!done && index($0, ENVIRON["SSH_RULE"]) { print ENVIRON["ADD"]; done = 1 }
+		' "$rules.bak" >"$rules"
+	fi
+	# The live rules, in the same place (after SSH, before the REJECT). Not iptables-restore:
+	# that would drop Docker's chains. And never `netfilter-persistent save` once Docker runs:
+	# it would write Docker's own chains into rules.v4.
+	for rule in "${web_rules[@]}"; do
+		read -ra spec <<<"${rule#-A INPUT }"
+		if ! iptables -C INPUT "${spec[@]}" 2>/dev/null; then
+			position="$(iptables -L INPUT --line-numbers -n |
+				awk '/ACCEPT/ && /tcp dpt:22( |$)/ { print $1 + 1; exit }')"
+			iptables -I INPUT "${position:-1}" "${spec[@]}"
+		fi
+	done
+else
+	# Any other Ubuntu: UFW.
+	apt-get install -y -q ufw
+	ufw default deny incoming
+	ufw default allow outgoing
+	ufw allow 22/tcp
+	ufw allow 80/tcp
+	ufw allow 443/tcp
+	ufw allow 443/udp
+	ufw --force enable
+fi
 
 say "Unattended security upgrades"
 cat >/etc/apt/apt.conf.d/20auto-upgrades <<'APT'
@@ -89,19 +122,16 @@ if ((memory_kb < 8 * 1024 * 1024)) && ! swapon --show | grep -q /swapfile; then
 fi
 
 say "The app directory and the backup timer"
-install -d -m 750 -o deploy -g deploy "$app_dir"
-for file in compose.prod.yml Caddyfile lib.sh deploy.sh restore.sh backup-now.sh \
-	.env.production.example; do
-	install -m 640 -o deploy -g deploy "$here/$file" "$app_dir/$file"
-done
-chmod 750 "$app_dir/deploy.sh" "$app_dir/restore.sh" "$app_dir/backup-now.sh"
-cp -r "$here/backup" "$app_dir/" && chown -R deploy:deploy "$app_dir/backup"
-# Read inside the Loki, Alloy, Grafana and Caddy containers (their own users): world-readable,
-# no secrets in them.
-for dir in caddy observability; do
-	cp -r "$here/$dir" "$app_dir/" && chown -R deploy:deploy "$app_dir/$dir"
-	chmod -R a+rX "$app_dir/$dir"
-done
+install -d -m 750 -o deploy -g deploy "$app_dir" "$app_dir/releases"
+install -m 640 -o deploy -g deploy "$here/.env.production.example" "$app_dir/"
+# The same install the Deploy workflow runs on every deploy (install-files.sh), from a
+# release folder named after this copy of deploy/.
+release="$app_dir/releases/bootstrap"
+rm -rf "$release"
+cp -r "$here" "$release"
+rm -rf "$release/rehearsal" "$release"/.env*
+chown -R deploy:deploy "$release"
+sudo -u deploy bash "$release/install-files.sh"
 install -m 644 "$here/systemd/inmo24x7-backup.service" /etc/systemd/system/
 install -m 644 "$here/systemd/inmo24x7-backup.timer" /etc/systemd/system/
 systemctl daemon-reload

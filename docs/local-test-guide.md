@@ -498,7 +498,7 @@ downloads: only public values there, never a key that grants access.
 **People's accounts in production**
 
 - Supabase: **"Allow new users to sign up" off**, minimum password length 8, the reset-password email template in Spanish, your own SMTP (go-live §3).
-- The first admin: `docker compose … run --rm api python scripts/make_admin.py <you> --create` on the VM (go-live §9). It prints a temporary password once; sign in to the backoffice and choose your own.
+- The first admin: `./dc.sh run --rm api python scripts/make_admin.py <you> --create` in `/opt/inmo24x7` on the VM (go-live §9). It prints a temporary password once; sign in to the backoffice and choose your own.
 - Each customer: backoffice → "Dar de alta un negocio". Give them the temporary password through **another channel** than the email (WhatsApp, phone); the invitation email carries only the link. Either way they must choose their own password first.
 - Lost password: "¿Olvidaste tu clave?" on the sign-in page (Supabase's reset email). An owner who never came in: "Generar clave temporal nueva" or "Reenviar invitación" in the backoffice.
 - One person, one account: never share an admin login. To remove someone's access, delete the user in Supabase → Authentication → Users (and suspend the business if it's a customer leaving).

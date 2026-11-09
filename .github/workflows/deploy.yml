@@ -1,10 +1,19 @@
 name: Deploy
 
-# Manual deploy of one commit's images to the production VM over SSH. Off until the
-# repository variable DEPLOY_ENABLED is "true" and the production environment has its
-# secrets (docs/go-live.md, "Optional: deploy from GitHub").
+# Deploys one commit to the production VM over SSH: uploads deploy/ at that commit to
+# /opt/inmo24x7/releases/<sha>/, installs it (install-files.sh), runs deploy.sh and checks
+# /health/ready from here. CI calls it after a push to the default branch built the images;
+# Run workflow redeploys or rolls back to any sha. Off until the repository variable
+# DEPLOY_ENABLED is "true"; the production environment's required reviewers make every run
+# wait for an approval (docs/go-live.md, step 12).
 on:
   workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full commit sha whose images CI built (sha-<commit> tags)"
+        required: true
+        type: string
+  workflow_call:
     inputs:
       sha:
         description: "Full commit sha whose images CI built (sha-<commit> tags)"
@@ -14,24 +23,35 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: production-deploy
-  cancel-in-progress: false
-
 jobs:
   deploy:
     if: vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
-    environment: production
+    environment:
+      name: production
+      url: ${{ vars.INMO24X7_API_URL }}/health/ready
+    # One deploy at a time and never cancelled. On the job, not the workflow: a called
+    # workflow's own top-level group would also be held by the CI run that calls it.
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    env:
+      SHA: ${{ inputs.sha }}
+      API_URL: ${{ vars.INMO24X7_API_URL }}
     steps:
       - name: Check the sha
-        env:
-          SHA: ${{ inputs.sha }}
         run: |
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Pass the full 40-character sha."; exit 1; }
-      - name: Deploy over SSH
+          [[ -n "$API_URL" ]] || { echo "::error::Set the repository variable INMO24X7_API_URL."; exit 1; }
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha }}
+          sparse-checkout: deploy
+          persist-credentials: false
+
+      - name: SSH access
         env:
-          SHA: ${{ inputs.sha }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -41,5 +61,83 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
-            "$DEPLOY_USER@$DEPLOY_HOST" "/opt/inmo24x7/deploy.sh '$SHA'"
+          cat > ~/.ssh/config <<CONFIG
+          Host production
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+          CONFIG
+
+      - name: Version running now
+        id: previous
+        run: |
+          previous="$(ssh production 'cat /opt/inmo24x7/state/deployed_tag 2>/dev/null || true')"
+          echo "tag=${previous:-nothing}" >> "$GITHUB_OUTPUT"
+          echo "Running now: ${previous:-nothing}"
+
+      # Before deploy.sh, so this deploy already runs the new scripts. install-files.sh comes
+      # in the upload itself: it also works on a VM whose files were copied by hand.
+      - name: Upload and install the deploy files
+        id: files
+        run: |
+          # The sha is checked (hex only): expanding it on the runner is intended (SC2029).
+          if [[ ! -f deploy/install-files.sh ]]; then
+            echo "::warning::deploy/ at $SHA predates install-files.sh: the VM keeps its current deploy files."
+            echo "synced=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # shellcheck disable=SC2029
+          tar -C deploy -czf - --exclude='.env*' --exclude=rehearsal --exclude='*.md' . |
+            ssh production "set -e; release=/opt/inmo24x7/releases/$SHA; rm -rf \"\$release\";
+              mkdir -p \"\$release\"; tar -xzf - -C \"\$release\""
+          # shellcheck disable=SC2029
+          ssh production "bash /opt/inmo24x7/releases/$SHA/install-files.sh --github"
+          echo "synced=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy
+        run: |
+          # shellcheck disable=SC2029 # the checked sha, expanded on the runner on purpose
+          ssh production "/opt/inmo24x7/deploy.sh '$SHA'"
+
+      - name: Check /health/ready from outside
+        run: |
+          url="${API_URL%/}/health/ready"
+          for attempt in $(seq 1 10); do
+            commit="$(curl -fsS --max-time 10 "$url" | jq -r '.commit // empty' || true)"
+            if [[ "$commit" == "$SHA" ]]; then
+              echo "$url reports commit $SHA"
+              exit 0
+            fi
+            echo "Attempt $attempt: commit '${commit:-no answer}'"
+            sleep 6
+          done
+          echo "::error::$url does not report commit $SHA."
+          exit 1
+
+      - name: Summary
+        if: always()
+        env:
+          PREVIOUS: ${{ steps.previous.outputs.tag || 'unknown' }}
+          SYNCED: ${{ steps.files.outputs.synced || 'false' }}
+          JOB_STATUS: ${{ job.status }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ inputs.sha }}
+        run: |
+          case "$JOB_STATUS" in
+            success) result="✅ deployed" ;;
+            cancelled) result="⚪ cancelled" ;;
+            *) result="❌ failed (deploy.sh rolls back to the previous images when the new ones never get ready)" ;;
+          esac
+          [[ "$SYNCED" == true ]] && files="installed from this commit" || files="unchanged (kept the VM's)"
+          {
+            echo "### Deploy to production"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Commit | [\`$SHA\`]($COMMIT_URL) |"
+            echo "| Previous version | \`$PREVIOUS\` |"
+            echo "| Deploy files | $files |"
+            echo "| Result | $result |"
+            echo "| Health | ${API_URL%/}/health/ready |"
+          } >> "$GITHUB_STEP_SUMMARY"
