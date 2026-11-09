@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
   Input,
+  MD_UP,
   Pagination,
   SegmentedControl,
   Table,
@@ -15,6 +16,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  useMediaQuery,
 } from "@followup/ui";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -40,9 +42,11 @@ const operationFilters = [
   { value: "rent", label: "Alquiler" },
 ] as const;
 
-/** S7: the agency's listings, which are the only ones the agent shows. */
+/** S7: the agency's listings, which are the only ones the agent shows. A table from `md` up,
+ * one card per listing below it. */
 export function PropiedadesPage() {
   const queryClient = useQueryClient();
+  const wide = useMediaQuery(MD_UP);
   const [search, setSearch] = useState("");
   const [operation, setOperation] = useState<OperationFilter>("all");
   const [page, setPage] = useState(1);
@@ -114,7 +118,7 @@ export function PropiedadesPage() {
             aria-label="Buscar por dirección o zona"
             placeholder="Buscar por dirección o zona"
             value={search}
-            className="max-w-xs"
+            className="w-full sm:max-w-xs"
             onChange={(event) => {
               setSearch(event.target.value);
               setPage(1);
@@ -151,7 +155,32 @@ export function PropiedadesPage() {
           </p>
         ) : null}
 
-        {list && list.total > 0 ? (
+        {list && list.total > 0 && !wide ? (
+          <>
+            <ul aria-label="Propiedades" className="flex flex-col gap-3">
+              {list.items.map((item) => (
+                <PropertyListItem
+                  key={item.id}
+                  property={item}
+                  canEdit={canEdit}
+                  busy={toggle.isPending && toggle.variables?.id === item.id}
+                  onToggle={() =>
+                    toggle.mutate({ id: item.id, published: item.status !== "published" })
+                  }
+                  onEdit={() => openForm(item)}
+                />
+              ))}
+            </ul>
+            <Pagination
+              page={list.page}
+              pageSize={list.page_size}
+              total={list.total}
+              onPageChange={setPage}
+            />
+          </>
+        ) : null}
+
+        {list && list.total > 0 && wide ? (
           <>
             <Table>
               <TableHeader>
@@ -279,5 +308,76 @@ function PropertyRow({
         </TableCell>
       ) : null}
     </TableRow>
+  );
+}
+
+/** A listing on a phone: what the table's columns say, and the same two actions. */
+function PropertyListItem({
+  property,
+  canEdit,
+  busy,
+  onToggle,
+  onEdit,
+}: {
+  property: Property;
+  canEdit: boolean;
+  busy: boolean;
+  onToggle: () => void;
+  onEdit: () => void;
+}) {
+  const published = property.status === "published";
+  return (
+    <li className="flex flex-col gap-2 rounded-lg border bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col">
+          <span className="font-medium">{property.title}</span>
+          <span className="text-sm text-muted-foreground">{property.address}</span>
+        </div>
+        <Badge tone={published ? "success" : "neutral"}>
+          {published ? "Publicada" : "Pausada"}
+        </Badge>
+      </div>
+      <p className="text-sm">
+        <span className="font-semibold">{formatPrice(property.price, property.currency)}</span>
+        <span className="text-muted-foreground">
+          {" "}
+          · {operationLabels[property.operation]} · {property.zone} · {property.rooms} amb.
+        </span>
+      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span className="text-muted-foreground">
+          {property.inquiries === 1 ? "1 consulta" : `${property.inquiries} consultas`} ·{" "}
+          <a
+            href={property.link}
+            target="_blank"
+            rel="noreferrer"
+            className="text-brand underline underline-offset-4"
+          >
+            ver aviso
+          </a>
+        </span>
+        {canEdit ? (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              aria-label={`${published ? "Pausar" : "Publicar"}: ${property.title}`}
+              onClick={onToggle}
+            >
+              {published ? "Pausar" : "Publicar"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label={`Editar: ${property.title}`}
+              onClick={onEdit}
+            >
+              Editar
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </li>
   );
 }

@@ -145,3 +145,25 @@ body {
 .sidebar-gradient {
   background: var(--gradient-sidebar);
 }
+
+/* Touch screens (phones, tablets): every control at least 44 px tall, and form fields at 16 px
+ * so iOS does not zoom in on focus. Mouse-driven desktops keep the compact sizes. */
+@media (pointer: coarse) {
+  [data-slot="button"],
+  [data-slot="input"],
+  [data-slot="segmented-control"] button,
+  select,
+  textarea {
+    min-height: 2.75rem;
+  }
+  [data-slot="input"],
+  select,
+  textarea {
+    font-size: 1rem;
+  }
+}
+
+/* Long words (emails, links, addresses) wrap instead of widening the page. */
+body {
+  overflow-wrap: break-word;
+}

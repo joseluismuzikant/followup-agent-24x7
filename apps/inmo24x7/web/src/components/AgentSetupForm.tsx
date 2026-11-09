@@ -299,6 +299,12 @@ export function AgentSetupForm({
   );
 }
 
+/** On phones the buttons stay pinned to the bottom of the screen while the long form
+ * scrolls (the card's own padding is 1.5 rem, hence the negative margins). */
 function FormActions({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap items-center gap-2">{children}</div>;
+  return (
+    <div className="flex flex-wrap items-center gap-2 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-6 max-md:border-t max-md:bg-card max-md:px-6 max-md:py-3">
+      {children}
+    </div>
+  );
 }

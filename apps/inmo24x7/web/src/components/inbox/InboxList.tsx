@@ -79,7 +79,7 @@ export function InboxList({
   return (
     <Card className="self-start">
       <CardContent className="flex flex-col gap-3 pt-4">
-        <div role="tablist" aria-label="Consultas" className="flex gap-1 border-b">
+        <div role="tablist" aria-label="Consultas" className="flex gap-1 overflow-x-auto border-b">
           {tabs.map((item) => (
             <button
               key={item.value}
@@ -91,7 +91,7 @@ export function InboxList({
                 setPage(1);
               }}
               className={cn(
-                "-mb-px border-b-2 px-3 py-2 text-sm",
+                "-mb-px min-h-11 shrink-0 border-b-2 px-3 py-2 text-sm md:min-h-0",
                 item.value === tab
                   ? "border-primary font-semibold"
                   : "border-transparent text-muted-foreground",
@@ -109,10 +109,11 @@ export function InboxList({
           onChange={(event) => setDraft(event.target.value)}
         />
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <label htmlFor={toggleId} className="flex items-center gap-2 text-sm">
+          <label htmlFor={toggleId} className="flex min-h-11 items-center gap-2 text-sm md:min-h-0">
             <input
               id={toggleId}
               type="checkbox"
+              className="size-4"
               checked={includeTest}
               onChange={(event) => {
                 setIncludeTest(event.target.checked);

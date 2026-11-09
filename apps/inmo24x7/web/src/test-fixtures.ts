@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+
 import type {
   AgentConfig,
   AgentSetup,
@@ -127,4 +129,22 @@ export function simulatorState(overrides: Partial<SimulatorState> = {}): Simulat
     control: "agent",
     ...overrides,
   };
+}
+
+/** Makes `matchMedia` answer like a browser this many pixels wide (1 rem = 16 px), so
+ * `useMediaQuery` picks the phone layouts. Undo with `vi.unstubAllGlobals()`. */
+export function phoneViewport(width = 390) {
+  vi.stubGlobal("matchMedia", (query: string) => {
+    const minRem = /min-width:\s*([\d.]+)rem/.exec(query);
+    return {
+      matches: minRem ? width >= Number(minRem[1]) * 16 : false,
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    };
+  });
 }

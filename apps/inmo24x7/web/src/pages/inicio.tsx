@@ -7,12 +7,14 @@ import {
   CardHeader,
   CardTitle,
   KpiCard,
+  MD_UP,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
+  useMediaQuery,
 } from "@followup/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router";
@@ -81,6 +83,7 @@ export function InicioPage() {
 
 function WeekSummary({ dashboard }: { dashboard: Dashboard }) {
   const navigate = useNavigate();
+  const wide = useMediaQuery(MD_UP);
   if (dashboard.received.total === 0 && dashboard.attention_today.length === 0) {
     return (
       <Card className="max-w-xl">
@@ -98,7 +101,7 @@ function WeekSummary({ dashboard }: { dashboard: Dashboard }) {
   const outOfHours = dashboard.received.out_of_hours;
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <KpiCard
           label="Consultas recibidas"
           value={dashboard.received.total}
@@ -126,6 +129,32 @@ function WeekSummary({ dashboard }: { dashboard: Dashboard }) {
         <CardContent>
           {dashboard.attention_today.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay consultas esperando a tu equipo.</p>
+          ) : !wide ? (
+            <ul aria-label="Para atender hoy" className="-mx-2 flex flex-col divide-y">
+              {dashboard.attention_today.map((lead) => (
+                <li key={lead.id}>
+                  <Link
+                    to={`/consultas?lead=${lead.id}`}
+                    className="flex flex-col gap-1 rounded-md px-2 py-3 hover:bg-muted"
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate font-medium">
+                        {lead.name ?? "Sin nombre todavía"}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {age(lead.created_at)}
+                      </span>
+                    </span>
+                    <span className="truncate text-sm text-muted-foreground">
+                      {lead.looking_for || "—"}
+                    </span>
+                    <span>
+                      <LeadStatusBadge status={lead.status} />
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           ) : (
             <Table>
               <TableHeader>

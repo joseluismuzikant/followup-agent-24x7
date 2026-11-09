@@ -16,7 +16,7 @@ import {
   takeOverLead,
 } from "../api/leads";
 import { fetchMe } from "../api/me";
-import { me } from "../test-fixtures";
+import { me, phoneViewport } from "../test-fixtures";
 import { ConsultasPage } from "./consultas";
 
 vi.mock("../api/leads", () => ({
@@ -410,5 +410,53 @@ describe("ConsultasPage", () => {
     expect(within(panel).getByText("El agente derivó la consulta a tu equipo")).toBeTruthy();
     expect(within(panel).queryByRole("button")).toBeNull();
     expect(within(panel).queryByLabelText("Respuesta")).toBeNull();
+  });
+});
+
+describe("ConsultasPage on a phone", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    phoneViewport(390);
+    vi.mocked(fetchMe).mockResolvedValue(me("agent"));
+    vi.mocked(fetchLeads).mockResolvedValue(list([lead()]));
+    vi.mocked(fetchLead).mockResolvedValue(detail());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the list or the lead, with a way back to the list", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Ana Pérez/ }));
+
+    expect(await screen.findByRole("complementary", { name: "Detalle de la consulta" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Lista de consultas" })).toBeNull();
+    expect(location).toContain("lead=l1");
+
+    await user.click(screen.getByRole("button", { name: "Volver a Consultas" }));
+
+    expect(await screen.findByRole("list", { name: "Lista de consultas" })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "Detalle de la consulta" })).toBeNull();
+    expect(location).not.toContain("lead=");
+  });
+
+  it("folds what the lead said and offers Responder yo at the bottom", async () => {
+    vi.mocked(takeOverLead).mockResolvedValue(
+      detail({ control: { mode: "human", by: { id: ME, name: "Vos" }, changed_at: null } }),
+    );
+    const user = userEvent.setup();
+    renderPage("/consultas?lead=l1");
+
+    const facts = await screen.findByRole("group", { name: "Lo que contó" });
+    expect(facts.tagName).toBe("DETAILS");
+    expect((facts as HTMLDetailsElement).open).toBe(false);
+    expect(within(facts).getByText("4 de 4")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Responder yo" }));
+
+    expect(vi.mocked(takeOverLead)).toHaveBeenCalledWith("l1");
+    expect(await screen.findByRole("textbox", { name: "Respuesta" })).toBeTruthy();
   });
 });
