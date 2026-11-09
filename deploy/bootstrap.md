@@ -31,18 +31,22 @@ It is safe to run again. It:
   repository;
 - creates the `deploy` user (in the `docker` group) with your SSH key, and turns off password
   and root SSH logins;
-- allows only 22, 80 and 443 with UFW, and inserts ACCEPT rules for 80/443 ahead of the
-  REJECT rule Oracle's Ubuntu images ship in iptables (saved with `netfilter-persistent`);
+- allows only 22, 80 and 443. On Oracle's Ubuntu images (iptables with
+  `/etc/iptables/rules.v4` and a final REJECT; `ufw` cannot be installed there, it "Breaks
+  iptables-persistent") it adds ACCEPT lines for tcp 80, tcp 443 and udp 443 to `rules.v4`
+  right after the SSH rule and inserts the same live rules, without `netfilter-persistent
+  save` (that would store Docker's own chains). On any other Ubuntu it uses UFW;
 - turns on unattended security upgrades, and adds a 2 GB swap file when RAM < 8 GB;
-- creates `/opt/inmo24x7` (owned by `deploy`) with the compose file, Caddyfile, scripts,
-  the backup image's sources and the logs stack's configuration (`caddy/`, `observability/`),
-  and installs the backup timer (enabled once
-  `.env.production` exists).
+- creates `/opt/inmo24x7` (owned by `deploy`) and installs the compose file, Caddyfile,
+  scripts (`deploy.sh`, `dc.sh`, …), the backup image's sources and the logs stack's
+  configuration with `install-files.sh` (the same install every deploy runs), and installs the
+  backup timer (enabled once `.env.production` exists).
 
 From now on, connect as `deploy`: `ssh deploy@<vm-ip>`.
 
 ## 3. Updating the deploy files later
 
-When `deploy/` changes in the repository, copy the changed files to `/opt/inmo24x7/` (or run
-the bootstrap again: it overwrites the scripts and leaves `.env.production` and `state/`
-alone).
+Nothing to do: every deploy from GitHub uploads `deploy/` at the deployed commit and
+installs it (`docs/go-live.md`, step 12). Only the systemd units need root: when they change,
+the Deploy run shows the command to run on the VM. Running the bootstrap again also works; it
+leaves `.env.production` and `state/` alone.

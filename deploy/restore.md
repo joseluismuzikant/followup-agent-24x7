@@ -12,6 +12,16 @@ Every day at 06:00 UTC the `inmo24x7-backup.timer` runs `backup-now.sh`, which r
    `daily/YYYY-MM-DD.dump.age`, and on Sundays also `weekly/YYYY-Www.dump.age`;
 4. pruned to 14 dailies and 8 weeklies.
 
+`BACKUP_REMOTE` is an rclone connection string. Give the endpoint as the host alone (rclone
+uses HTTPS):
+
+```
+BACKUP_REMOTE=:s3,provider=Other,endpoint=<namespace>.compat.objectstorage.<region>.oraclecloud.com,region=<region>,force_path_style=true:<bucket>/inmo24x7
+```
+
+With `endpoint=https://…` the `:` ends the parameter list and rclone fails with "Custom
+endpoint `https` was not a valid URI"; `backup.sh` stops early with a clear message instead.
+
 It logs one line (`status=ok … bytes=… seconds=…`) and exits non-zero on any failure:
 `systemctl status inmo24x7-backup.service` and `journalctl -u inmo24x7-backup` show it.
 
@@ -59,9 +69,8 @@ and delete it afterwards (`shred -u`).
 
 ## Restoring into production (disaster recovery)
 
-Only after a real loss, with the app stopped (`docker compose --project-name inmo24x7
---env-file .env.production -f compose.prod.yml stop api worker`):
+Only after a real loss, with the app stopped (`./dc.sh stop api worker`):
 restore the chosen dump into the Supabase database with `pg_restore --clean --if-exists
 --no-owner --no-privileges --dbname "<session pooler URL>"`, run `alembic upgrade heads`
-(`docker compose ... run --rm migrate`), and start the app again. Practise it in the drill
+(`./dc.sh --profile tools run --rm migrate`), and start the app again. Practise it in the drill
 first.

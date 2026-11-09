@@ -40,6 +40,28 @@ if cuentas_claras_enabled; then
 	services+=(cc-api cc-worker cc-web cc-backoffice)
 fi
 
+# `up` does not notice new content in bind-mounted config files (install-files.sh writes them
+# in place): reload Caddy, restart the logs stack, when theirs changed since the last deploy.
+config_changed() {
+	local name="$1" hash
+	shift
+	hash="$(files_hash "$@")"
+	[[ "$(cat "$state_dir/config_$name" 2>/dev/null || true)" != "$hash" ]] || return 1
+	echo "$hash" >"$state_dir/config_$name"
+}
+apply_config_changes() {
+	if config_changed caddy Caddyfile caddy; then
+		say "Caddy configuration changed: reloading Caddy"
+		compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile ||
+			echo "Caddy did not reload: check './dc.sh logs caddy'." >&2
+	fi
+	if observability_enabled && config_changed observability observability; then
+		say "Logs stack configuration changed: restarting Loki, Alloy and Grafana"
+		compose restart loki alloy grafana ||
+			echo "The logs stack did not restart: check './dc.sh ps'." >&2
+	fi
+}
+
 export IMAGE_TAG="$tag"
 say "Deploying $tag (running now: ${current:-nothing})"
 
@@ -65,6 +87,7 @@ if wait_ready "$sha" 120; then
 	fi
 	echo "$tag" >"$state_dir/deployed_tag"
 	say "Deployed $tag: /health/ready reports commit $sha"
+	apply_config_changes
 	compose ps --format 'table {{.Service}}\t{{.Status}}'
 	exit 0
 fi

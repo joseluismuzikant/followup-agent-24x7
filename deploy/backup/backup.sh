@@ -7,6 +7,14 @@ set -euo pipefail
 : "${DATABASE_URL:?DATABASE_URL is required}"
 : "${BACKUP_AGE_RECIPIENT:?BACKUP_AGE_RECIPIENT (age public key) is required}"
 : "${BACKUP_REMOTE:?BACKUP_REMOTE (rclone remote:path) is required}"
+# In an rclone connection string a ":" ends the parameters, so "endpoint=https://host" cuts it
+# at "https" ("Custom endpoint `https` was not a valid URI"). Give the host alone (rclone uses
+# https), or quote the whole value: endpoint='https://host'.
+if [[ "$BACKUP_REMOTE" =~ endpoint=https?: ]]; then
+	printf '%s backup status=failed reason=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		"BACKUP_REMOTE has endpoint=http(s):// unquoted; use endpoint=<host> (see .env.production.example)"
+	exit 1
+fi
 keep_daily="${BACKUP_KEEP_DAILY:-14}"
 keep_weekly="${BACKUP_KEEP_WEEKLY:-8}"
 

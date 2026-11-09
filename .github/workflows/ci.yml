@@ -76,8 +76,8 @@ jobs:
       - name: shellcheck
         run: |
           docker run --rm -v "$PWD:/mnt" -w /mnt/deploy koalaman/shellcheck:v0.10.0 -x \
-            deploy.sh restore.sh lib.sh bootstrap.sh backup-now.sh backup/backup.sh backup/restore-inside.sh \
-            rehearsal/rehearsal.sh rehearsal/smoke.sh
+            deploy.sh restore.sh lib.sh bootstrap.sh backup-now.sh dc.sh install-files.sh \
+            backup/backup.sh backup/restore-inside.sh rehearsal/rehearsal.sh rehearsal/smoke.sh
       - name: compose file
         working-directory: deploy
         run: |
@@ -300,3 +300,23 @@ jobs:
             sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # After a push to the default branch built inmo24x7's images: the Deploy workflow with this
+  # commit. It waits for an approval of the production environment (its required reviewers),
+  # and is skipped when the images were (release gate) or DEPLOY_ENABLED is not "true".
+  # Cuentas Claras's images, when built, must be ready too (its profile pulls them).
+  deploy-inmo24x7:
+    needs:
+      - images-inmo24x7
+      - images-cuentas-claras
+    if: >-
+      !cancelled() && needs.images-inmo24x7.result == 'success' &&
+      needs.images-cuentas-claras.result != 'failure'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy.yml
+    with:
+      sha: ${{ github.sha }}
+    # DEPLOY_* live in the production environment, read by the called job itself; inherit
+    # covers them when they are repository secrets instead.
+    secrets: inherit
