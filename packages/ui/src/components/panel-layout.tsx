@@ -4,6 +4,7 @@ import type * as React from "react";
 import { MD_UP, useMediaQuery } from "../lib/use-media-query";
 import { cn } from "../lib/utils";
 import { BrandMark } from "./brand-mark";
+import { useLinkComponent } from "./link-provider";
 import { usePanelSession } from "./panel-session";
 
 export interface PanelNavItem {
@@ -105,10 +106,11 @@ function Brand({
 }
 
 function PanelNav({ items, onNavigate }: { items: PanelNavItem[]; onNavigate?: () => void }) {
+  const Link = useLinkComponent();
   return (
     <nav aria-label="Navegación principal" className="flex flex-col gap-1">
       {items.map((item) => (
-        <a
+        <Link
           key={item.label}
           href={item.href}
           aria-current={item.active ? "page" : undefined}
@@ -121,7 +123,7 @@ function PanelNav({ items, onNavigate }: { items: PanelNavItem[]; onNavigate?: (
           )}
         >
           {item.label}
-        </a>
+        </Link>
       ))}
     </nav>
   );

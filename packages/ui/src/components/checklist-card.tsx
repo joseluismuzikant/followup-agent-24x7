@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { cn } from "../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
+import { useLinkComponent } from "./link-provider";
 
 interface ChecklistItem {
   key: string;
@@ -32,6 +33,7 @@ function ChecklistCard({
   footer,
   className,
 }: ChecklistCardProps) {
+  const Link = useLinkComponent();
   return (
     <Card data-slot="checklist-card" className={className}>
       <CardHeader>
@@ -62,9 +64,9 @@ function ChecklistCard({
               ) : renderLink ? (
                 renderLink(item, item.label)
               ) : (
-                <a href={item.href} className="text-primary underline-offset-4 hover:underline">
+                <Link href={item.href} className="text-primary underline-offset-4 hover:underline">
                   {item.label}
-                </a>
+                </Link>
               )}
             </li>
           ))}
