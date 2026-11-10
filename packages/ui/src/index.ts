@@ -29,6 +29,7 @@ export { FormField } from "./components/form-field";
 export { Input } from "./components/input";
 export { KnownFactsPanel, type KnownFact } from "./components/known-facts-panel";
 export { KpiCard } from "./components/kpi-card";
+export { LinkProvider, type LinkComponent, useLinkComponent } from "./components/link-provider";
 export { PropertyCard, type PropertyCardData } from "./components/property-card";
 export { SegmentedControl, type SegmentedOption } from "./components/segmented-control";
 export { WizardStepper, type WizardStep } from "./components/wizard-stepper";

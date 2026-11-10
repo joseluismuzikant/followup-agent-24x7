@@ -3,6 +3,7 @@ import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-qu
 import { AppErrorBoundary, initSentry } from "@followup/observability";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { RouterLinkProvider } from "@followup/app-shell";
 import { RouterProvider } from "react-router";
 
 import { AuthProvider } from "./lib/auth";
@@ -49,7 +50,9 @@ createRoot(root).render(
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <RouterLinkProvider>
+            <RouterProvider router={router} />
+          </RouterLinkProvider>
         </AuthProvider>
       </QueryClientProvider>
     </AppErrorBoundary>

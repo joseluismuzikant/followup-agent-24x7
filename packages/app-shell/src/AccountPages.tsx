@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 
 import type { AccountApi } from "./account";
 import { ApiRequestError } from "./api";
@@ -181,7 +181,7 @@ export function InvitationPage({
   );
   const toSignIn = (
     <Button asChild size="lg">
-      <a href="/ingreso">Ir a entrar</a>
+      <Link to="/ingreso">Ir a entrar</Link>
     </Button>
   );
 
