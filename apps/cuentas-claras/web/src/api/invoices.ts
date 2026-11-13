@@ -104,3 +104,26 @@ export function downloadImportErrors(importId: string): Promise<void> {
 export function downloadImportTemplate(): Promise<void> {
   return download("/invoices/import-template.csv", "plantilla-facturas.csv");
 }
+
+/** "Registrar promesa de pago": reminders pause until that day. */
+export async function promiseInvoice(id: string, promisedUntil: string): Promise<InvoiceDetail> {
+  const { data, error, response } = await apiClient.POST("/invoices/{invoice_id}/promise", {
+    params: { path: { invoice_id: id } },
+    body: { promised_until: promisedUntil },
+  });
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
+}
+
+/** "Quitar promesa": the sequence goes on. */
+export async function removePromise(id: string): Promise<InvoiceDetail> {
+  const { data, error, response } = await apiClient.DELETE("/invoices/{invoice_id}/promise", {
+    params: { path: { invoice_id: id } },
+  });
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
+}

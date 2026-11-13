@@ -1,0 +1,14 @@
+# Corrections to Argentina's national holidays as the `holidays` package computes them
+# (reminders never go out on these days when "No enviar en feriados" is on).
+#
+# `extra`: more non-sending dates, e.g. the "días no laborables con fines turísticos" the
+# government decrees each year, or a holiday decreed late that the installed package does
+# not have yet. `removed`: dates the package lists that should not stop reminders.
+# Dates are YYYY-MM-DD; a change here applies when the API and the worker restart.
+
+extra = [
+  # 2027's "días no laborables con fines turísticos" are not decreed yet (November 2026):
+  # add them here when they are.
+]
+
+removed = []

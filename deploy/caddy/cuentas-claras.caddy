@@ -23,7 +23,9 @@
 	import access_log
 	import spa_cache
 	header {
-		Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self' https://{$CC_API_DOMAIN} {$SUPABASE_URL} {$SENTRY_INGEST_HOST}; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'"
+		# Embedded Signup, as in inmo24x7's panel: the Facebook SDK loads from
+		# connect.facebook.net and opens its popup and iframes on facebook.com.
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://connect.facebook.net; frame-src https://*.facebook.com; connect-src 'self' https://{$CC_API_DOMAIN} {$SUPABASE_URL} {$SENTRY_INGEST_HOST} https://*.facebook.com https://graph.facebook.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'"
 		X-Frame-Options "DENY"
 	}
 	encode zstd gzip

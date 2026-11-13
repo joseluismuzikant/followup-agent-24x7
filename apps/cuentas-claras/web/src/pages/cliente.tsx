@@ -13,11 +13,12 @@ import {
   TableHeader,
   TableRow,
 } from "@followup/ui";
-import { useQuery } from "@tanstack/react-query";
+import type { ClientDetail } from "@followup/api-client-cuentas-claras";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
 
-import { fetchClient } from "../api/clients";
+import { fetchClient, updateClient } from "../api/clients";
 import { fetchMe } from "../api/me";
 import { ClientFormDialog } from "../components/ClientFormDialog";
 import { InvoiceDrawer } from "../components/InvoiceDrawer";
@@ -103,6 +104,7 @@ export function ClientePage() {
               </div>
             ) : null}
           </dl>
+          <RemindersToggle client={client} canEdit={canEdit} />
         </CardContent>
       </Card>
 
@@ -153,6 +155,52 @@ export function ClientePage() {
         today={todayIso()}
         onClose={() => setSelected(null)}
       />
+    </div>
+  );
+}
+
+/** "No enviar recordatorios": the business asked us not to write to this client. */
+function RemindersToggle({ client, canEdit }: { client: ClientDetail; canEdit: boolean }) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (noReminders: boolean) =>
+      updateClient(client.id, {
+        name: client.name,
+        subtitle: client.subtitle ?? "",
+        cuit: client.cuit ?? "",
+        contact_name: client.contact_name ?? "",
+        whatsapp: client.whatsapp ?? "",
+        email: client.email ?? "",
+        notes: client.notes ?? "",
+        no_reminders: noReminders,
+      }),
+    onSuccess: async (updated) => {
+      queryClient.setQueryData(["client", client.id], updated);
+      await queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    },
+  });
+  return (
+    <div className="mt-4 flex flex-col gap-1 border-t pt-4 text-sm">
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={client.no_reminders}
+          disabled={!canEdit || mutation.isPending}
+          onChange={(event) => mutation.mutate(event.target.checked)}
+        />
+        <span>
+          <span className="block font-medium">No enviar recordatorios</span>
+          <span className="text-muted-foreground">
+            No le escribimos por WhatsApp a este cliente; sus facturas siguen en Facturas.
+          </span>
+        </span>
+      </label>
+      {mutation.isError ? (
+        <p className="text-destructive" role="alert">
+          {apiErrorMessage(mutation.error, "No pudimos guardar el cambio.")}
+        </p>
+      ) : null}
     </div>
   );
 }

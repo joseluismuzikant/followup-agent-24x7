@@ -55,12 +55,13 @@ class UpdateClient:
         client_id: UUID,
         fields: ClientFields,
         active: bool | None = None,
+        no_reminders: bool | None = None,
     ) -> Client:
         current = self._clients.get(tenant_id, client_id)
         if current is None:
             raise ClientNotFoundError(str(client_id))
         now = self._clock()
-        updated = current.with_changes(fields, now, active)
+        updated = current.with_changes(fields, now, active, no_reminders)
         if updated.cuit and updated.cuit != current.cuit:
             other = self._clients.find_by_cuit(tenant_id, updated.cuit)
             if other is not None and other.id != client_id:

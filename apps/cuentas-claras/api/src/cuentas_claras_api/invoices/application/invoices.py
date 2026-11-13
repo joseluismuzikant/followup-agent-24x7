@@ -188,3 +188,30 @@ class CancelInvoice(_InvoiceUseCase):
         self._invoices.save(invoice)
         self._record(invoice, profile_id, CuentasAction.INVOICE_CANCELLED)
         return self._view(invoice)
+
+
+class PromiseInvoice(_InvoiceUseCase):
+    """ "Registrar promesa de pago": reminders pause until that day (Day 10's agent creates
+    promises from the client's replies; today the owner does)."""
+
+    def execute(
+        self, tenant_id: UUID, profile_id: UUID, invoice_id: UUID, until: date
+    ) -> InvoiceView:
+        now = self._clock()
+        today = today_in(self._timezone_of(tenant_id), now)
+        invoice = self._require(tenant_id, invoice_id).promise(until, today, now)
+        self._invoices.save(invoice)
+        self._record(
+            invoice, profile_id, CuentasAction.PROMISE_REGISTERED, promised_until=until.isoformat()
+        )
+        return self._view(invoice)
+
+
+class RemovePromise(_InvoiceUseCase):
+    """ "Quitar promesa": the sequence goes on from the next pending step."""
+
+    def execute(self, tenant_id: UUID, profile_id: UUID, invoice_id: UUID) -> InvoiceView:
+        invoice = self._require(tenant_id, invoice_id).remove_promise(self._clock())
+        self._invoices.save(invoice)
+        self._record(invoice, profile_id, CuentasAction.PROMISE_REMOVED)
+        return self._view(invoice)

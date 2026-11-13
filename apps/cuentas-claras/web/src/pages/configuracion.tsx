@@ -20,6 +20,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { fetchMe } from "../api/me";
+import { fetchPaymentSettings, saveTransferDetails } from "../api/payments";
+import { WhatsAppSection } from "../components/WhatsAppSection";
 import { fetchTenantSettings, saveTenantSettings } from "../api/tenant-settings";
 import { apiErrorMessage } from "../lib/api-errors";
 import { useAuth } from "../lib/auth";
@@ -46,6 +48,18 @@ export function ConfiguracionPage() {
         settings={settingsQuery.data}
         readOnly={!canEditSetup(profile.role)}
       />
+      <Card id="whatsapp">
+        <CardHeader>
+          <CardTitle>WhatsApp</CardTitle>
+          <CardDescription>
+            Los recordatorios salen desde tu número, con el nombre de tu negocio.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <WhatsAppSection />
+        </CardContent>
+      </Card>
+      <TransferCard readOnly={!canEditSetup(profile.role)} />
       <Card>
         <CardHeader>
           <CardTitle>Cuenta</CardTitle>
@@ -184,5 +198,100 @@ function SettingsForm({
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+/** "Datos para transferencia": what a reminder's payment link shows until Mercado Pago. */
+function TransferCard({ readOnly }: { readOnly: boolean }) {
+  const query = useQuery({ queryKey: ["payment-settings"], queryFn: fetchPaymentSettings });
+  return (
+    <Card id="transferencia">
+      <CardHeader>
+        <CardTitle>Datos para transferencia</CardTitle>
+        <CardDescription>
+          Se muestran en el link de pago de cada recordatorio. Dejalos vacíos para no mostrarlos.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {query.data ? (
+          <TransferForm
+            key={JSON.stringify(query.data.transfer)}
+            transfer={query.data.transfer}
+            readOnly={readOnly}
+          />
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TransferForm({
+  transfer,
+  readOnly,
+}: {
+  transfer: { cbu_or_alias: string; holder: string; bank: string | null } | null;
+  readOnly: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [cbu, setCbu] = useState(transfer?.cbu_or_alias ?? "");
+  const [holder, setHolder] = useState(transfer?.holder ?? "");
+  const [bank, setBank] = useState(transfer?.bank ?? "");
+  const mutation = useMutation({
+    mutationFn: () =>
+      saveTransferDetails({ cbu_or_alias: cbu.trim(), holder: holder.trim(), bank: bank.trim() || null }),
+    onSuccess: (result) => queryClient.setQueryData(["payment-settings"], result),
+  });
+
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!readOnly) {
+          mutation.mutate();
+        }
+      }}
+    >
+      <FormField label="CBU, CVU o alias" htmlFor="transfer-cbu">
+        <Input
+          id="transfer-cbu"
+          value={cbu}
+          disabled={readOnly}
+          placeholder="ascensores.delta"
+          onChange={(event) => setCbu(event.target.value)}
+        />
+      </FormField>
+      <FormField label="Titular" htmlFor="transfer-holder">
+        <Input
+          id="transfer-holder"
+          value={holder}
+          disabled={readOnly}
+          onChange={(event) => setHolder(event.target.value)}
+        />
+      </FormField>
+      <FormField label="Banco (opcional)" htmlFor="transfer-bank">
+        <Input
+          id="transfer-bank"
+          value={bank}
+          disabled={readOnly}
+          onChange={(event) => setBank(event.target.value)}
+        />
+      </FormField>
+      {mutation.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {apiErrorMessage(mutation.error, "No pudimos guardar los datos.")}
+        </p>
+      ) : null}
+      {mutation.isSuccess ? (
+        <p className="text-sm text-muted-foreground" aria-live="polite">
+          {mutation.data.transfer ? "Datos guardados." : "Quitamos los datos para transferencia."}
+        </p>
+      ) : null}
+      {readOnly ? null : (
+        <Button type="submit" className="self-start" disabled={mutation.isPending}>
+          {mutation.isPending ? "Guardando..." : "Guardar datos"}
+        </Button>
+      )}
+    </form>
   );
 }

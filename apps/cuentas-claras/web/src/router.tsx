@@ -17,6 +17,8 @@ import { FacturasPage } from "./pages/facturas";
 import { IngresoPage } from "./pages/ingreso";
 import { InicioPage } from "./pages/inicio";
 import { OnboardingPage } from "./pages/onboarding";
+import { PagoPage } from "./pages/pago";
+import { RecordatoriosPage } from "./pages/recordatorios";
 
 const accountPage = { productName: PRODUCT_NAME, account, authMode, getSupabase, useAuth };
 
@@ -31,6 +33,8 @@ export const router = createBrowserRouter([
   },
   { path: "/invitacion", element: <InvitationPage {...accountPage} /> },
   { path: "/cambiar-clave", element: <ChangePasswordPage {...accountPage} /> },
+  // A reminder's "Ver y pagar": public, no login.
+  { path: "/p/:token", element: <PagoPage /> },
   {
     path: "/onboarding/:step?",
     element: (
@@ -58,6 +62,7 @@ export const router = createBrowserRouter([
       { path: "/facturas", element: <FacturasPage /> },
       { path: "/clientes", element: <ClientesPage /> },
       { path: "/clientes/:id", element: <ClientePage /> },
+      { path: "/recordatorios", element: <RecordatoriosPage /> },
       { path: "/configuracion", element: <ConfiguracionPage /> },
     ],
   },

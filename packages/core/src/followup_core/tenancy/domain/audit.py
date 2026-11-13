@@ -69,6 +69,13 @@ ALLOWED_DETAIL_KEYS = frozenset(
         "client_id",
         "invoice_id",
         "paid_via",
+        # Cuentas Claras reminders: a promise's date, a template kind, a step count, the
+        # send window's preset, whether transfer details were removed.
+        "promised_until",
+        "kind",
+        "steps",
+        "window",
+        "removed",
     }
 )
 

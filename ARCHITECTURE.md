@@ -39,6 +39,25 @@ its own API (composition root), worker, panel and backoffice.
   `ResumeOnboarding`, `RequireAdmin`, the wizard frame, the checklist card, the settings
   fields and the API client base); components take the product's fetchers and copy as props.
   `@followup/ui`'s `data-product` attribute picks the accent color.
+- **WhatsApp is shared the same way (Day 9).** `followup_platform.whatsapp.wiring` builds,
+  for one product key, everything a product's container needs: the messaging services, the
+  webhook ingest, the connection use cases, the health sweep and checks, the reconnect email
+  and the send / read-receipt / log-status jobs. `followup_platform.routers.{whatsapp,
+  webhooks}` are the S4 and admin endpoints and the signed webhook, mounted with the
+  product's auth and its Meta error copy (`followup_platform.whatsapp.errors`: inmo24x7's
+  text is the base; Cuentas Claras replaces the lines that talk about an agent). The
+  connection lookups that are not by tenant (by number, by WABA, the 6-hourly sweep) are
+  scoped to the product. The reconnect email is a core use case
+  (`followup_core.messaging.application.reconnect`). On the panels,
+  `@followup/app-shell/whatsapp` holds `ConnectWhatsApp`, `useEmbeddedSignup`, the status
+  card, the error banner, the Facebook SDK helpers and the backoffice's manual connection
+  panel; each product passes its API functions, its Meta app (its own `VITE_` variables) and
+  its copy. inmo24x7 keeps thin modules at its old paths (`inmo24x7_api.whatsapp`,
+  `components/whatsapp/*`), so its code and tests did not change.
+- **Each product has its own Meta app.** A Meta app has one webhook URL, so the numbers a
+  product connects send their webhooks to that product's API. `META_APP_ID`,
+  `META_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` and `META_EMBEDDED_SIGNUP_CONFIG_ID` are
+  product-scoped settings (`CUENTAS_CLARAS_META_*` for Cuentas Claras).
 
 ## Layers
 
@@ -68,11 +87,17 @@ In `apps/cuentas-claras/api`:
   unique per business, shown `30-12345678-9`), WhatsApp normalized like core's phones, and
   `missing_whatsapp`.
 - **Invoices**: type, point of sale and number (`B 0003-00001245`, unique per business),
-  dates, `Decimal` amount, ARS or USD. A stored lifecycle (`open`, `paid`, `cancelled`) and a
-  display status computed in the business's timezone (`Vencida · N días`, `Por vencer` within
-  7 days, `Pendiente`, `Pagada · {medio}`, `Anulada`). Spreadsheet import with per-row
-  validation in Spanish, client upsert by CUIT or normalized name, invoice upsert by number,
-  and paid invoices never reopened.
+  dates, `Decimal` amount, ARS or USD. A stored lifecycle (`open`, `promised` with
+  `promised_until`, `paid`, `cancelled`; open and promised are "owed") and a display status
+  computed in the business's timezone (`Vencida · N días`, `Por vencer` within 7 days,
+  `Pendiente`, `Con promesa · hasta dd/mm`, `Pagada · {medio}`, `Anulada`). Spreadsheet
+  import with per-row validation in Spanish, client upsert by CUIT or normalized name,
+  invoice upsert by number, and paid invoices never reopened.
+- **Reminders**: the policy (C4), the WhatsApp templates per business, the planner and the
+  send job, "Lo próximo", and the escalation and reply emails (see "Reminders (Cuentas
+  Claras)").
+- **Payments**: payment requests (the reminder's `/p/<token>` link over one or more invoices
+  of a client) and the transfer details; Day 9B adds Mercado Pago here.
 
 Its audit actions (`client_created`, `invoice_paid`, `invoices_imported`, …) are stored as
 strings by core's audit log, with ids and counts only.
@@ -447,6 +472,66 @@ leads only (never simulator tests) from Monday 00:00 in the business's timezone 
   was stored). Bursts the agent never answered (taken over) are left out; null without data.
 - **Para atender hoy**: up to five leads in the attention order, topped up with the newest
   ones still qualifying.
+
+## Reminders (Cuentas Claras)
+
+```text
+worker: reminders.plan_sweep (09:00 UTC daily) ─▶ reminders.plan per business
+reminders.plan (also after an import, an invoice change, a promise, a policy change)
+  └─ per owed invoice: next step and its day ─▶ reminders.send per client and day
+                                             (dedupe "reminder:<client_id>:<date>")
+                                           ─▶ escalations: event + reminders.escalation_email
+reminders.send (at the window's start) ─▶ re-check ─▶ payment request + thread message
+  ─▶ core's SendQueued (Meta errors, backoff, revoked token) ─▶ sends + events
+```
+
+- **The policy** (`cc_reminder_policies`, one per business; the default until the owner
+  saves one, with ids derived from the business so they are stable): ordered steps with an
+  offset in days from the due date (−30 to +90, unique), each a reminder (its template kind
+  follows the offset: before / due / after) or the final escalation; a send window
+  (`team` = Configuración's team hours, `mornings` 9–12, `business_day` 9–18, or a custom
+  range between 6 and 22) in the business's timezone and never on weekends; "No enviar en
+  feriados"; "Pausar si el cliente prometió pagar".
+- **Planning** (`reminders/domain/planning.py`, pure): the step that matters is the latest
+  one whose date has come (an invoice imported 10 days overdue gets the "after" reminder);
+  passed steps that never went out are skipped; then the first step still ahead. A step is
+  done once an event says sent, failed (Meta refused that message for good) or escalated.
+  An invoice is never escalated before its client got one reminder, unless the client cannot
+  get any (no WhatsApp, "No enviar recordatorios"). A step that lands on a weekend or holiday
+  goes out the next sending day, never earlier, and then its text follows the real day (a
+  due-date reminder sent late uses the "after" template). A promise pauses until its day;
+  the planner turns an expired promise back into open and the sequence resumes.
+- **At most one reminder per client per day, ever**: the send job's dedupe key, and the
+  unique `(client_id, day)` of `cc_reminder_sends`. Invoices of a client due the same day go
+  in one message (the "several invoices" template) with one payment link.
+- **The send job checks everything again** (still owed, not promised, the window, the day,
+  the template approved, the connection) and returns `Reschedule` when it is simply not
+  time yet. The message is stored in the client's WhatsApp thread (where replies land, and
+  what opens the 24-hour window) and goes out through core's `SendQueued`. A part left
+  waiting by a revoked token is closed, so a reconnection never sends a reminder outside its
+  day; the planner sends it on a later day.
+- **Events** (`cc_reminder_events`): sent, failed, skipped (with a reason code) or escalated,
+  per invoice and step: "Lo próximo", the backoffice's last errors and Day 11's dashboard
+  read them. The month's count of template messages comes from `cc_reminder_sends`.
+- **Holidays**: the `holidays` package (Argentina, Spanish names), corrected by
+  `cuentas_claras_api/reminders/holidays_ar.toml` (extra non-sending dates such as each
+  year's "días no laborables con fines turísticos", and dates to remove) without a code
+  change. Tests pin 2026 and 2027 against a list written by hand.
+- **Templates** (`cc_whatsapp_templates`): created in the business's WABA when it connects
+  WhatsApp (`POST /{waba_id}/message_templates`, UTILITY, `es_AR`): before, due, after and
+  several. The owner writes named fields (`{cliente}`, `{negocio}`, `{factura}`, `{monto}`,
+  `{vencimiento}`); Meta gets positional variables in order of appearance and a "Ver y pagar"
+  URL button ending in the payment token. Meta's status is kept raw (no tight length):
+  `message_template_status_update` webhooks and a sync every 6 hours. An edit is a new
+  version; the newest approved one keeps going out. Log-sender connections approve at once
+  (`LogTemplateGraph`), so everything runs locally without Meta.
+- **Replies**: Cuentas Claras has no agent yet, so its process job is core's `StoreInbound`:
+  the burst goes into the client's thread, nobody answers, and the owner gets an email
+  ("Respondió: …") with a link to the client. Day 10's collections agent replaces it.
+- **Payment requests** (`cc_payment_requests`): 32 random bytes, URL-safe, only the SHA-256
+  stored; 60 days. `GET /pay/<token>` (public, `noindex`, `no-store`) shows the business, the
+  client's name and the covered invoices; unknown, malformed and expired tokens get the same
+  404.
 
 ## Messaging (WhatsApp)
 

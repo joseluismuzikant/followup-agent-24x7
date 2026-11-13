@@ -53,23 +53,8 @@ export function formatDateTime(iso: string): string {
   return dateTime.format(new Date(iso));
 }
 
-const relative = new Intl.RelativeTimeFormat("es-AR", { numeric: "auto" });
-
-/** "hace 5 minutos", "ayer". */
-export function timeAgo(iso: string, now: Date = new Date()): string {
-  const seconds = Math.round((new Date(iso).getTime() - now.getTime()) / 1000);
-  const units: [Intl.RelativeTimeFormatUnit, number][] = [
-    ["day", 86400],
-    ["hour", 3600],
-    ["minute", 60],
-  ];
-  for (const [unit, size] of units) {
-    if (Math.abs(seconds) >= size) {
-      return relative.format(Math.round(seconds / size), unit);
-    }
-  }
-  return "recién";
-}
+/** "hace 5 minutos", "ayer" (@followup/app-shell). */
+export { timeAgo } from "@followup/app-shell";
 
 /** List ages: "recién", "12 min", "3 h", "Ayer", "4 días". */
 export function age(iso: string, now: Date = new Date()): string {
