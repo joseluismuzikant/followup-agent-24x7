@@ -2,7 +2,7 @@
 manual create and edit; "Marcar como pagada" and "Anular"; the CSV/XLSX import with its
 report and error download, and the template."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from math import ceil
@@ -18,6 +18,7 @@ from ..auth import current_profile, require_editor
 from ..clients.domain.cuit import format_cuit
 from ..clients.domain.errors import ClientNotFoundError
 from ..clients.router import ClientRead
+from ..reminders.domain.next_action import NextAction
 from .application.imports import GetImportErrors, ImportInvoices, import_template
 from .application.invoices import (
     PAGE_SIZE,
@@ -28,6 +29,8 @@ from .application.invoices import (
     InvoiceView,
     ListInvoices,
     MarkInvoicePaid,
+    PromiseInvoice,
+    RemovePromise,
     UpdateInvoice,
 )
 from .domain.errors import (
@@ -47,7 +50,9 @@ from .domain.status import display_status
 
 ProfileDep = Annotated[Profile, Depends(current_profile)]
 EditorDep = Annotated[Profile, Depends(require_editor)]
-StatusKind = Literal["paid", "overdue", "due_soon", "pending", "cancelled"]
+StatusKind = Literal["paid", "overdue", "due_soon", "pending", "promised", "cancelled"]
+NextActions = Callable[[UUID, Sequence[Invoice]], Mapping[UUID, NextAction]]
+RequestPlan = Callable[[UUID], bool]
 
 
 def _money(value: Decimal) -> str:
@@ -72,8 +77,10 @@ class InvoiceListItemRead(BaseModel):
     currency: Literal["ARS", "USD"]
     due_date: date
     status: DisplayStatusRead
-    # "Lo próximo": the next scheduled action (Day 9); null until then.
+    # "Lo próximo": the next scheduled action ("Recordatorio mañana 9:30"); null when the
+    # invoice is no longer owed.
     next_action: str | None
+    next_action_kind: str | None
 
 
 class TabCountsRead(BaseModel):
@@ -111,11 +118,14 @@ class InvoiceDetailRead(BaseModel):
     currency: Literal["ARS", "USD"]
     description: str
     status: DisplayStatusRead
-    lifecycle: Literal["open", "paid", "cancelled"]
+    lifecycle: Literal["open", "promised", "paid", "cancelled"]
     payment: PaymentRead | None
     cancelled_reason: str | None
+    # The day the client promised to pay by.
+    promised_until: date | None
     client: ClientRead
     next_action: str | None
+    next_action_kind: str | None
 
 
 class InvoiceWrite(BaseModel):
@@ -139,6 +149,10 @@ class MarkPaidWrite(BaseModel):
 
 class CancelWrite(BaseModel):
     reason: str = Field(max_length=500)
+
+
+class PromiseWrite(BaseModel):
+    promised_until: date
 
 
 class AmountsRead(BaseModel):
@@ -179,7 +193,7 @@ def _status(invoice: Invoice, today: date) -> DisplayStatusRead:
     )
 
 
-def _item(row: InvoiceRow, today: date) -> InvoiceListItemRead:
+def _item(row: InvoiceRow, today: date, action: NextAction | None) -> InvoiceListItemRead:
     invoice = row.invoice
     return InvoiceListItemRead(
         id=invoice.id,
@@ -191,11 +205,12 @@ def _item(row: InvoiceRow, today: date) -> InvoiceListItemRead:
         currency=invoice.currency.value,  # type: ignore[arg-type]
         due_date=invoice.due_date,
         status=_status(invoice, today),
-        next_action=None,
+        next_action=action.label if action else None,
+        next_action_kind=action.kind.value if action else None,
     )
 
 
-def _detail(view: InvoiceView) -> InvoiceDetailRead:
+def _detail(view: InvoiceView, action: NextAction | None = None) -> InvoiceDetailRead:
     invoice, client = view.invoice, view.client
     payment = None
     if invoice.paid_at is not None and invoice.paid_via is not None:
@@ -220,6 +235,7 @@ def _detail(view: InvoiceView) -> InvoiceDetailRead:
         lifecycle=invoice.status.value,  # type: ignore[arg-type]
         payment=payment,
         cancelled_reason=invoice.cancelled_reason,
+        promised_until=invoice.promised_until,
         client=ClientRead(
             id=client.id,
             name=client.name,
@@ -232,12 +248,14 @@ def _detail(view: InvoiceView) -> InvoiceDetailRead:
             notes=client.notes,
             active=client.active,
             missing_whatsapp=client.missing_whatsapp,
+            no_reminders=client.no_reminders,
             open_invoices=0,
             owed_ars="0.00",
             owed_usd="0.00",
             created_at=client.created_at,
         ),
-        next_action=None,
+        next_action=action.label if action else None,
+        next_action_kind=action.kind.value if action else None,
     )
 
 
@@ -295,8 +313,18 @@ def build_invoices_router(
     summary_factory: Callable[..., GetSummary],
     import_factory: Callable[..., ImportInvoices],
     import_errors_factory: Callable[..., GetImportErrors],
+    promise_factory: Callable[..., PromiseInvoice],
+    remove_promise_factory: Callable[..., RemovePromise],
+    next_actions_factory: Callable[..., NextActions],
+    request_plan_factory: Callable[..., RequestPlan],
 ) -> APIRouter:
+    """Every change to an invoice plans the business's reminders again (a job, a minute
+    later at most)."""
     router = APIRouter(tags=["invoices"])
+
+    def detail(view: InvoiceView, next_actions: NextActions) -> InvoiceDetailRead:
+        actions = next_actions(view.invoice.tenant_id, [view.invoice])
+        return _detail(view, actions.get(view.invoice.id))
 
     def failure(error: Exception) -> ApiError:
         if isinstance(error, InvoiceNotFoundError):
@@ -323,14 +351,16 @@ def build_invoices_router(
     def list_invoices(
         profile: ProfileDep,
         use_case: Annotated[ListInvoices, Depends(list_factory)],
+        next_actions: Annotated[NextActions, Depends(next_actions_factory)],
         tab: Tab = Tab.PENDING,
         q: Annotated[str, Query(max_length=100)] = "",
         page: Annotated[int, Query(ge=1)] = 1,
     ) -> InvoiceListRead:
         result = use_case.execute(profile.tenant_id, tab, q, page)
         today = use_case.today(profile.tenant_id)
+        actions = next_actions(profile.tenant_id, [row.invoice for row in result.rows])
         return InvoiceListRead(
-            items=[_item(row, today) for row in result.rows],
+            items=[_item(row, today, actions.get(row.invoice.id)) for row in result.rows],
             total=result.total,
             page=page,
             page_size=PAGE_SIZE,
@@ -364,6 +394,7 @@ def build_invoices_router(
         file: Annotated[UploadFile, File()],
         profile: EditorDep,
         use_case: Annotated[ImportInvoices, Depends(import_factory)],
+        request_plan: Annotated[RequestPlan, Depends(request_plan_factory)],
     ) -> ImportReportRead:
         content = file.file.read(MAX_IMPORT_BYTES + 1)
         try:
@@ -374,6 +405,7 @@ def build_invoices_router(
             raise ApiError(413, "import_too_large") from error
         except ImportFileInvalidError as error:
             raise ApiError(422, "import_file_invalid") from error
+        request_plan(profile.tenant_id)
         return import_report(record)
 
     @router.get(
@@ -397,22 +429,28 @@ def build_invoices_router(
         payload: InvoiceWrite,
         profile: EditorDep,
         use_case: Annotated[CreateInvoice, Depends(create_factory)],
+        next_actions: Annotated[NextActions, Depends(next_actions_factory)],
+        request_plan: Annotated[RequestPlan, Depends(request_plan_factory)],
     ) -> InvoiceDetailRead:
         try:
-            return _detail(use_case.execute(profile.tenant_id, profile.id, _fields(payload)))
+            view = use_case.execute(profile.tenant_id, profile.id, _fields(payload))
         except known as error:
             raise failure(error) from error
+        request_plan(profile.tenant_id)
+        return detail(view, next_actions)
 
     @router.get("/invoices/{invoice_id}", response_model=InvoiceDetailRead)
     def get_invoice(
         invoice_id: UUID,
         profile: ProfileDep,
         use_case: Annotated[GetInvoice, Depends(get_factory)],
+        next_actions: Annotated[NextActions, Depends(next_actions_factory)],
     ) -> InvoiceDetailRead:
         try:
-            return _detail(use_case.execute(profile.tenant_id, invoice_id))
+            view = use_case.execute(profile.tenant_id, invoice_id)
         except known as error:
             raise failure(error) from error
+        return detail(view, next_actions)
 
     @router.patch("/invoices/{invoice_id}", response_model=InvoiceDetailRead)
     def update_invoice(
@@ -420,13 +458,15 @@ def build_invoices_router(
         payload: InvoiceWrite,
         profile: EditorDep,
         use_case: Annotated[UpdateInvoice, Depends(update_factory)],
+        next_actions: Annotated[NextActions, Depends(next_actions_factory)],
+        request_plan: Annotated[RequestPlan, Depends(request_plan_factory)],
     ) -> InvoiceDetailRead:
         try:
-            return _detail(
-                use_case.execute(profile.tenant_id, profile.id, invoice_id, _fields(payload))
-            )
+            view = use_case.execute(profile.tenant_id, profile.id, invoice_id, _fields(payload))
         except known as error:
             raise failure(error) from error
+        request_plan(profile.tenant_id)
+        return detail(view, next_actions)
 
     @router.post("/invoices/{invoice_id}/mark-paid", response_model=InvoiceDetailRead)
     def mark_paid(
@@ -434,20 +474,21 @@ def build_invoices_router(
         payload: MarkPaidWrite,
         profile: EditorDep,
         use_case: Annotated[MarkInvoicePaid, Depends(mark_paid_factory)],
+        next_actions: Annotated[NextActions, Depends(next_actions_factory)],
     ) -> InvoiceDetailRead:
         try:
-            return _detail(
-                use_case.execute(
-                    profile.tenant_id,
-                    profile.id,
-                    invoice_id,
-                    payload.paid_at,
-                    PaidVia(payload.paid_via),
-                    payload.reference,
-                )
+            view = use_case.execute(
+                profile.tenant_id,
+                profile.id,
+                invoice_id,
+                payload.paid_at,
+                PaidVia(payload.paid_via),
+                payload.reference,
             )
         except known as error:
             raise failure(error) from error
+        # A paid invoice drops out of the planner by itself; the send job checks again.
+        return detail(view, next_actions)
 
     @router.post("/invoices/{invoice_id}/cancel", response_model=InvoiceDetailRead)
     def cancel(
@@ -455,12 +496,47 @@ def build_invoices_router(
         payload: CancelWrite,
         profile: EditorDep,
         use_case: Annotated[CancelInvoice, Depends(cancel_factory)],
+        next_actions: Annotated[NextActions, Depends(next_actions_factory)],
     ) -> InvoiceDetailRead:
         try:
-            return _detail(
-                use_case.execute(profile.tenant_id, profile.id, invoice_id, payload.reason)
+            view = use_case.execute(profile.tenant_id, profile.id, invoice_id, payload.reason)
+        except known as error:
+            raise failure(error) from error
+        return detail(view, next_actions)
+
+    @router.post("/invoices/{invoice_id}/promise", response_model=InvoiceDetailRead)
+    def promise(
+        invoice_id: UUID,
+        payload: PromiseWrite,
+        profile: EditorDep,
+        use_case: Annotated[PromiseInvoice, Depends(promise_factory)],
+        next_actions: Annotated[NextActions, Depends(next_actions_factory)],
+        request_plan: Annotated[RequestPlan, Depends(request_plan_factory)],
+    ) -> InvoiceDetailRead:
+        """ "Registrar promesa de pago"."""
+        try:
+            view = use_case.execute(
+                profile.tenant_id, profile.id, invoice_id, payload.promised_until
             )
         except known as error:
             raise failure(error) from error
+        request_plan(profile.tenant_id)
+        return detail(view, next_actions)
+
+    @router.delete("/invoices/{invoice_id}/promise", response_model=InvoiceDetailRead)
+    def remove_promise(
+        invoice_id: UUID,
+        profile: EditorDep,
+        use_case: Annotated[RemovePromise, Depends(remove_promise_factory)],
+        next_actions: Annotated[NextActions, Depends(next_actions_factory)],
+        request_plan: Annotated[RequestPlan, Depends(request_plan_factory)],
+    ) -> InvoiceDetailRead:
+        """ "Quitar promesa"."""
+        try:
+            view = use_case.execute(profile.tenant_id, profile.id, invoice_id)
+        except known as error:
+            raise failure(error) from error
+        request_plan(profile.tenant_id)
+        return detail(view, next_actions)
 
     return router

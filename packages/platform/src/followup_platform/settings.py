@@ -65,9 +65,20 @@ class ProductSpec:
     default_email_from: str = "inmo24x7 <avisos@inmo24x7.local>"
 
 
-# Read as `<prefix><NAME>`: each product has its own panel and backoffice hosts and its own
-# email sender.
-SCOPED = ("PANEL_URL", "CORS_ORIGINS", "EMAIL_FROM")
+FIRST_PRODUCT_SPEC = ProductSpec()
+
+# Read as `<prefix><NAME>`: each product has its own panel and backoffice hosts, its own
+# email sender and its own Meta app (a Meta app has one webhook URL, so each product's app
+# sends its numbers' webhooks to that product's API).
+SCOPED = (
+    "PANEL_URL",
+    "CORS_ORIGINS",
+    "EMAIL_FROM",
+    "META_APP_ID",
+    "META_APP_SECRET",
+    "WHATSAPP_VERIFY_TOKEN",
+    "META_EMBEDDED_SIGNUP_CONFIG_ID",
+)
 
 
 def _key(spec: ProductSpec, name: str) -> str:
@@ -234,12 +245,15 @@ def _encryption_key(production: bool) -> str:
 
 
 def _messaging_settings(
-    production: bool, rehearsal: bool = False, required: bool = True
+    production: bool,
+    rehearsal: bool = False,
+    required: bool = True,
+    spec: ProductSpec = FIRST_PRODUCT_SPEC,
 ) -> dict[str, object]:
     def setting(name: str, dev_default: str) -> str:
-        value = os.getenv(name, "").strip()
+        value = _getenv(spec, name).strip()
         if production and required and (not value or value == dev_default):
-            raise ConfigurationError(f"{name} must be set when APP_ENV=production.")
+            raise ConfigurationError(f"{_key(spec, name)} must be set when APP_ENV=production.")
         return value or dev_default
 
     sender = os.getenv("WHATSAPP_SENDER", "").strip().lower() or ("cloud" if production else "log")
@@ -449,6 +463,6 @@ def load_settings(spec: ProductSpec) -> Settings:
         loki_datasource=os.getenv("LOKI_DATASOURCE", "").strip() or DEFAULT_LOKI_DATASOURCE,
         llm_monthly_cost_alert_usd=_optional_amount("LLM_MONTHLY_COST_ALERT_USD"),
         product=spec.product,
-        **_messaging_settings(production, rehearsal, spec.requires_whatsapp),  # type: ignore[arg-type]
+        **_messaging_settings(production, rehearsal, spec.requires_whatsapp, spec),  # type: ignore[arg-type]
         **_email_settings(app_env == "production", spec),  # type: ignore[arg-type]
     )

@@ -18,6 +18,7 @@ class DisplayKind(StrEnum):
     OVERDUE = "overdue"
     DUE_SOON = "due_soon"
     PENDING = "pending"
+    PROMISED = "promised"
     CANCELLED = "cancelled"
 
 
@@ -43,6 +44,14 @@ def display_status(invoice: Invoice, today: date) -> DisplayStatus:
         return DisplayStatus(DisplayKind.PAID, f"Pagada · {via}" if via else "Pagada")
     if invoice.status is InvoiceStatus.CANCELLED:
         return DisplayStatus(DisplayKind.CANCELLED, "Anulada")
+    if (
+        invoice.status is InvoiceStatus.PROMISED
+        and invoice.promised_until is not None
+        and invoice.promised_until >= today
+    ):
+        return DisplayStatus(
+            DisplayKind.PROMISED, f"Con promesa · hasta {invoice.promised_until:%d/%m}"
+        )
     if invoice.due_date < today:
         days = (today - invoice.due_date).days
         return DisplayStatus(DisplayKind.OVERDUE, f"Vencida · {days_label(days)}", days)

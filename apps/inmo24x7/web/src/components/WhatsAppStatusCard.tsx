@@ -1,68 +1,31 @@
 import type { WhatsAppStatus } from "@followup/api-client-inmo24x7";
-import { cn } from "@followup/ui";
+import { WhatsAppStatusCard as SharedStatusCard } from "@followup/app-shell";
+import type { WhatsAppCopy } from "@followup/app-shell";
 
-import { timeAgo } from "../lib/leads";
-
-interface Row {
-  label: string;
-  value: string;
-  ok: boolean;
-}
-
-function rows(status: WhatsAppStatus): Row[] {
-  const connected = status.status === "connected";
-  const number = [status.display_phone_number, status.verified_name].filter(Boolean).join(" · ");
-  const received = Boolean(status.last_inbound_at);
-  return [
+/** inmo24x7's words in S4: its agent answers on the number. */
+export const INMO_WHATSAPP_COPY: WhatsAppCopy = {
+  steps: [
     {
-      label: "Cuenta de Meta",
-      value: status.error
-        ? status.error.title
-        : connected
-          ? "Conectada"
-          : "Desconectada",
-      ok: connected,
-    },
-    { label: "Número", value: number || "Pendiente", ok: Boolean(status.display_phone_number) },
-    {
-      label: "Recepción de mensajes",
-      value:
-        received && status.last_inbound_at
-          ? `Funcionando · último mensaje ${timeAgo(status.last_inbound_at)}`
-          : "Esperando el primer mensaje",
-      ok: received,
+      title: "Entrá con tu cuenta de Facebook",
+      text: "La que administra la página o el negocio de la inmobiliaria.",
     },
     {
-      label: "Mensaje de prueba",
-      value: received
-        ? "Recibido: tu agente ya respondió"
-        : "Escribile a tu número desde otro teléfono: tu agente te va a responder",
-      ok: received,
+      title: "Elegí el número",
+      text: "Puede ser uno nuevo o el que ya usan. Si está en la app de WhatsApp Business, Meta te guía para pasarlo.",
     },
-  ];
-}
+    {
+      title: "Confirmá con el código por SMS",
+      text: "Listo: nosotros configuramos todo lo demás.",
+    },
+  ],
+  testMessage: {
+    waiting: "Escribile a tu número desde otro teléfono: tu agente te va a responder",
+    received: "Recibido: tu agente ya respondió",
+  },
+  verificationPending: "Meta está verificando tu empresa. Mientras tanto, tu agente ya responde.",
+};
 
-/** S4: how the WhatsApp connection is doing, in plain words. */
+/** S4: how the WhatsApp connection is doing, in plain words (@followup/app-shell). */
 export function WhatsAppStatusCard({ status }: { status: WhatsAppStatus }) {
-  return (
-    <section aria-label="Estado de WhatsApp" className="flex flex-col gap-2 rounded-lg border p-4">
-      {rows(status).map((row) => (
-        <div key={row.label} className="flex items-start gap-3 text-sm">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs",
-              row.ok ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground",
-            )}
-          >
-            {row.ok ? "✓" : "•"}
-          </span>
-          <span>
-            <span className="block font-medium">{row.label}</span>
-            <span className="text-muted-foreground">{row.value}</span>
-          </span>
-        </div>
-      ))}
-    </section>
-  );
+  return <SharedStatusCard status={status} copy={INMO_WHATSAPP_COPY} />;
 }

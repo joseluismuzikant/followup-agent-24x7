@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from followup_core.conversation.infrastructure.models import MessageModel, ThreadModel
+from followup_core.tenancy.infrastructure.models import TenantModel
 
 from ..domain.connection import (
     BusinessVerification,
@@ -56,8 +57,20 @@ def _connection(model: WhatsAppConnectionModel) -> WhatsAppConnection:
 
 
 class SqlAlchemyConnectionRepository:
-    def __init__(self, session: Session) -> None:
+    """With a product, the lookups that are not by tenant (by number, by WABA, the health
+    sweep's list) only see that product's businesses: each product's webhook and sweep stay
+    on its own numbers."""
+
+    def __init__(self, session: Session, product: str | None = None) -> None:
         self._session = session
+        self._product = str(product) if product is not None else None
+
+    def _scoped(self, statement):  # noqa: ANN001, ANN202 - a Select of connections
+        if self._product is None:
+            return statement
+        return statement.join(
+            TenantModel, TenantModel.id == WhatsAppConnectionModel.tenant_id
+        ).where(TenantModel.product == self._product)
 
     def get_by_tenant(self, tenant_id: UUID) -> WhatsAppConnection | None:
         model = self._session.scalar(
@@ -67,8 +80,10 @@ class SqlAlchemyConnectionRepository:
 
     def get_by_phone_number_id(self, phone_number_id: str) -> WhatsAppConnection | None:
         model = self._session.scalar(
-            select(WhatsAppConnectionModel).where(
-                WhatsAppConnectionModel.phone_number_id == phone_number_id
+            self._scoped(
+                select(WhatsAppConnectionModel).where(
+                    WhatsAppConnectionModel.phone_number_id == phone_number_id
+                )
             )
         )
         return _connection(model) if model else None
@@ -103,18 +118,20 @@ class SqlAlchemyConnectionRepository:
 
     def get_by_waba_id(self, waba_id: str) -> WhatsAppConnection | None:
         model = self._session.scalar(
-            select(WhatsAppConnectionModel).where(WhatsAppConnectionModel.waba_id == waba_id)
+            self._scoped(
+                select(WhatsAppConnectionModel).where(WhatsAppConnectionModel.waba_id == waba_id)
+            )
         )
         return _connection(model) if model else None
 
     def cloud_connections(self) -> Sequence[WhatsAppConnection]:
         models = self._session.scalars(
-            select(WhatsAppConnectionModel)
-            .where(
-                WhatsAppConnectionModel.sender == SenderKind.CLOUD.value,
-                WhatsAppConnectionModel.status != ConnectionStatus.DISCONNECTED.value,
-            )
-            .order_by(WhatsAppConnectionModel.tenant_id)
+            self._scoped(
+                select(WhatsAppConnectionModel).where(
+                    WhatsAppConnectionModel.sender == SenderKind.CLOUD.value,
+                    WhatsAppConnectionModel.status != ConnectionStatus.DISCONNECTED.value,
+                )
+            ).order_by(WhatsAppConnectionModel.tenant_id)
         )
         return [_connection(model) for model in models]
 

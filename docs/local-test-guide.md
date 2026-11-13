@@ -1,10 +1,10 @@
-# Local test guide: inmo24x7 and Cuentas Claras (Days 1–8)
+# Local test guide: inmo24x7 and Cuentas Claras (Days 1–9A)
 
 Run these checks in order on a freshly seeded database. Each one says what to do and what
 you should see. Days 1–7C cover inmo24x7; Day 8 adds Cuentas Claras next to it, on the same
-platform.
+platform, and Day 9A its WhatsApp reminders.
 
-The steps follow the Day 1–8 prompts, plus the invitation-only accounts and the new look added
+The steps follow the Day 1–9A prompts, plus the invitation-only accounts and the new look added
 at the end of Day 8. If a final summary named something differently, the summary wins. The [Days 1–6 PDF](inmo24x7%20local%20test%20guide%20(Days%201–6).pdf) is
 the older version of the first half.
 
@@ -33,7 +33,8 @@ The table lists every outside account the project uses, and the first moment you
 | **Sentry**: three projects | error reports, source maps, the backoffice's Errores page | optional (a test project, see Day 7C) | optional | recommended | go-live.md §12a |
 | **LangSmith**: an API key | agent traces ("Ver traza") | optional | optional | optional | README, "A real model and LangSmith" |
 | **Grafana, Loki, Alloy** | logs | optional, runs in Docker (no account) | — | on the VM (no account) | deploy/observability.md |
-| **Mercado Pago** (Cuentas Claras) | payment links and payments | not yet: Day 9 | — | Day 9+ | — |
+| **Mercado Pago** (Cuentas Claras) | payment links and payments | not yet: Day 9B | — | Day 9B+ | — |
+| **A second Meta app** (Cuentas Claras) | its own webhook URL for reminders and replies | no (the seed's log-sender number) | its test number, for a real reminder | **yes**, at its go-live | go-live.md §8b |
 | **ARCA** (Cuentas Claras) | reading invoices directly | not in the MVP (CSV import instead) | — | post-MVP | — |
 
 **Summary:**
@@ -411,6 +412,54 @@ The sample files are in `docs/samples/cuentas-claras/`. Its README gives the ref
 
 ---
 
+## Cuentas Claras: WhatsApp and reminders (Day 9A)
+
+The seed gives Ascensores Delta a fake WhatsApp number (`dev-cc-phone-1`, log sender: nothing
+reaches Meta), its four templates already approved, the default policy saved and transfer
+details. Reminders go out only Monday to Friday, inside the send window (default: mornings
+9–12, Buenos Aires), never on national holidays.
+
+**C4, Recordatorios y cobros** (5175, `dueno@ascensoresdelta.test`):
+
+- [ ] The new nav item opens C4: four steps (3 días antes, el día del vencimiento, 7 días después, 15 días después: avisar al dueño), each reminder with its text and "aprobada"; the escalation says no more messages and an email to you.
+- [ ] "+ Agregar un paso" adds one (e.g. 10 días después); two steps on the same day: "Dos pasos no pueden caer el mismo día." without saving. "Guardar cambios" → "Guardamos los cambios.".
+- [ ] Horario de envío: the four presets; Personalizado shows "De … a …" (06:00–22:00).
+- [ ] "No enviar en feriados" lists the next holidays (e.g. 23 nov, 7 dic, 8 dic); "Pausar si el cliente prometió pagar" is on.
+- [ ] Mensajes: four texts with sample values; "Editar texto" → change one → "Enviar a revisión de Meta": the card says "aprobada" still with "Hay una versión nueva en revisión" only if Meta has not approved it yet (locally it is approved at once). A field at the start (`{cliente} hola`) → "Revisá el texto: …".
+- [ ] WhatsApp: the number, "Este mes: N mensajes de recordatorio" (no "respuestas gratis" text). Mercado Pago: "Muy pronto".
+
+**Seeing a reminder go out:**
+
+1. In C4 choose Personalizado 06:00–22:00 (any weekday hour then works) and save. Saving plans the business again.
+2. Within a few seconds the worker logs `reminders_planned` and one `whatsapp_log_send` per client (at most one per client and day); log statuses follow (sent → delivered → read).
+3. Facturas → "Lo próximo": "Recordatorio el dd/mm 9:00" for the next step, "Sin WhatsApp" for clients without a number, "Escalado al dueño" for invoices past 15 days that already got their last reminder. Mailpit (8025) has "Escalar al dueño: N facturas sin pagar" on the next planning.
+4. The payment link of the last reminder:
+   ```bash
+   docker compose exec db psql -U followup -tAc "SELECT body->'template'->'components'->1->'parameters'->0->>'text' FROM whatsapp_outbound ORDER BY updated_at DESC LIMIT 1"
+   ```
+   Open http://localhost:5175/p/<token> in a private window (no login): Ascensores Delta, "Para <cliente>", the invoices with due date and amount, the total, "Pronto vas a poder pagar con Mercado Pago" (disabled) and the transfer details. No CUIT, no email. `http://localhost:5175/p/xxx` → "Este link ya no está disponible".
+5. Backoffice (5176) → Ascensores Delta → Recordatorios: the four templates "aprobada", "N enviados este mes", "Últimos que no salieron" (e.g. "La plantilla no está aprobada"), and **Planificar ahora** ("Listo: N envíos programados…" or why nothing went out). Below, the WhatsApp manual connection (the same panel as inmo24x7's, without the visit template).
+
+**Promises, opt-out and replies:**
+
+- [ ] Facturas → an overdue invoice → "Registrar promesa de pago" with a date: status "Con promesa · hasta dd/mm", "Lo próximo: Pausado: promesa hasta dd/mm", tab "Con promesa" counts it. "Quitar promesa" brings back the sequence.
+- [ ] Clientes → a client → "No enviar recordatorios": its invoices say "Sin recordatorios (pedido del cliente)".
+- [ ] A reply (Clínica San Martín's number in the sample):
+  ```bash
+  uv run --all-packages python scripts/simulate_whatsapp.py --product cuentas-claras --from 5491155550106 "Ya la pagué ayer"
+  ```
+  Mailpit: "Respondió: “Ya la pagué ayer” (Clínica San Martín)" with a link to the client. Nobody answers on WhatsApp (Day 10).
+- [ ] A rejected template: take a `meta_template_id` from `cc_whatsapp_templates` and run `scripts/simulate_whatsapp.py --product cuentas-claras --template-status <id> REJECTED --reason INVALID_FORMAT`: C4 shows "rechazada: el formato no es válido", and that step's invoices say "En espera: plantilla en revisión".
+
+**Onboarding and Configuración:**
+
+- [ ] `nuevo@local.test` at 5175, wizard step "Recordatorios": the same editor (short), "Guardar y seguir" saves it and goes to "Conectar"; Inicio's checklist then has "Configurar los recordatorios" done.
+- [ ] "Conectar": WhatsApp's three steps and "Conectar WhatsApp" (disabled without `VITE_CUENTAS_CLARAS_META_*`: "La conexión con Meta no está configurada en este entorno…"), Mercado Pago "Muy pronto".
+- [ ] Configuración: the WhatsApp section (`/configuracion#whatsapp`, where the reconnect email links) and "Datos para transferencia" (an invalid CBU → "Revisá los datos…"; both empty removes them).
+- [ ] inmo24x7 is unchanged: its WhatsApp screens (S4, Configuración, backoffice S9) look and behave as on Day 7.
+
+---
+
 ## Automated tests
 
 Postgres must be up (`docker compose up -d --wait db`). Then:
@@ -449,7 +498,11 @@ This needs:
 
 - **Tunnel URL:** the Cloudflare quick tunnel changes URL on every restart, so redo step 3 each time.
 - **Embedded Signup:** testing it needs the panel on HTTPS (a tunnel to 5173) and the `VITE_META_*` values.
-- **Cuentas Claras:** has no WhatsApp yet (Day 9).
+- **Cuentas Claras:** the same, with its own Meta app and API (8002): set the
+  `CUENTAS_CLARAS_META_*` values, tunnel to 8002, subscribe `messages`, `account_update` and
+  `message_template_status_update`, connect the number from its backoffice (5176) and add a
+  client whose WhatsApp is your phone, with an invoice due in 3 days. "Planificar ahora"
+  sends the reminder (once Meta approves the templates, usually minutes).
 
 ## Production: configuring the apps and handling passwords
 

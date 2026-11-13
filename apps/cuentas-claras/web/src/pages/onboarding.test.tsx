@@ -8,7 +8,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchMe, signUp } from "../api/me";
 import { advanceOnboarding, fetchOnboarding } from "../api/onboarding";
-import { me, onboardingState } from "../test-fixtures";
+import { fetchReminders, saveReminderPolicy } from "../api/reminders";
+import { fetchWhatsAppStatus } from "../api/whatsapp";
+import { me, onboardingState, reminderSettings } from "../test-fixtures";
 import { OnboardingPage } from "./onboarding";
 
 vi.mock("../api/me", () => ({ fetchMe: vi.fn(), signUp: vi.fn() }));
@@ -16,6 +18,15 @@ vi.mock("../api/onboarding", () => ({ fetchOnboarding: vi.fn(), advanceOnboardin
 vi.mock("../api/tenant-settings", () => ({
   fetchTenantSettings: vi.fn(),
   saveTenantSettings: vi.fn(),
+}));
+vi.mock("../api/reminders", () => ({ fetchReminders: vi.fn(), saveReminderPolicy: vi.fn() }));
+vi.mock("../api/whatsapp", () => ({
+  fetchWhatsAppStatus: vi.fn(),
+  panelApi: {
+    completeEmbeddedSignup: vi.fn(),
+    retryEmbeddedSignup: vi.fn(),
+    reportSignupAbandoned: vi.fn(),
+  },
 }));
 vi.mock("../api/invoices", () => ({
   importInvoices: vi.fn(),
@@ -57,6 +68,8 @@ describe("OnboardingPage", () => {
     vi.clearAllMocks();
     resumeOnboarding();
     vi.mocked(fetchMe).mockResolvedValue(me());
+    vi.mocked(fetchReminders).mockResolvedValue(reminderSettings());
+    vi.mocked(fetchWhatsAppStatus).mockResolvedValue({ status: "not_connected" });
   });
 
   it("joins the invited business and lands on Tus facturas", async () => {
@@ -85,8 +98,34 @@ describe("OnboardingPage", () => {
 
     expect(await screen.findByText("Así vamos a recordarles a tus clientes")).toBeTruthy();
     expect(where()).toBe("/onboarding/recordatorios");
-    expect(screen.getByText("Muy pronto vas a poder ajustarla.")).toBeTruthy();
-    expect(screen.getByRole("list", { name: "Secuencia de recordatorios" }).children).toHaveLength(4);
+    const sequence = await screen.findByRole("region", { name: "Secuencia de recordatorios" });
+    expect(sequence.querySelectorAll("li")).toHaveLength(4);
+    expect(screen.getByText("Avisar al dueño")).toBeTruthy();
+  });
+
+  it("saves the reminder policy and goes on to Conectar", async () => {
+    vi.mocked(fetchOnboarding)
+      .mockResolvedValueOnce(onboardingState("reminders"))
+      .mockResolvedValue(onboardingState("connect"));
+    vi.mocked(saveReminderPolicy).mockResolvedValue(reminderSettings({ configured: true }));
+    vi.mocked(advanceOnboarding).mockResolvedValue(onboardingState("connect"));
+    const user = renderWizard("/onboarding/recordatorios");
+
+    await user.click(await screen.findByRole("radio", { name: "Todo el día hábil 9–18" }));
+    await user.click(screen.getByRole("button", { name: "Guardar y seguir" }));
+
+    expect(await screen.findByText("Conectar", { selector: "h2, h3, [data-slot=card-title]" })).toBeTruthy();
+    expect(vi.mocked(saveReminderPolicy).mock.calls[0]![0]).toMatchObject({
+      window: { preset: "business_day", start: null, end: null },
+      skip_holidays: true,
+      steps: [
+        { id: "s1", offset_days: -3, kind: "reminder", template_kind: "before" },
+        { id: "s2", offset_days: 0 },
+        { id: "s3", offset_days: 7 },
+        { id: "s4", offset_days: 15, kind: "escalate", template_kind: null },
+      ],
+    });
+    expect(where()).toBe("/onboarding/conectar");
   });
 
   it("does not jump ahead of the saved step", async () => {
@@ -112,7 +151,7 @@ describe("OnboardingPage", () => {
     expect(where()).toBe("/onboarding/recordatorios");
   });
 
-  it("shows WhatsApp and Mercado Pago as coming soon", async () => {
+  it("connects WhatsApp and shows Mercado Pago as coming soon", async () => {
     vi.mocked(fetchOnboarding)
       .mockResolvedValueOnce(onboardingState("connect"))
       .mockResolvedValue(onboardingState("done"));
@@ -120,8 +159,10 @@ describe("OnboardingPage", () => {
     const user = renderWizard("/onboarding/conectar");
 
     expect(await screen.findByRole("region", { name: "WhatsApp" })).toBeTruthy();
+    expect(await screen.findByText("Elegí el número")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Conectar WhatsApp" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Mercado Pago" })).toBeTruthy();
-    expect(screen.getAllByText("Muy pronto")).toHaveLength(2);
+    expect(screen.getAllByText("Muy pronto")).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "Seguir" }));
     expect(await screen.findByText("¡Listo!")).toBeTruthy();
     expect(where()).toBe("/onboarding/listo");
