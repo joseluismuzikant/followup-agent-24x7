@@ -150,6 +150,52 @@ def parse_account_updates(payload: Mapping[str, Any]) -> list[AccountUpdate]:
     return updates
 
 
+@dataclass(frozen=True, slots=True)
+class TemplateStatusUpdate:
+    """A `message_template_status_update` event: Meta reviewed (or paused, disabled...) one
+    of a WABA's templates. `status` is Meta's raw event (APPROVED, REJECTED, PAUSED, ...)."""
+
+    waba_id: str
+    template_id: str
+    name: str
+    language: str
+    status: str
+    reason: str | None = None
+
+
+def parse_template_status_updates(payload: Mapping[str, Any]) -> list[TemplateStatusUpdate]:
+    updates: list[TemplateStatusUpdate] = []
+    if payload.get("object") != "whatsapp_business_account":
+        return updates
+    for entry in payload.get("entry") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        for change in entry.get("changes") or []:
+            if (
+                not isinstance(change, Mapping)
+                or change.get("field") != "message_template_status_update"
+            ):
+                continue
+            value = change.get("value")
+            if not isinstance(value, Mapping) or not value.get("event"):
+                continue
+            template_id = value.get("message_template_id")
+            if template_id in (None, ""):
+                continue
+            reason = value.get("reason")
+            updates.append(
+                TemplateStatusUpdate(
+                    waba_id=str(entry.get("id") or ""),
+                    template_id=str(template_id),
+                    name=str(value.get("message_template_name") or ""),
+                    language=str(value.get("message_template_language") or ""),
+                    status=str(value["event"]),
+                    reason=str(reason) if reason and reason != "NONE" else None,
+                )
+            )
+    return updates
+
+
 def _values(payload: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
     if payload.get("object") != "whatsapp_business_account":
         return

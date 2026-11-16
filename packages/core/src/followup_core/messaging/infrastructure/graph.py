@@ -155,6 +155,32 @@ class GraphClient:
             json={"messaging_product": "whatsapp", "pin": pin},
         )
 
+    def create_message_template(
+        self, waba_id: str, token: str, template: Mapping[str, Any]
+    ) -> tuple[str, str]:
+        """Submits a template for review in the business's WABA: (Meta's id, its status)."""
+        result = self._request("POST", f"/{waba_id}/message_templates", token, json=template)
+        template_id = result.get("id")
+        if not template_id:
+            raise GraphApiError("missing_template_id", retryable=False)
+        return str(template_id), str(result.get("status") or "PENDING")
+
+    def message_templates(self, waba_id: str, token: str) -> list[dict[str, Any]]:
+        """The WABA's templates (id, name, language, status, rejected reason), every page."""
+        items: list[dict[str, Any]] = []
+        params: dict[str, Any] = {
+            "fields": "id,name,language,status,category,rejected_reason",
+            "limit": 100,
+        }
+        for _ in range(20):  # 2,000 templates is far more than a business has
+            result = self._request("GET", f"/{waba_id}/message_templates", token, params=params)
+            items.extend(item for item in result.get("data") or [] if isinstance(item, dict))
+            after = ((result.get("paging") or {}).get("cursors") or {}).get("after")
+            if not after or not (result.get("paging") or {}).get("next"):
+                break
+            params = {**params, "after": after}
+        return items
+
     def business_verification(self, business_id: str, token: str) -> BusinessVerification:
         """Not documented for business tokens everywhere: any failure is UNKNOWN."""
         try:

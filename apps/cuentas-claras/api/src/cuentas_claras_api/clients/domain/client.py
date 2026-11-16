@@ -1,4 +1,5 @@
-"""A client: the company that owes the invoices. Reminders (Day 9) go to its WhatsApp."""
+"""A client: the company that owes the invoices. Reminders go to its WhatsApp, unless the
+business marked it "No enviar recordatorios"."""
 
 import re
 import unicodedata
@@ -88,6 +89,8 @@ class Client:
     active: bool
     created_at: datetime
     updated_at: datetime
+    # "No enviar recordatorios": the business asked us not to write to this client.
+    no_reminders: bool = False
 
     @classmethod
     def create(cls, tenant_id: UUID, fields: ClientFields, now: datetime) -> "Client":
@@ -101,12 +104,17 @@ class Client:
         )
 
     def with_changes(
-        self, fields: ClientFields, now: datetime, active: bool | None = None
+        self,
+        fields: ClientFields,
+        now: datetime,
+        active: bool | None = None,
+        no_reminders: bool | None = None,
     ) -> "Client":
         return replace(
             self,
             updated_at=now,
             active=self.active if active is None else active,
+            no_reminders=self.no_reminders if no_reminders is None else no_reminders,
             **validate_fields(fields),  # type: ignore[arg-type]
         )
 

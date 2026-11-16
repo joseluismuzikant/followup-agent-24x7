@@ -5,7 +5,14 @@ import { useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Link } from "react-router";
 
-import { cancelInvoice, fetchInvoice, markInvoicePaid, updateInvoice } from "../api/invoices";
+import {
+  cancelInvoice,
+  fetchInvoice,
+  markInvoicePaid,
+  promiseInvoice,
+  removePromise,
+  updateInvoice,
+} from "../api/invoices";
 import { apiErrorMessage } from "../lib/api-errors";
 import { formatAmount, longDate } from "../lib/format";
 import { InvoiceStatusBadge } from "./InvoiceStatusBadge";
@@ -20,7 +27,7 @@ const paidViaOptions: { value: PaidVia; label: string }[] = [
 const selectClass =
   "h-10 rounded-md border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring";
 
-type Mode = "view" | "pay" | "cancel" | "edit";
+type Mode = "view" | "pay" | "cancel" | "edit" | "promise";
 
 interface InvoiceDrawerProps {
   invoiceId: string | null;
@@ -64,6 +71,8 @@ export function InvoiceDrawer({ invoiceId, canEdit, today, onClose }: InvoiceDra
           <CancelForm invoice={invoice} onDone={() => setMode("view")} />
         ) : mode === "edit" ? (
           <EditForm invoice={invoice} onDone={() => setMode("view")} />
+        ) : mode === "promise" ? (
+          <PromiseForm invoice={invoice} today={today} onDone={() => setMode("view")} />
         ) : (
           <InvoiceView invoice={invoice} canEdit={canEdit} onMode={setMode} />
         )
@@ -90,7 +99,9 @@ function InvoiceView({
   canEdit: boolean;
   onMode: (mode: Mode) => void;
 }) {
-  const open = invoice.lifecycle === "open";
+  // Still owed: open, or promised (reminders pause until the promised day).
+  const open = invoice.lifecycle === "open" || invoice.lifecycle === "promised";
+  const remove = useInvoiceMutation(() => removePromise(invoice.id), () => undefined);
 
   return (
     <div className="flex flex-col gap-6">
@@ -105,6 +116,9 @@ function InvoiceView({
           <Row label="Emitida">{longDate(invoice.issue_date)}</Row>
           <Row label="Vence">{longDate(invoice.due_date)}</Row>
           {invoice.description ? <Row label="Detalle">{invoice.description}</Row> : null}
+          {invoice.promised_until ? (
+            <Row label="Promesa de pago">hasta el {longDate(invoice.promised_until)}</Row>
+          ) : null}
           <Row label="Lo próximo">{invoice.next_action ?? "—"}</Row>
         </dl>
       </section>
@@ -146,9 +160,23 @@ function InvoiceView({
         <p className="text-sm text-muted-foreground">Anulada: {invoice.cancelled_reason}</p>
       ) : null}
 
+      {remove.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {apiErrorMessage(remove.error, "No pudimos quitar la promesa.")}
+        </p>
+      ) : null}
       {canEdit && open ? (
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => onMode("pay")}>Marcar como pagada</Button>
+          {invoice.lifecycle === "promised" ? (
+            <Button variant="outline" disabled={remove.isPending} onClick={() => remove.mutate(undefined)}>
+              Quitar promesa
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={() => onMode("promise")}>
+              Registrar promesa de pago
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onMode("edit")}>
             Editar
           </Button>
@@ -424,6 +452,61 @@ function EditForm({ invoice, onDone }: { invoice: InvoiceDetail; onDone: () => v
             ? apiErrorMessage(mutation.error, "No pudimos guardar la factura. Probá de nuevo.")
             : null)
         }
+        onCancel={onDone}
+      />
+    </form>
+  );
+}
+
+function addDays(iso: string, days: number): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(year!, month! - 1, day! + days);
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${mm}-${dd}`;
+}
+
+/** "Registrar promesa de pago": no reminders until that day; the day after, the sequence
+ * goes on. */
+function PromiseForm({
+  invoice,
+  today,
+  onDone,
+}: {
+  invoice: InvoiceDetail;
+  today: string;
+  onDone: () => void;
+}) {
+  const [until, setUntil] = useState(addDays(today, 7));
+  const mutation = useInvoiceMutation(() => promiseInvoice(invoice.id, until), onDone);
+
+  return (
+    <form
+      className="flex flex-col gap-4"
+      aria-label="Registrar promesa de pago"
+      onSubmit={(event) => {
+        event.preventDefault();
+        mutation.mutate(undefined);
+      }}
+    >
+      <p className="text-sm text-muted-foreground">
+        {invoice.client.name} prometió pagar {formatAmount(invoice.amount, invoice.currency)}.
+        Hasta esa fecha no le mandamos recordatorios de esta factura.
+      </p>
+      <FormField label="Prometió pagar hasta el" htmlFor="promised-until">
+        <Input
+          id="promised-until"
+          type="date"
+          value={until}
+          min={today}
+          max={addDays(today, 90)}
+          onChange={(event) => setUntil(event.target.value)}
+        />
+      </FormField>
+      <FormActions
+        saving={mutation.isPending}
+        label="Registrar promesa"
+        error={mutation.isError ? apiErrorMessage(mutation.error, "No pudimos registrarla.") : null}
         onCancel={onDone}
       />
     </form>

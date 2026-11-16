@@ -37,7 +37,7 @@ export function stepFromPath(path: string | undefined) {
 export const checklistLabels: Record<string, { label: string; href?: string }> = {
   account: { label: "Cuenta creada" },
   invoices: { label: "Cargar tus facturas", href: "/facturas" },
-  whatsapp: { label: "Conectar WhatsApp (muy pronto)" },
+  whatsapp: { label: "Conectar WhatsApp", href: "/configuracion#whatsapp" },
   mercado_pago: { label: "Conectar Mercado Pago (muy pronto)" },
-  reminders: { label: "Configurar los recordatorios (muy pronto)" },
+  reminders: { label: "Configurar los recordatorios", href: "/recordatorios" },
 };

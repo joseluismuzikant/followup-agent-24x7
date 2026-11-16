@@ -10,6 +10,7 @@ const navItems = [
   { label: "Inicio", href: "/" },
   { label: "Facturas", href: "/facturas" },
   { label: "Clientes", href: "/clientes" },
+  { label: "Recordatorios y cobros", href: "/recordatorios" },
   { label: "Configuración", href: "/configuracion" },
 ];
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ...clients.domain.client import name_key
 from ...clients.infrastructure.models import ClientModel
-from ..domain.invoice import Currency, Invoice, InvoiceStatus, PaidVia
+from ..domain.invoice import OWED_STATUSES, Currency, Invoice, InvoiceStatus, PaidVia
 from ..domain.number import InvoiceType, parse_number_query
 from ..domain.repository import (
     Amounts,
@@ -20,6 +20,8 @@ from ..domain.repository import (
     Tab,
 )
 from .models import InvoiceModel
+
+OWED = [status.value for status in OWED_STATUSES]
 
 
 def _to_domain(model: InvoiceModel) -> Invoice:
@@ -42,6 +44,7 @@ def _to_domain(model: InvoiceModel) -> Invoice:
         paid_via=PaidVia(model.paid_via) if model.paid_via else None,
         payment_reference=model.payment_reference,
         cancelled_reason=model.cancelled_reason,
+        promised_until=model.promised_until,
     )
 
 
@@ -60,6 +63,7 @@ def _apply(model: InvoiceModel, invoice: Invoice) -> None:
     model.paid_via = invoice.paid_via.value if invoice.paid_via else None
     model.payment_reference = invoice.payment_reference
     model.cancelled_reason = invoice.cancelled_reason
+    model.promised_until = invoice.promised_until
     model.updated_at = invoice.updated_at
 
 
@@ -129,18 +133,23 @@ class SqlAlchemyInvoiceRepository:
 
     @staticmethod
     def _tab(tab: Tab, query: InvoiceQuery) -> ColumnElement[bool]:
-        is_open = InvoiceModel.status == InvoiceStatus.OPEN.value
+        is_open = InvoiceModel.status.in_(OWED)
         if tab is Tab.PENDING:
             return is_open
         if tab is Tab.OVERDUE:
             return and_(is_open, InvoiceModel.due_date < query.today)
+        if tab is Tab.PROMISED:
+            return and_(
+                InvoiceModel.status == InvoiceStatus.PROMISED.value,
+                InvoiceModel.promised_until >= query.today,
+            )
         if tab is Tab.PAID_THIS_MONTH:
             return and_(
                 InvoiceModel.status == InvoiceStatus.PAID.value,
                 InvoiceModel.paid_at >= query.month_start,
                 InvoiceModel.paid_at < query.next_month_start,
             )
-        return false()  # Con promesa: Day 9
+        return false()
 
     def listing(self, tenant_id: UUID, query: InvoiceQuery) -> InvoiceListing:
         base = (
@@ -187,7 +196,7 @@ class SqlAlchemyInvoiceRepository:
         def amounts(currency: Currency, overdue: bool) -> Amounts:
             conditions = [
                 InvoiceModel.tenant_id == tenant_id,
-                InvoiceModel.status == InvoiceStatus.OPEN.value,
+                InvoiceModel.status.in_(OWED),
                 InvoiceModel.currency == currency.value,
             ]
             if overdue:

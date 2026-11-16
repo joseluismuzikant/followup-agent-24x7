@@ -7,6 +7,8 @@ import type {
   InvoiceList,
   MeResponse,
   OnboardingState,
+  ReminderSettings,
+  ReminderTemplate,
   Summary,
 } from "@followup/api-client-cuentas-claras";
 
@@ -89,6 +91,7 @@ export function invoice(overrides: Partial<Invoice> = {}): Invoice {
     due_date: "2026-10-10",
     status: { kind: "overdue", label: "Vencida · 23 días", days_overdue: 23 },
     next_action: null,
+    next_action_kind: null,
     ...overrides,
   };
 }
@@ -117,6 +120,7 @@ export function client(overrides: Partial<ClientDetail> = {}): ClientDetail {
     email: null,
     notes: null,
     active: true,
+    no_reminders: false,
     missing_whatsapp: false,
     open_invoices: 2,
     owed_ars: "360000.00",
@@ -145,8 +149,10 @@ export function invoiceDetail(overrides: Partial<InvoiceDetail> = {}): InvoiceDe
     lifecycle: "open",
     payment: null,
     cancelled_reason: null,
+    promised_until: null,
     client: owner,
     next_action: null,
+    next_action_kind: null,
     ...overrides,
   };
 }
@@ -167,3 +173,56 @@ export const errorsReport: ImportReport = {
   ],
   warnings: ["Fila 9: la factura ya figuraba pagada; no la cambiamos."],
 };
+
+export function reminderTemplate(
+  kind: ReminderTemplate["kind"],
+  overrides: Partial<ReminderTemplate> = {},
+): ReminderTemplate {
+  const labels = {
+    before: "Antes del vencimiento",
+    due: "El día del vencimiento",
+    after: "Después del vencimiento",
+    several: "Varias facturas del mismo cliente",
+  } as const;
+  return {
+    kind,
+    label: labels[kind],
+    body: "Hola {cliente}, te escribimos de {negocio}. La factura {factura} vence pronto.",
+    preview: `Hola Edificio Güemes, te escribimos de Ascensores Delta (${kind}).`,
+    version: 1,
+    status: "approved",
+    status_label: "aprobada",
+    rejection_reason: null,
+    in_use_version: 1,
+    newer_in_review: false,
+    ...overrides,
+  };
+}
+
+export function reminderSettings(overrides: Partial<ReminderSettings> = {}): ReminderSettings {
+  return {
+    steps: [
+      { id: "s1", offset_days: -3, kind: "reminder", template_kind: "before", active: true, label: "3 días antes" },
+      { id: "s2", offset_days: 0, kind: "reminder", template_kind: "due", active: true, label: "El día del vencimiento" },
+      { id: "s3", offset_days: 7, kind: "reminder", template_kind: "after", active: true, label: "7 días después" },
+      {
+        id: "s4",
+        offset_days: 15,
+        kind: "escalate",
+        template_kind: null,
+        active: true,
+        label: "15 días después: avisar al dueño",
+      },
+    ],
+    window: { preset: "mornings", start: null, end: null },
+    skip_holidays: true,
+    pause_on_promise: true,
+    configured: false,
+    templates: (["before", "due", "after", "several"] as const).map((kind) => reminderTemplate(kind)),
+    whatsapp: { status: "connected", display_phone_number: "+54 9 11 5555-0200" },
+    month_count: 3,
+    upcoming_holidays: ["2026-11-23", "2026-12-07"],
+    fields: ["cliente", "negocio", "factura", "monto", "vencimiento"],
+    ...overrides,
+  };
+}

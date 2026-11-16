@@ -43,6 +43,7 @@ class InvoiceModel(Base):
     paid_via: Mapped[str | None] = mapped_column(String(20), nullable=True)
     payment_reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
     cancelled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    promised_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

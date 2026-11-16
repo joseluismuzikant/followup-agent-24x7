@@ -6,6 +6,7 @@ const tones = {
   overdue: "danger",
   due_soon: "warning",
   pending: "neutral",
+  promised: "info",
   cancelled: "neutral",
 } as const;
 

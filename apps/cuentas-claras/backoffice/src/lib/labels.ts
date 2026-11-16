@@ -36,6 +36,17 @@ const actionLabels: Record<string, string> = {
   invoice_paid: "Marcó una factura como pagada",
   invoice_cancelled: "Anuló una factura",
   invoices_imported: "Importó facturas",
+  promise_registered: "Registró una promesa de pago",
+  promise_removed: "Quitó una promesa de pago",
+  promise_ended: "Terminó una promesa de pago",
+  reminder_policy_saved: "Guardó los recordatorios",
+  template_edited: "Editó un mensaje",
+  transfer_details_saved: "Guardó los datos para transferencia",
+  reminders_planned_by_admin: "Planificó los recordatorios",
+  whatsapp_connected: "Conectó WhatsApp",
+  whatsapp_error: "Error de WhatsApp",
+  whatsapp_recovered: "WhatsApp volvió a funcionar",
+  reconnect_link_sent: "Le enviamos el link para reconectar",
 };
 
 const paidViaLabels: Record<string, string> = {

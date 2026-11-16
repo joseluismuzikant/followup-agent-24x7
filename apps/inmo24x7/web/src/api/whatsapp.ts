@@ -1,40 +1,16 @@
-import { apiError, ApiRequestError, errorCode, REQUEST_ID_HEADER } from "@followup/api-client-inmo24x7";
+import { apiError } from "@followup/api-client-inmo24x7";
 import type {
   EmbeddedSignupInput,
   SignupAbandonedInput,
   WhatsAppError,
   WhatsAppStatus,
 } from "@followup/api-client-inmo24x7";
+import { signupFailure } from "@followup/app-shell";
 
 import { apiClient } from "./client";
 
-/** A failed Embedded Signup step, with Meta's error already in Spanish. */
-export class SignupRequestError extends ApiRequestError {
-  readonly translated: WhatsAppError | null;
-
-  constructor(
-    status: number,
-    code: string,
-    translated: WhatsAppError | null,
-    requestId: string | null = null,
-  ) {
-    super(status, code, requestId);
-    this.translated = translated;
-  }
-}
-
-function signupFailure(response: Response, error: unknown): SignupRequestError {
-  const translated =
-    typeof error === "object" && error !== null && "error" in error
-      ? (error.error as WhatsAppError)
-      : null;
-  return new SignupRequestError(
-    response.status,
-    errorCode(error),
-    translated,
-    response.headers.get(REQUEST_ID_HEADER),
-  );
-}
+/** A failed Embedded Signup step, with Meta's error already in Spanish (@followup/app-shell). */
+export { SignupRequestError } from "@followup/app-shell";
 
 export async function fetchWhatsAppStatus(): Promise<WhatsAppStatus> {
   const { data, error, response } = await apiClient.GET("/whatsapp");

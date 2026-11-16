@@ -120,9 +120,10 @@ builds `ghcr.io/<owner>/<repo>/inmo24x7-{api,web,backoffice}:sha-<commit>` for a
 arm64. Note the full commit sha: that is what you deploy.
 
 **Cuentas Claras** (its own go-live, later; off until then): the variables
-`CUENTAS_CLARAS_API_URL` (`https://cuentasclaras-api.<domain>`) and `CUENTAS_CLARAS_PANEL_URL`
-(`https://cuentasclaras.<domain>`), plus the Supabase ones above, turn on
-`images-cuentas-claras` (`cuentas-claras-{api,web,backoffice}`). Optional Sentry variables:
+`CUENTAS_CLARAS_API_URL` (`https://cuentasclaras-api.<domain>`), `CUENTAS_CLARAS_PANEL_URL`
+(`https://cuentasclaras.<domain>`), `CUENTAS_CLARAS_META_APP_ID` and
+`CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID` (its own Meta app, step 8b), plus the
+Supabase ones above, turn on `images-cuentas-claras` (`cuentas-claras-{api,web,backoffice}`). Optional Sentry variables:
 `CUENTAS_CLARAS_SENTRY_DSN_PANEL`, `CUENTAS_CLARAS_SENTRY_DSN_BACKOFFICE`,
 `CUENTAS_CLARAS_SENTRY_PROJECT_PANEL`, `CUENTAS_CLARAS_SENTRY_PROJECT_BACKOFFICE`. On the VM,
 add `cuentas-claras` to `COMPOSE_PROFILES`, fill the `CC_*` and `CUENTAS_CLARAS_*` values of
@@ -229,6 +230,34 @@ Setup the way Meta shows them; a 131030 for any other number means it really is 
 test number's allowed list.
 
 After changing `.env.production`, restart: `./deploy.sh <same sha>` (idempotent).
+
+## 8b. Meta for Cuentas Claras (its own app, at its go-live)
+
+Cuentas Claras uses **its own Meta app**, not inmo24x7's. A Meta app has exactly one webhook
+URL, and Cuentas Claras's numbers must send their webhooks to its own API. Create a second
+app in the same Business portfolio and repeat step 8 with these values:
+
+1. **Webhook:** callback URL `https://cuentasclaras-api.<domain>/webhooks/whatsapp`, verify
+   token = `CUENTAS_CLARAS_WHATSAPP_VERIFY_TOKEN`. Subscribe **messages**, **account_update**
+   and **message_template_status_update** (Meta's review of each business's reminder
+   templates; a sync every 6 hours covers a lost webhook).
+2. **App settings → Basic:** `CUENTAS_CLARAS_META_APP_ID` and `CUENTAS_CLARAS_META_APP_SECRET`;
+   App domains `cuentasclaras.<domain>`.
+3. **Facebook Login for Business:** allowed SDK domain and OAuth redirect
+   `https://cuentasclaras.<domain>/`; an Embedded Signup configuration with
+   `whatsapp_business_management` and `whatsapp_business_messaging`. Its id is
+   `CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID` (GitHub variable and `.env.production`).
+4. Tech Provider, business verification and Live mode, as in step 8.
+
+Nothing to create in WhatsApp Manager by hand: when a business connects its number,
+Cuentas Claras creates its four reminder templates (category UTILITY, `es_AR`, with a
+"Ver y pagar" URL button to `https://cuentasclaras.<domain>/p/{{1}}`) in that business's
+WABA through the Graph API; C4 shows each one's status. Meta charges every template message
+(since July 2025); C4 shows this month's count.
+
+`CUENTAS_CLARAS_META_*` go in `.env.production`; `WHATSAPP_SENDER`, `TOKEN_ENCRYPTION_KEY`
+and `META_GRAPH_API_VERSION` are shared with inmo24x7. In production the Cuentas Claras API
+refuses to start without its four Meta values.
 
 ## 9. The first platform admin
 

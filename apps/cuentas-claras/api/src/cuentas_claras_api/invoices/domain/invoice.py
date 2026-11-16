@@ -1,12 +1,13 @@
 """An invoice the business issued to one of its clients, and what happened to it.
 
 The lifecycle is stored (`InvoiceStatus`); what the panel shows ("Vencida · 12 días", "Por
-vencer") is derived from it and today's date in status.py. Day 9 adds a promised status and
-Day 10 a payment under review, as new members of the same enum.
+vencer") is derived from it and today's date in status.py. An invoice is owed while it is
+open or promised (the client promised to pay by a date; reminders pause until then). Day 10
+adds a payment under review, as a new member of the same enum.
 """
 
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -18,12 +19,19 @@ MAX_AMOUNT = Decimal("9999999999.99")
 MAX_DESCRIPTION = 500
 MAX_REASON = 500
 MAX_REFERENCE = 120
+# A promise further away than this is not a promise.
+MAX_PROMISE_DAYS = 90
 
 
 class InvoiceStatus(StrEnum):
     OPEN = "open"
+    PROMISED = "promised"
     PAID = "paid"
     CANCELLED = "cancelled"
+
+
+# Still owed: what Inicio, the tabs and the reminders count.
+OWED_STATUSES = (InvoiceStatus.OPEN, InvoiceStatus.PROMISED)
 
 
 class Currency(StrEnum):
@@ -105,6 +113,8 @@ class Invoice:
     paid_via: PaidVia | None = None
     payment_reference: str | None = None
     cancelled_reason: str | None = None
+    # The day the client promised to pay by (status PROMISED).
+    promised_until: date | None = None
 
     @classmethod
     def create(cls, tenant_id: UUID, fields: InvoiceFields, now: datetime) -> "Invoice":
@@ -132,14 +142,38 @@ class Invoice:
 
     @property
     def is_open(self) -> bool:
-        return self.status is InvoiceStatus.OPEN
+        """Still owed (open or promised)."""
+        return self.status in OWED_STATUSES
 
-    def with_changes(self, fields: InvoiceFields, now: datetime) -> "Invoice":
-        """Editing an invoice that is no longer open would rewrite what was collected."""
+    def _require_owed(self) -> None:
         if self.status is InvoiceStatus.PAID:
             raise InvoiceAlreadyPaidError(str(self.id))
-        if self.status is not InvoiceStatus.OPEN:
+        if self.status not in OWED_STATUSES:
             raise InvoiceInvalidError("status")
+
+    def promise(self, until: date, today: date, now: datetime) -> "Invoice":
+        """ "Registrar promesa de pago": reminders pause until that day (included)."""
+        self._require_owed()
+        if not today <= until <= today + timedelta(days=MAX_PROMISE_DAYS):
+            raise InvoiceInvalidError("promised_until")
+        return replace(self, status=InvoiceStatus.PROMISED, promised_until=until, updated_at=now)
+
+    def remove_promise(self, now: datetime) -> "Invoice":
+        """ "Quitar promesa" (or the promise's day passed): back to open."""
+        if self.status is not InvoiceStatus.PROMISED:
+            raise InvoiceInvalidError("status")
+        return replace(self, status=InvoiceStatus.OPEN, promised_until=None, updated_at=now)
+
+    def promise_expired(self, today: date) -> bool:
+        return (
+            self.status is InvoiceStatus.PROMISED
+            and self.promised_until is not None
+            and self.promised_until < today
+        )
+
+    def with_changes(self, fields: InvoiceFields, now: datetime) -> "Invoice":
+        """Editing an invoice that is no longer owed would rewrite what was collected."""
+        self._require_owed()
         valid = _validated(fields)
         return replace(
             self,
@@ -158,10 +192,7 @@ class Invoice:
     def mark_paid(
         self, paid_at: date, paid_via: PaidVia, reference: str | None, now: datetime
     ) -> "Invoice":
-        if self.status is InvoiceStatus.PAID:
-            raise InvoiceAlreadyPaidError(str(self.id))
-        if self.status is not InvoiceStatus.OPEN:
-            raise InvoiceInvalidError("status")
+        self._require_owed()
         if paid_at > now.date():
             raise InvoiceInvalidError("paid_at")
         reference = " ".join((reference or "").split()) or None
@@ -173,16 +204,20 @@ class Invoice:
             paid_at=paid_at,
             paid_via=paid_via,
             payment_reference=reference,
+            promised_until=None,
             updated_at=now,
         )
 
     def cancel(self, reason: str, now: datetime) -> "Invoice":
-        """ "Anular": the invoice stops counting as owed. Only an open one."""
-        if self.status is InvoiceStatus.PAID:
-            raise InvoiceAlreadyPaidError(str(self.id))
-        if self.status is not InvoiceStatus.OPEN:
-            raise InvoiceInvalidError("status")
+        """ "Anular": the invoice stops counting as owed. Only an owed one."""
+        self._require_owed()
         text = " ".join(reason.split())
         if not text or len(text) > MAX_REASON:
             raise InvoiceInvalidError("reason")
-        return replace(self, status=InvoiceStatus.CANCELLED, cancelled_reason=text, updated_at=now)
+        return replace(
+            self,
+            status=InvoiceStatus.CANCELLED,
+            cancelled_reason=text,
+            promised_until=None,
+            updated_at=now,
+        )

@@ -21,9 +21,12 @@ import { Navigate, useNavigate, useParams } from "react-router";
 
 import { fetchMe, signUp } from "../api/me";
 import { advanceOnboarding, fetchOnboarding } from "../api/onboarding";
+import { fetchReminders } from "../api/reminders";
 import { fetchTenantSettings, saveTenantSettings } from "../api/tenant-settings";
 import { BusinessStep } from "../components/BusinessStep";
 import { ImportPanel } from "../components/ImportPanel";
+import { ReminderPolicyEditor } from "../components/ReminderPolicyEditor";
+import { WhatsAppSection } from "../components/WhatsAppSection";
 import { apiErrorMessage } from "../lib/api-errors";
 import { useAuth } from "../lib/auth";
 import {
@@ -248,52 +251,36 @@ function InvoicesStep({ state }: { state?: OnboardingState }) {
 }
 
 /** The reminder sequence (C4), read-only until reminders ship. */
-export const reminderSequence = [
-  {
-    when: "3 días antes del vencimiento",
-    message: "Hola Marta, te recordamos que la factura B 0003-00001245 por $ 180.000 vence el viernes.",
-  },
-  {
-    when: "El día del vencimiento",
-    message: "Hola Marta, hoy vence la factura B 0003-00001245. Si ya la pagaste, avisanos y la marcamos.",
-  },
-  {
-    when: "3 días después",
-    message: "Hola Marta, la factura B 0003-00001245 venció hace 3 días. ¿Te podemos ayudar con algo?",
-  },
-  {
-    when: "7 días después",
-    message: "Hola Marta, seguimos con la factura B 0003-00001245 pendiente. ¿Nos confirmás una fecha de pago?",
-  },
-];
-
+/** "Recordatorios": the same editor as C4, short. Saving the policy is the checklist's
+ * "Configurar los recordatorios"; the step then goes on to "Conectar". */
 function RemindersStep() {
   const navigate = useNavigate();
   const advance = useAdvance("connect");
+  const remindersQuery = useQuery({ queryKey: ["reminders"], queryFn: fetchReminders });
 
   return (
     <StepCard
       title="Así vamos a recordarles a tus clientes"
-      description="Muy pronto vas a poder ajustarla."
+      description="Por WhatsApp, antes y después del vencimiento. Podés cambiarlo cuando quieras en Recordatorios y cobros."
     >
       <div className="flex flex-col gap-6">
-        <ol className="flex flex-col gap-3" aria-label="Secuencia de recordatorios">
-          {reminderSequence.map((step) => (
-            <li key={step.when} className="rounded-md border bg-muted/40 p-3">
-              <p className="text-sm font-semibold">{step.when}</p>
-              <p className="text-sm text-muted-foreground">{step.message}</p>
-            </li>
-          ))}
-        </ol>
+        {remindersQuery.data ? (
+          <ReminderPolicyEditor
+            settings={remindersQuery.data}
+            canEdit
+            compact
+            saveLabel="Guardar y seguir"
+            onSaved={() => advance.mutate()}
+          />
+        ) : remindersQuery.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {apiErrorMessage(remindersQuery.error, "No pudimos cargar los recordatorios.")}
+          </p>
+        ) : null}
         {advance.isError ? <AdvanceError error={advance.error} /> : null}
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => navigate(stepPath("invoices"))}>
-            ← Tus facturas
-          </Button>
-          <Button disabled={advance.isPending} onClick={() => advance.mutate()}>
-            Seguir
-          </Button>
-        </div>
+        <Button variant="outline" className="self-start" onClick={() => navigate(stepPath("invoices"))}>
+          ← Tus facturas
+        </Button>
       </div>
     </StepCard>
   );
@@ -320,19 +307,17 @@ function ConnectStep() {
   return (
     <StepCard
       title="Conectar"
-      description="Cuando estén listas, te avisamos para conectarlas en un par de clics."
+      description="Conectá tu WhatsApp: los recordatorios salen desde tu número, con tu nombre."
     >
       <div className="flex flex-col gap-6">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <ComingSoonCard
-            title="WhatsApp"
-            description="Los recordatorios salen desde tu número, con tu nombre."
-          />
-          <ComingSoonCard
-            title="Mercado Pago"
-            description="Tus clientes pagan con un link y la factura se marca sola."
-          />
-        </div>
+        <section aria-label="WhatsApp" className="flex flex-col gap-3">
+          <h3 className="font-semibold">WhatsApp</h3>
+          <WhatsAppSection />
+        </section>
+        <ComingSoonCard
+          title="Mercado Pago"
+          description="Tus clientes pagan con el link del recordatorio y la factura se marca sola."
+        />
         {advance.isError ? <AdvanceError error={advance.error} /> : null}
         <Button className="self-start" disabled={advance.isPending} onClick={() => advance.mutate()}>
           Seguir

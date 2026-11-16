@@ -42,6 +42,8 @@ class ClientRead(BaseModel):
     notes: str | None
     active: bool
     missing_whatsapp: bool
+    # "No enviar recordatorios".
+    no_reminders: bool
     open_invoices: int
     # Decimal amounts as strings ("180000.50"), never floats.
     owed_ars: str
@@ -83,6 +85,7 @@ class ClientWrite(BaseModel):
 
 class ClientUpdate(ClientWrite):
     active: bool | None = None
+    no_reminders: bool | None = None
 
 
 def _money(value: Decimal) -> str:
@@ -107,6 +110,7 @@ def _client_fields(client: Client, balance: ClientBalance) -> dict[str, Any]:
         "notes": client.notes,
         "active": client.active,
         "missing_whatsapp": client.missing_whatsapp,
+        "no_reminders": client.no_reminders,
         "open_invoices": balance.open_invoices,
         "owed_ars": _money(balance.owed_ars),
         "owed_usd": _money(balance.owed_usd),
@@ -229,7 +233,12 @@ def build_clients_router(
     ) -> ClientDetailRead:
         try:
             use_case.execute(
-                profile.tenant_id, profile.id, client_id, _fields(payload), payload.active
+                profile.tenant_id,
+                profile.id,
+                client_id,
+                _fields(payload),
+                payload.active,
+                payload.no_reminders,
             )
         except (CuitInvalidError, CuitTakenError, ClientInvalidError, ClientNotFoundError) as error:
             raise invalid(error) from error

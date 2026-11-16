@@ -3,6 +3,8 @@ from logging.config import fileConfig
 from alembic import context
 from cuentas_claras_api.clients.infrastructure import models as clients_models  # noqa: F401
 from cuentas_claras_api.invoices.infrastructure import models as invoices_models  # noqa: F401
+from cuentas_claras_api.payments.infrastructure import models as payments_models  # noqa: F401
+from cuentas_claras_api.reminders.infrastructure import models as reminders_models  # noqa: F401
 from followup_core.conversation.infrastructure import models as conversation_models  # noqa: F401
 from followup_core.identity.infrastructure import models as identity_models  # noqa: F401
 from followup_core.infrastructure.db import Base

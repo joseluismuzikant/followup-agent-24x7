@@ -1,6 +1,5 @@
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Annotated
@@ -62,44 +61,24 @@ from followup_core.messaging.application.connections import (
     SaveConnection,
 )
 from followup_core.messaging.application.health import (
-    HEALTH_CHECK_JOB,
-    HEALTH_SWEEP_JOB,
-    ApplyAccountUpdate,
     ConnectionHealth,
-    HealthCheck,
-    HealthSweep,
 )
 from followup_core.messaging.application.pipeline import (
-    MARK_READ_JOB,
     PROCESS_JOB,
     PURGE_JOB,
-    SEND_JOB,
-    ApplyDeliveryStatus,
     IngestWebhook,
-    MarkRead,
     ProcessInbound,
     PurgePayloads,
     QueueOutbound,
     SenderFor,
-    SendQueued,
 )
+from followup_core.messaging.application.reconnect import AGENT_STOPPED
 from followup_core.messaging.application.signup import CompleteEmbeddedSignup
 from followup_core.messaging.domain.connection import (
     BusinessVerification,
-    SenderKind,
     WhatsAppConnection,
 )
-from followup_core.messaging.domain.outbound import WhatsAppSender
 from followup_core.messaging.domain.signup import Signup
-from followup_core.messaging.infrastructure.crypto import TokenCipher
-from followup_core.messaging.infrastructure.graph import (
-    CloudApiSender,
-    CloudGraphPort,
-    CloudSignupGraph,
-    GraphClient,
-    LogGraphPort,
-)
-from followup_core.messaging.infrastructure.log_sender import LOG_STATUS_JOB, LogSender
 from followup_core.messaging.infrastructure.repositories import (
     SqlAlchemyConnectionRepository,
     SqlAlchemyInboundEventRepository,
@@ -107,8 +86,6 @@ from followup_core.messaging.infrastructure.repositories import (
     SqlAlchemySignupRepository,
     SqlAlchemyWebhookCounters,
 )
-from followup_core.notifications.domain.email import EmailSender
-from followup_core.notifications.infrastructure.smtp import SmtpEmailSender, SmtpSettings
 from followup_core.scheduling.domain.jobs import Job, JobHandlers, Reschedule
 from followup_core.scheduling.infrastructure.queue import SqlAlchemyJobQueue
 from followup_core.tenancy.application.admin_tenants import (
@@ -134,12 +111,10 @@ from followup_core.tenancy.application.tenant_settings import (
 )
 from followup_core.tenancy.domain.audit import AuditLog
 from followup_core.tenancy.domain.errors import TenantNotFoundError
-from followup_core.tenancy.domain.tenant import TenantStatus
 from followup_core.tenancy.infrastructure.audit_repository import (
     SqlAlchemyAuditLog,
     SqlAlchemyOwnerClaimRepository,
 )
-from followup_core.tenancy.infrastructure.models import TenantModel
 from followup_core.tenancy.infrastructure.repository import SqlAlchemyTenantRepository
 from followup_core.tenancy.infrastructure.setup_repositories import (
     SqlAlchemyAgentConfigRepository,
@@ -148,6 +123,8 @@ from followup_core.tenancy.infrastructure.setup_repositories import (
 )
 from followup_platform import invitations
 from followup_platform.identity import build_account_directory, build_token_verifier
+from followup_platform.whatsapp import wiring
+from followup_platform.whatsapp.wiring import MessagingServices
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import StateGraph
 from sqlalchemy import select
@@ -200,7 +177,6 @@ from .properties.infrastructure.repositories import (
     TenantPropertySearch,
 )
 from .properties.infrastructure.spreadsheet import read_spreadsheet
-from .reconnect import RECONNECT_EMAIL_JOB, RequestReconnectLink, SendReconnectEmail
 from .tracing import Tracing, build_tracing, turn_tracing
 
 logger = logging.getLogger("inmo24x7.container")
@@ -565,73 +541,24 @@ def export_leads_use_case(session: SessionDep) -> ExportLeads:
 # --- Messaging (WhatsApp), jobs and email --------------------------------------------------
 
 
-@dataclass(frozen=True)
-class MessagingServices:
-    """Process-wide clients, built once. Tests replace the whole bundle (fake Graph transport,
-    recording email sender)."""
-
-    settings: Settings
-    cipher: TokenCipher
-    graph: GraphClient
-    email: EmailSender
-
-
 @lru_cache
 def get_messaging_services() -> MessagingServices:
-    settings = get_settings()
-    return MessagingServices(
-        settings=settings,
-        cipher=TokenCipher.from_setting(settings.token_encryption_key),
-        graph=GraphClient(settings.meta_graph_base_url, settings.meta_graph_api_version),
-        email=SmtpEmailSender(
-            SmtpSettings(
-                host=settings.smtp_host,
-                port=settings.smtp_port,
-                username=settings.smtp_username,
-                password=settings.smtp_password,
-                starttls=settings.smtp_starttls,
-                sender=settings.email_from,
-            )
-        ),
-    )
+    return wiring.build_messaging_services(get_settings())
 
 
 ServicesDep = Annotated[MessagingServices, Depends(get_messaging_services)]
 
 
 def sender_for(services: MessagingServices, queue: SqlAlchemyJobQueue) -> SenderFor:
-    """Each connection says how it sends: the Cloud API, or the log sender (development)."""
-
-    def choose(connection: WhatsAppConnection) -> WhatsAppSender:
-        if connection.sender is SenderKind.CLOUD:
-            return CloudApiSender(services.graph, services.cipher)
-        return LogSender(queue)
-
-    return choose
+    return wiring.sender_for(services, queue)
 
 
 def graph_for(services: MessagingServices) -> Callable[[WhatsAppConnection], GraphPort]:
-    def choose(connection: WhatsAppConnection) -> GraphPort:
-        if connection.sender is SenderKind.CLOUD:
-            return CloudGraphPort(services.graph, services.cipher)
-        return LogGraphPort()
-
-    return choose
+    return wiring.graph_for(services)
 
 
 def ingest_webhook_use_case(session: SessionDep, services: ServicesDep) -> IngestWebhook:
-    outbound = SqlAlchemyOutboundRepository(session)
-    connections = SqlAlchemyConnectionRepository(session)
-    return IngestWebhook(
-        connections,
-        SqlAlchemyInboundEventRepository(session),
-        ApplyDeliveryStatus(outbound),
-        SqlAlchemyJobQueue(session, queue=PRODUCT),
-        timedelta(seconds=services.settings.inbound_debounce_seconds),
-        account_updates=ApplyAccountUpdate(
-            connections, connection_health(session), SqlAlchemyAuditLog(session)
-        ),
-    )
+    return wiring.ingest_webhook(session, services, PRODUCT)
 
 
 def webhook_counters(session: SessionDep) -> SqlAlchemyWebhookCounters:
@@ -640,65 +567,33 @@ def webhook_counters(session: SessionDep) -> SqlAlchemyWebhookCounters:
 
 def get_webhook_secrets(services: ServicesDep) -> tuple[str, str]:
     """(META_APP_SECRET, WHATSAPP_VERIFY_TOKEN)."""
-    return services.settings.meta_app_secret, services.settings.whatsapp_verify_token
+    return wiring.webhook_secrets(services)
 
 
 def save_connection_use_case(session: SessionDep, services: ServicesDep) -> SaveConnection:
-    settings = services.settings
-    return SaveConnection(
-        SqlAlchemyConnectionRepository(session),
-        services.cipher.encrypt,
-        connection_defaults(settings),
-        audit=SqlAlchemyAuditLog(session),
-        resume=connection_health(session),
-    )
+    return wiring.save_connection(session, services, PRODUCT)
 
 
 def manage_connection_use_case(session: SessionDep, services: ServicesDep) -> ManageConnection:
-    return ManageConnection(
-        SqlAlchemyConnectionRepository(session),
-        graph_for(services),
-        sender_for(services, SqlAlchemyJobQueue(session, queue=PRODUCT)),
-        audit=SqlAlchemyAuditLog(session),
-        resume=connection_health(session),
-    )
+    return wiring.manage_connection(session, services, PRODUCT)
 
 
 def connection_defaults(settings: Settings) -> ConnectionDefaults:
-    return ConnectionDefaults(
-        sender=SenderKind(settings.whatsapp_sender),
-        template_name=settings.whatsapp_default_template,
-        template_language=settings.whatsapp_default_template_language,
-    )
+    return wiring.connection_defaults(settings)
 
 
 def connection_health(
     session: Session, clock: Callable[[], datetime] = utc_now
 ) -> ConnectionHealth:
-    return ConnectionHealth(
-        SqlAlchemyConnectionRepository(session),
-        SqlAlchemyOutboundRepository(session),
-        SqlAlchemyJobQueue(session, clock, PRODUCT),
-        SqlAlchemyAuditLog(session),
-        clock,
-    )
+    return wiring.connection_health(session, PRODUCT, clock)
 
 
 def embedded_signup_use_case(session: SessionDep, services: ServicesDep) -> CompleteEmbeddedSignup:
-    settings = services.settings
-    return CompleteEmbeddedSignup(
-        SqlAlchemySignupRepository(session),
-        SqlAlchemyConnectionRepository(session),
-        CloudSignupGraph(services.graph, settings.meta_app_id, settings.meta_app_secret),
-        services.cipher,
-        connection_defaults(settings),
-        connection_health(session),
-        SqlAlchemyAuditLog(session),
-    )
+    return wiring.embedded_signup(session, services, PRODUCT)
 
 
 def signup_state(session: SessionDep) -> Callable[[UUID], Signup | None]:
-    return SqlAlchemySignupRepository(session).get
+    return wiring.signup_state(session)
 
 
 def audit_log(session: SessionDep) -> AuditLog:
@@ -707,42 +602,19 @@ def audit_log(session: SessionDep) -> AuditLog:
 
 def tenant_is_active(session: Session) -> Callable[[UUID], bool]:
     """False for a suspended business: no agent replies, emails or scheduled checks."""
-
-    def active(tenant_id: UUID) -> bool:
-        model = session.get(TenantModel, tenant_id)
-        return model is None or model.status != TenantStatus.SUSPENDED.value
-
-    return active
+    return wiring.tenant_is_active(session)
 
 
 def owner_emails(session: Session) -> Callable[[UUID], Sequence[str]]:
-    def owners(tenant_id: UUID) -> Sequence[str]:
-        return list(
-            session.scalars(
-                select(ProfileModel.email)
-                .where(ProfileModel.tenant_id == tenant_id, ProfileModel.role == "owner")
-                .order_by(ProfileModel.email)
-            )
-        )
-
-    return owners
+    return wiring.owner_emails(session)
 
 
 def business_name(session: Session) -> Callable[[UUID], str]:
-    def name(tenant_id: UUID) -> str:
-        model = session.get(TenantModel, tenant_id)
-        return model.name if model else ""
-
-    return name
+    return wiring.business_name(session)
 
 
 def reconnect_link_use_case(session: SessionDep) -> Callable[[UUID, UUID], int]:
-    return RequestReconnectLink(
-        owner_emails(session),
-        SqlAlchemyJobQueue(session, queue=PRODUCT),
-        SqlAlchemyAuditLog(session),
-        utc_now,
-    )
+    return wiring.reconnect_link(session, PRODUCT)
 
 
 def delivery_statuses(session: SessionDep) -> SqlAlchemyOutboundRepository:
@@ -761,15 +633,13 @@ def job_handlers(
     own session and transaction)."""
     settings = services.settings
     queue = SqlAlchemyJobQueue(session, clock, PRODUCT)
-    connections = SqlAlchemyConnectionRepository(session)
+    connections = SqlAlchemyConnectionRepository(session, PRODUCT)
     events = SqlAlchemyInboundEventRepository(session)
     outbound = SqlAlchemyOutboundRepository(session)
     threads = SqlAlchemyThreadRepository(session)
     messages = SqlAlchemyMessageRepository(session)
     lock = PostgresAdvisoryThreadLock(session)
-    choose_sender = sender_for(services, queue)
     debounce = timedelta(seconds=settings.inbound_debounce_seconds)
-    health = connection_health(session, clock)
     is_active = tenant_is_active(session)
 
     def process(job: Job) -> Reschedule | None:
@@ -798,12 +668,6 @@ def job_handlers(
             is_active,
         )(job)
 
-    statuses = ApplyDeliveryStatus(outbound)
-
-    def log_status(job: Job) -> None:
-        """The log sender's simulated sent / delivered / read, through Meta's code path."""
-        statuses.execute(job.payload["wamid"], job.payload["status"], clock())
-
     lead_email = SendLeadEmail(
         get_lead_use_case(session),
         SqlAlchemyBusinessSettingsRepository(session),
@@ -814,25 +678,13 @@ def job_handlers(
     return JobHandlers(
         [
             (PROCESS_JOB, process),
-            (
-                SEND_JOB,
-                SendQueued(outbound, connections, choose_sender, clock, health, is_active),
-            ),
-            (MARK_READ_JOB, MarkRead(connections, choose_sender, health)),
-            (HEALTH_SWEEP_JOB, HealthSweep(connections, queue, is_active, clock)),
-            (
-                HEALTH_CHECK_JOB,
-                HealthCheck(connections, graph_for(services), health, is_active, clock),
-            ),
-            (
-                RECONNECT_EMAIL_JOB,
-                SendReconnectEmail(
-                    owner_emails(session),
-                    business_name(session),
-                    services.email,
-                    settings.panel_url,
-                    is_active,
-                ),
+            *wiring.whatsapp_job_handlers(
+                session,
+                services,
+                PRODUCT,
+                product_name="inmo24x7",
+                stopped=AGENT_STOPPED,
+                clock=clock,
             ),
             (PURGE_JOB, PurgePayloads(events, queue, clock)),
             (
@@ -853,7 +705,6 @@ def job_handlers(
                     clock,
                 ),
             ),
-            (LOG_STATUS_JOB, log_status),
             (HANDOFF_EMAIL_JOB, lead_email),
             (IN_PROGRESS_EMAIL_JOB, lead_email),
         ]

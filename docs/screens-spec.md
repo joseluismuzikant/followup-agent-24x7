@@ -362,7 +362,9 @@ count badge on C1).
 - **"No enviar en feriados"** (Argentine holidays).
 - **"Pausar si el cliente prometió pagar"**.
 - Mercado Pago connected account with **"Cambiar cuenta"**.
-- WhatsApp number plus usage **"1.000 respuestas gratis por mes; vas usando 214"**.
+- WhatsApp number plus usage **"Este mes: 214 mensajes de recordatorio"** (Meta charges each
+  template message since July 2025; free-form replies inside the 24-hour window are free, so
+  the old "1.000 respuestas gratis" line is gone).
 - **"Guardar cambios"**.
 
 **What must work**
@@ -371,7 +373,7 @@ count badge on C1).
 - Templates per tenant sync their Meta status.
 - Argentine holidays are sourced and verified for 2026–2027.
 - Mercado Pago OAuth is per business so payments go to that business's own account.
-- WhatsApp usage is measured against the free tier.
+- WhatsApp usage counts the month's template messages.
 
 **Roadmap day:** Day 9; Day 11 (usage surfaced with live counts).
 

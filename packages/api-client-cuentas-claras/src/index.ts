@@ -37,6 +37,32 @@ export type BusinessDetail = Schemas["BusinessDetailRead"];
 export type BusinessCreated = Schemas["BusinessCreatedRead"];
 export type BusinessCreateInput = Schemas["BusinessCreate"];
 export type BusinessActivity = Schemas["ActivityRead"];
+export type PromiseInput = Schemas["PromiseWrite"];
+export type NextActionKind = NonNullable<Invoice["next_action_kind"]>;
+// WhatsApp (the shared router of @followup/platform).
+export type WhatsAppStatus = Schemas["WhatsAppStatusRead"];
+export type WhatsAppError = Schemas["WhatsAppErrorRead"];
+export type WhatsAppConnection = Schemas["WhatsAppConnectionRead"];
+export type WhatsAppConnectionInput = Schemas["WhatsAppConnectionWrite"];
+export type EmbeddedSignupInput = Schemas["EmbeddedSignupWrite"];
+export type SignupAbandonedInput = Schemas["SignupAbandonedWrite"];
+// C4: reminders and templates.
+export type ReminderSettings = Schemas["ReminderSettingsRead"];
+export type ReminderStep = Schemas["StepRead"];
+export type ReminderTemplate = Schemas["TemplateRead"];
+export type ReminderWindow = Schemas["WindowRead"];
+export type PolicyInput = Schemas["PolicyWrite"];
+export type StepInput = Schemas["StepWrite"];
+export type TemplateKind = ReminderTemplate["kind"];
+export type AdminReminders = Schemas["AdminRemindersRead"];
+export type AdminTemplate = Schemas["TemplateAdminRead"];
+export type ReminderEvent = Schemas["ReminderEventRead"];
+export type PlanResult = Schemas["PlanResultRead"];
+// Payments: the public page behind a reminder's link and the transfer details.
+export type PaymentPage = Schemas["PaymentPageRead"];
+export type PaymentSettings = Schemas["PaymentSettingsRead"];
+export type TransferDetails = Schemas["TransferRead"];
+export type TransferInput = Schemas["TransferWrite"];
 
 // The shared client (bearer token, 5xx hook, request id) lives in @followup/app-shell/api.
 export {

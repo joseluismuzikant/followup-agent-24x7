@@ -23,6 +23,7 @@ def _to_domain(model: ClientModel) -> Client:
         email=model.email,
         notes=model.notes,
         active=model.active,
+        no_reminders=model.no_reminders,
         created_at=model.created_at,
         updated_at=model.updated_at,
     )
@@ -38,6 +39,7 @@ def _apply(model: ClientModel, client: Client) -> None:
     model.email = client.email
     model.notes = client.notes
     model.active = client.active
+    model.no_reminders = client.no_reminders
     model.updated_at = client.updated_at
 
 
@@ -93,7 +95,9 @@ class SqlAlchemyClientRepository:
                     func.sum(InvoiceModel.amount).filter(InvoiceModel.currency == "USD"), 0
                 ).label("owed_usd"),
             )
-            .where(InvoiceModel.tenant_id == tenant_id, InvoiceModel.status == "open")
+            .where(
+                InvoiceModel.tenant_id == tenant_id, InvoiceModel.status.in_(("open", "promised"))
+            )
             .group_by(InvoiceModel.client_id)
             .subquery()
         )

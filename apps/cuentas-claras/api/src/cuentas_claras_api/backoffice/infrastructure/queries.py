@@ -24,7 +24,8 @@ _BUSINESSES = text(
            EXISTS (SELECT 1 FROM cc_invoices i WHERE i.tenant_id = t.id) AS invoices_loaded,
            (SELECT count(*) FROM cc_clients c WHERE c.tenant_id = t.id) AS clients,
            (SELECT coalesce(sum(i.amount), 0) FROM cc_invoices i
-             WHERE i.tenant_id = t.id AND i.status = 'open' AND i.currency = 'ARS') AS open_amount
+             WHERE i.tenant_id = t.id AND i.status IN ('open', 'promised')
+               AND i.currency = 'ARS') AS open_amount
     FROM tenants t
     WHERE t.product = :product
       AND NOT EXISTS (

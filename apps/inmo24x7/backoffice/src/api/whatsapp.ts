@@ -1,33 +1,15 @@
-import { ApiRequestError, errorCode, REQUEST_ID_HEADER } from "@followup/api-client-inmo24x7";
 import type {
   WhatsAppConnection,
   WhatsAppConnectionInput,
 } from "@followup/api-client-inmo24x7";
+import { connectionFailure as failure } from "@followup/app-shell";
+import type { ConnectionAction } from "@followup/app-shell";
 
 import { apiClient } from "./client";
 
-/** A failed call with Meta's error code (admins see it). */
-export class WhatsAppRequestError extends ApiRequestError {
-  readonly metaCode: string | null;
-
-  constructor(status: number, code: string, metaCode: string | null, requestId: string | null = null) {
-    super(status, code, requestId);
-    this.metaCode = metaCode;
-  }
-}
-
-function failure(response: Response, error: unknown): WhatsAppRequestError {
-  const metaCode =
-    typeof error === "object" && error !== null && "meta_code" in error
-      ? String(error.meta_code)
-      : null;
-  return new WhatsAppRequestError(
-    response.status,
-    errorCode(error),
-    metaCode,
-    response.headers.get(REQUEST_ID_HEADER),
-  );
-}
+/** A failed call with Meta's error code (admins see it): @followup/app-shell. */
+export { WhatsAppRequestError } from "@followup/app-shell";
+export type { ConnectionAction } from "@followup/app-shell";
 
 const path = (tenantId: string) => ({ params: { path: { tenant_id: tenantId } } });
 
@@ -55,8 +37,6 @@ export async function saveConnection(
   }
   throw failure(response, error);
 }
-
-export type ConnectionAction = "test" | "subscribe" | "disconnect";
 
 export async function runConnectionAction(
   tenantId: string,

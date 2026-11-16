@@ -12,7 +12,7 @@ import {
   Input,
   PanelLayout,
 } from "@followup/ui";
-import { OwnerInvitationCard } from "@followup/app-shell";
+import { OwnerInvitationCard, WhatsAppConnectionPanel } from "@followup/app-shell";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useLocation, useParams } from "react-router";
@@ -24,6 +24,8 @@ import {
   resetTemporaryPassword,
   suspendBusiness,
 } from "../api/backoffice";
+import { whatsappAdminApi } from "../api/reminders";
+import { RemindersCard } from "../components/RemindersCard";
 import { RequireAdmin } from "../components/RequireAdmin";
 import { apiErrorMessage } from "../lib/api-errors";
 import {
@@ -119,6 +121,7 @@ function Detail({ business, queryKey }: DetailProps) {
               resetPassword={() => resetTemporaryPassword(business.id)}
             />
           ) : null}
+          <RemindersCard tenantId={business.id} />
           <ActivityCard business={business} />
         </div>
         <div className="flex flex-col gap-6">
@@ -156,6 +159,20 @@ function Detail({ business, queryKey }: DetailProps) {
           </Card>
         </div>
       </div>
+
+      <section aria-label="WhatsApp" className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">WhatsApp</h2>
+        <p className="text-sm text-muted-foreground">
+          Conexión manual, para cuando el negocio no puede usar el registro integrado de Meta.
+          Al conectar se crean sus plantillas de recordatorio.
+        </p>
+        <WhatsAppConnectionPanel
+          tenantId={business.id}
+          api={whatsappAdminApi}
+          describeError={apiErrorMessage}
+          onSaved={() => void queryClient.invalidateQueries({ queryKey })}
+        />
+      </section>
 
       <SuspendDialog
         business={business}

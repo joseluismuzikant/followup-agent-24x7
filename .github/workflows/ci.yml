@@ -135,6 +135,9 @@ jobs:
       SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
       META_APP_ID: ${{ vars.META_APP_ID }}
       META_EMBEDDED_SIGNUP_CONFIG_ID: ${{ vars.META_EMBEDDED_SIGNUP_CONFIG_ID }}
+      # Cuentas Claras has its own Meta app (a Meta app has one webhook URL).
+      CUENTAS_CLARAS_META_APP_ID: ${{ vars.CUENTAS_CLARAS_META_APP_ID }}
+      CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID: ${{ vars.CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID }}
     steps:
       - id: check
         run: |
@@ -154,7 +157,8 @@ jobs:
           check inmo24x7 inmo24x7_ready INMO24X7_API_URL INMO24X7_PANEL_URL SUPABASE_URL \
             SUPABASE_ANON_KEY META_APP_ID META_EMBEDDED_SIGNUP_CONFIG_ID
           check "Cuentas Claras" cuentas_claras_ready CUENTAS_CLARAS_API_URL \
-            CUENTAS_CLARAS_PANEL_URL SUPABASE_URL SUPABASE_ANON_KEY
+            CUENTAS_CLARAS_PANEL_URL SUPABASE_URL SUPABASE_ANON_KEY \
+            CUENTAS_CLARAS_META_APP_ID CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID
 
   images-inmo24x7:
     if: needs.release-gate.outputs.inmo24x7_ready == 'true'
@@ -255,6 +259,8 @@ jobs:
     env:
       CUENTAS_CLARAS_API_URL: ${{ vars.CUENTAS_CLARAS_API_URL }}
       CUENTAS_CLARAS_PANEL_URL: ${{ vars.CUENTAS_CLARAS_PANEL_URL }}
+      CUENTAS_CLARAS_META_APP_ID: ${{ vars.CUENTAS_CLARAS_META_APP_ID }}
+      CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID: ${{ vars.CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID }}
       SUPABASE_URL: ${{ vars.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
     steps:
@@ -291,6 +297,8 @@ jobs:
             VITE_SUPABASE_URL=${{ env.SUPABASE_URL }}
             VITE_SUPABASE_ANON_KEY=${{ env.SUPABASE_ANON_KEY }}
             VITE_PANEL_URL=${{ env.CUENTAS_CLARAS_PANEL_URL }}
+            VITE_CUENTAS_CLARAS_META_APP_ID=${{ env.CUENTAS_CLARAS_META_APP_ID }}
+            VITE_CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID=${{ env.CUENTAS_CLARAS_META_EMBEDDED_SIGNUP_CONFIG_ID }}
             VITE_SENTRY_DSN=${{ matrix.sentry_dsn_var && vars[matrix.sentry_dsn_var] || '' }}
             SENTRY_ORG=${{ vars.SENTRY_ORG }}
             SENTRY_PROJECT=${{ matrix.sentry_project_var && vars[matrix.sentry_project_var] || '' }}

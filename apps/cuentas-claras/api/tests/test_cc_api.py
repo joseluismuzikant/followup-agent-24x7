@@ -35,7 +35,8 @@ def test_tabs_have_counts_and_rows_like_c2(delta: Owner) -> None:
     assert first["client_subtitle"] == "Montacargas"
     assert first["number"] == "B 0003-00001225"
     assert first["status"] == {"kind": "overdue", "label": "Vencida · 60 días", "days_overdue": 60}
-    assert first["next_action"] is None
+    # No WhatsApp connected yet: nothing can go out ("Lo próximo" says so).
+    assert first["next_action"] == "Falta conectar WhatsApp"
     assert len(delta.get("/invoices?page=2").json()["items"]) == 7
 
     overdue = delta.get("/invoices?tab=overdue").json()["items"]

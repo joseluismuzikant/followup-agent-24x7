@@ -318,6 +318,20 @@ production behind the compose profile `cuentas-claras`, off until its go-live (D
 **Done when:** an invoice due in the test data triggers a reminder on your phone, you pay it
 with a Mercado Pago test user, and the invoice turns paid.
 
+**Status: 9A done locally** (WhatsApp, the policy, templates and the scheduler; Mercado Pago
+is 9B):
+
+- WhatsApp shared with inmo24x7, not copied (`followup_platform.whatsapp`,
+  `@followup/app-shell/whatsapp`), with Cuentas Claras's own Meta app; inmo24x7 unchanged.
+- C4 with the editable sequence, send window presets, "No enviar en feriados" (the `holidays`
+  package plus `holidays_ar.toml`, 2026–2027 verified in tests) and "Pausar si el cliente
+  prometió pagar"; the escalation step emails the owner and stops the invoice's reminders.
+- Templates per business created in its WABA on connect, with Meta's status (webhook and a
+  6-hourly sync) and edits as new versions.
+- The daily planner and the send job (at most one reminder per client per day, several
+  invoices in one message), `reminder_events`, "Lo próximo", promises, "No enviar
+  recordatorios", replies stored and emailed, the payment link page with transfer details.
+
 ### Day 10: the collections agent and approvals
 
 - **Collections** graph that handles replies: "Ya pagué", "Mandame la factura",

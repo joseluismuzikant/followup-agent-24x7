@@ -11,8 +11,9 @@ from .number import InvoiceType
 
 
 class Tab(StrEnum):
-    """C2's tabs. "Pendientes" is every open invoice; "Vencidas" the open ones past due;
-    "Con promesa" stays empty until Day 9; "Pagadas este mes" uses the tenant's month."""
+    """C2's tabs. "Pendientes" is every owed invoice (open or promised); "Vencidas" the owed
+    ones past due; "Con promesa" the ones whose promise has not passed; "Pagadas este mes"
+    uses the tenant's month."""
 
     PENDING = "pending"
     OVERDUE = "overdue"

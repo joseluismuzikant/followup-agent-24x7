@@ -11,6 +11,9 @@ import { InicioPage } from "./inicio";
 
 vi.mock("../api/me", () => ({ fetchMe: vi.fn() }));
 vi.mock("../api/onboarding", () => ({ fetchOnboarding: vi.fn() }));
+vi.mock("../api/whatsapp", () => ({
+  fetchWhatsAppStatus: vi.fn().mockResolvedValue({ status: "not_connected" }),
+}));
 vi.mock("../api/invoices", () => ({
   fetchSummary: vi.fn(),
   importInvoices: vi.fn(),
@@ -68,7 +71,7 @@ describe("InicioPage", () => {
     expect(screen.queryByRole("region", { name: "Total a cobrar" })).toBeNull();
     expect(screen.getByText("1 de 5 listos")).toBeTruthy();
     expect(screen.getByText("Cargar tus facturas")).toBeTruthy();
-    expect(screen.getByText("Conectar WhatsApp (muy pronto)")).toBeTruthy();
+    expect(screen.getByText("Conectar WhatsApp")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continuar configuración" })).toBeTruthy();
   });
 });

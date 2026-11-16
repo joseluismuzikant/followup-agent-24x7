@@ -386,6 +386,96 @@ def seed_cuentas_claras(session: Session) -> None:
     session.commit()
 
 
+CC_PHONE_NUMBER_ID = "dev-cc-phone-1"
+
+
+def seed_reminders(session: Session) -> None:
+    """Cuentas Claras's reminders, locally: Ascensores Delta gets a fake WhatsApp number with
+    the log sender (nothing reaches Meta), its templates created and approved at once, its
+    policy saved (the default) and its transfer details. The sample invoices already fall on
+    every step (due in 3 days, today, overdue), so the worker's planner sends reminders on the
+    next weekday morning (or now, from the backoffice's "Planificar ahora"). Running it again
+    changes nothing."""
+    import cuentas_claras_api.container as container
+    from cuentas_claras_api.payments.domain.requests import validate_transfer
+    from cuentas_claras_api.product import PRODUCT
+    from cuentas_claras_api.reminders.application.templates import (
+        EnsureTemplates,
+        SubmitTemplate,
+    )
+    from cuentas_claras_api.reminders.domain.policy import ReminderPolicy
+    from cuentas_claras_api.reminders.infrastructure.repositories import (
+        SqlAlchemyReminderPolicyRepository,
+        SqlAlchemyTemplateRepository,
+    )
+    from cuentas_claras_api.reminders.infrastructure.template_graph import template_graph_for
+    from followup_core.identity.infrastructure.dev_verifier import dev_user_id
+    from followup_core.identity.infrastructure.repository import SqlAlchemyProfileRepository
+    from followup_core.messaging.application.connections import ConnectionDraft
+    from followup_core.messaging.domain.connection import SenderKind
+    from followup_core.messaging.infrastructure.repositories import (
+        SqlAlchemyConnectionRepository,
+    )
+    from followup_core.tenancy.infrastructure.models import TenantModel
+    from sqlalchemy import select
+
+    tenant = session.scalar(
+        select(TenantModel).where(
+            TenantModel.product == PRODUCT.value, TenantModel.name == CC_OWNER.business
+        )
+    )
+    if tenant is None:
+        raise SeedError("Run the seed first: Ascensores Delta does not exist.")
+    owner_id = dev_user_id(CC_OWNER.email)
+    services = container.get_messaging_services()
+    if SqlAlchemyConnectionRepository(session).get_by_tenant(tenant.id) is None:
+        container.save_connection_use_case(session, services).execute(
+            tenant.id,
+            ConnectionDraft(
+                phone_number_id=CC_PHONE_NUMBER_ID,
+                waba_id="dev-cc-waba-1",
+                display_phone_number="+54 9 11 5555-0200",
+                access_token="dev-token-not-used-by-the-log-sender",
+                sender=SenderKind.LOG,
+            ),
+            dev_user_id(CC_ADMIN.email),
+        )
+    policies = SqlAlchemyReminderPolicyRepository(session)
+    if not policies.is_configured(tenant.id):
+        owner = SqlAlchemyProfileRepository(session, PRODUCT).get_for_user(owner_id)
+        default = ReminderPolicy.default(tenant.id)
+        container.save_policy_use_case(session, container.utc_now).execute(
+            tenant.id,
+            owner.id if owner else owner_id,
+            default.steps,
+            default.window,
+            default.skip_holidays,
+            default.pause_on_promise,
+        )
+    settings = container.SqlAlchemyPaymentSettingsRepository(session)
+    if settings.transfer(tenant.id) is None:
+        settings.save_transfer(
+            validate_transfer(tenant.id, "ascensores.delta", "Ascensores Delta SRL", "Galicia"),
+            container.utc_now(),
+        )
+    session.commit()
+    # The templates, created and submitted the way the worker does it (the log sender's
+    # graph approves them at once). The planner and the sends are left to the worker.
+    templates = SqlAlchemyTemplateRepository(session)
+    connections = SqlAlchemyConnectionRepository(session)
+    EnsureTemplates(templates, connections, container.queue_of(session)).execute(tenant.id)
+    submit = SubmitTemplate(
+        templates,
+        connections,
+        template_graph_for(services.graph, services.cipher),
+        services.settings.panel_url,
+        container.wiring.business_name(session),
+    )
+    for template in templates.for_tenant(tenant.id):
+        submit.execute(template.id)
+    session.commit()
+
+
 # --- Backoffice (S8, S9) ----------------------------------------------------------------------
 
 
@@ -672,6 +762,7 @@ def main(argv: list[str] | None = None) -> int:
 
         with SessionLocal() as session:
             seed(session)
+            seed_reminders(session)
     except SeedError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
@@ -686,6 +777,11 @@ def main(argv: list[str] | None = None) -> int:
     for account in CC_ACCOUNTS:
         print(f"  {account.email:<30} {account.what}")
     _print_links("http://localhost:5175", CC_INVITATION_LINKS)
+    print(
+        "  Ascensores Delta: WhatsApp de prueba conectado (log sender, nada llega a Meta) y"
+        " plantillas aprobadas.\n  Recordatorios: de lunes a viernes en el horario de envío;"
+        " para verlos ya, backoffice → Ascensores Delta → Planificar ahora."
+    )
     return 0
 
 

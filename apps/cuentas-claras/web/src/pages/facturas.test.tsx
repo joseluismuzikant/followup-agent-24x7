@@ -11,6 +11,8 @@ import {
   fetchInvoices,
   importInvoices,
   markInvoicePaid,
+  promiseInvoice,
+  removePromise,
 } from "../api/invoices";
 import { fetchMe } from "../api/me";
 import { errorsReport, invoice, invoiceDetail, invoiceList, me } from "../test-fixtures";
@@ -23,6 +25,8 @@ vi.mock("../api/invoices", () => ({
   updateInvoice: vi.fn(),
   markInvoicePaid: vi.fn(),
   cancelInvoice: vi.fn(),
+  promiseInvoice: vi.fn(),
+  removePromise: vi.fn(),
   importInvoices: vi.fn(),
   downloadImportErrors: vi.fn(),
   downloadImportTemplate: vi.fn(),
@@ -119,6 +123,41 @@ describe("FacturasPage", () => {
     expect(await within(drawer).findByText("Pagada · Transferencia")).toBeTruthy();
     expect(within(drawer).getByText("OP-991")).toBeTruthy();
     expect(within(drawer).queryByRole("button", { name: "Anular" })).toBeNull();
+  });
+
+  it("shows what comes next and registers a promise that pauses the reminders", async () => {
+    vi.mocked(fetchInvoices).mockResolvedValue(
+      invoiceList([invoice({ next_action: "Recordatorio mañana 9:00", next_action_kind: "reminder" })]),
+    );
+    vi.mocked(fetchInvoice).mockResolvedValue(
+      invoiceDetail({ next_action: "Recordatorio mañana 9:00", next_action_kind: "reminder" }),
+    );
+    const promised = invoiceDetail({
+      lifecycle: "promised",
+      promised_until: "2026-11-20",
+      status: { kind: "promised", label: "Con promesa · hasta 20/11", days_overdue: null },
+      next_action: "Pausado: promesa hasta 20/11",
+      next_action_kind: "promised",
+    });
+    vi.mocked(promiseInvoice).mockResolvedValue(promised);
+    vi.mocked(removePromise).mockResolvedValue(invoiceDetail());
+    const user = renderPage();
+
+    const row = (await screen.findByText("Consorcio Rivadavia 4500")).closest("tr")!;
+    expect(within(row).getByText("Recordatorio mañana 9:00")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Consorcio Rivadavia 4500" }));
+    const drawer = await screen.findByRole("dialog", { name: "Factura B 0003-00001245" });
+    await user.click(within(drawer).getByRole("button", { name: "Registrar promesa de pago" }));
+    const date = within(drawer).getByLabelText("Prometió pagar hasta el");
+    await user.clear(date);
+    await user.type(date, "2026-11-20");
+    await user.click(within(drawer).getByRole("button", { name: "Registrar promesa" }));
+
+    expect(promiseInvoice).toHaveBeenCalledWith("inv-1", "2026-11-20");
+    expect(await within(drawer).findByText("Pausado: promesa hasta 20/11")).toBeTruthy();
+    expect(within(drawer).getByText("Con promesa · hasta 20/11")).toBeTruthy();
+    await user.click(within(drawer).getByRole("button", { name: "Quitar promesa" }));
+    expect(removePromise).toHaveBeenCalledWith("inv-1");
   });
 
   it("asks for a reason before cancelling", async () => {

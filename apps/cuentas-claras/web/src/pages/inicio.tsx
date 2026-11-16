@@ -1,4 +1,5 @@
 import type { Summary } from "@followup/api-client-cuentas-claras";
+import { ConnectionErrorBanner } from "@followup/app-shell";
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, KpiCard } from "@followup/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -7,6 +8,7 @@ import { fetchMe } from "../api/me";
 import { fetchOnboarding } from "../api/onboarding";
 import { fetchSummary } from "../api/invoices";
 import { ImportDialog } from "../components/ImportDialog";
+import { useWhatsAppStatus } from "../components/WhatsAppSection";
 import { SetupChecklist } from "../components/SetupChecklist";
 import { apiErrorMessage } from "../lib/api-errors";
 import { countLabel, formatAmount } from "../lib/format";
@@ -20,12 +22,14 @@ export function InicioPage() {
     retry: false,
   });
   const summaryQuery = useQuery({ queryKey: ["summary"], queryFn: fetchSummary });
+  const whatsapp = useWhatsAppStatus();
   const onboarding = onboardingQuery.data;
   const summary = summaryQuery.data;
   const empty = onboarding !== undefined && !onboarding.checklist.facts.invoices_loaded;
 
   return (
     <div className="flex flex-col gap-6">
+      <ConnectionErrorBanner status={whatsapp.data} />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">

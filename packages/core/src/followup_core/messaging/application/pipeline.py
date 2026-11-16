@@ -43,7 +43,12 @@ from ..domain.outbound import (
 )
 from ..domain.phones import display, to_e164
 from ..domain.repositories import ConnectionRepository, InboundEventRepository, OutboundRepository
-from ..domain.webhook import parse_account_updates, parse_webhook
+from ..domain.webhook import (
+    TemplateStatusUpdate,
+    parse_account_updates,
+    parse_template_status_updates,
+    parse_webhook,
+)
 from .health import (
     SEND_JOB,
     ApplyAccountUpdate,
@@ -69,6 +74,11 @@ class IngestResult:
     ignored: int = 0
     statuses: int = 0
     account_updates: int = 0
+    template_updates: int = 0
+
+
+# A product's handler for template reviews (True when the template is one of its own).
+TemplateUpdates = Callable[[TemplateStatusUpdate], bool]
 
 
 class ApplyDeliveryStatus:
@@ -99,8 +109,10 @@ class IngestWebhook:
         debounce: timedelta = DEFAULT_DEBOUNCE,
         clock: Clock = utc_now,
         account_updates: ApplyAccountUpdate | None = None,
+        template_updates: TemplateUpdates | None = None,
     ) -> None:
         self._connections = connections
+        self._template_updates = template_updates
         self._events = events
         self._statuses = statuses
         self._queue = queue
@@ -161,7 +173,12 @@ class IngestWebhook:
             updates = sum(
                 self._account_updates.execute(item) for item in parse_account_updates(payload)
             )
-        return IngestResult(queued, duplicates, ignored, applied, updates)
+        templates = 0
+        if self._template_updates is not None:
+            templates = sum(
+                self._template_updates(item) for item in parse_template_status_updates(payload)
+            )
+        return IngestResult(queued, duplicates, ignored, applied, updates, templates)
 
 
 def channel_contact(wa_id: str) -> str | None:
@@ -291,6 +308,75 @@ class ProcessInbound:
         connection = self._connections.get_by_tenant(event.tenant_id)
         if connection is not None:
             self._connections.mark_inbound(connection.id, last.sent_at)
+        return None
+
+
+# Called once a burst is stored: (tenant, the sender's wa_id, the stored messages).
+InboundObserver = Callable[[UUID, str, Sequence[Message]], None]
+
+
+class StoreInbound:
+    """The process job of a product whose WhatsApp has no agent yet (Cuentas Claras until
+    Day 10): every pending message of the conversation goes into its thread once the burst
+    settles, nobody answers, and `on_stored` lets the product react (an email to the owner).
+    The thread's last inbound message opens the 24-hour window, as for an agent."""
+
+    def __init__(
+        self,
+        events: InboundEventRepository,
+        connections: ConnectionRepository,
+        lock: ThreadLock,
+        store: ReplyWithoutAgent,
+        queue: JobQueue,
+        on_stored: InboundObserver,
+        debounce: timedelta = DEFAULT_DEBOUNCE,
+        clock: Clock = utc_now,
+    ) -> None:
+        self._events = events
+        self._connections = connections
+        self._lock = lock
+        self._store = store
+        self._queue = queue
+        self._on_stored = on_stored
+        self._debounce = debounce
+        self._clock = clock
+
+    def __call__(self, job: Job) -> Reschedule | None:
+        event = self._events.get(UUID(job.payload["event_id"]))
+        if event is None or event.tenant_id is None or event.status is not EventStatus.PENDING:
+            return None
+        log_context.bind(tenant_id=event.tenant_id, channel=Channel.WHATSAPP.value)
+        key = ThreadKey(event.tenant_id, Channel.WHATSAPP, event.wa_id)
+        self._lock.acquire(key)
+        pending = self._events.pending_for(event.tenant_id, event.wa_id)
+        if not pending:
+            return None
+        newest = max(item.created_at for item in pending)
+        if self._clock() - newest < self._debounce:
+            return Reschedule(newest + self._debounce)
+        parts = [
+            InboundPart(
+                text=item.text or "",
+                received_at=item.sent_at,
+                content_type="text" if item.is_text else item.type,
+            )
+            for item in pending
+        ]
+        stored = self._store.execute(key, parts, None).inbound_messages
+        self._events.mark([item.id for item in pending], EventStatus.PROCESSED)
+        last = pending[-1]
+        self._queue.enqueue(
+            NewJob(
+                MARK_READ_JOB,
+                {"tenant_id": str(event.tenant_id), "wamid": last.wamid},
+                dedupe_key=f"wa-read:{last.wamid}",
+                max_attempts=3,
+            )
+        )
+        connection = self._connections.get_by_tenant(event.tenant_id)
+        if connection is not None:
+            self._connections.mark_inbound(connection.id, last.sent_at)
+        self._on_stored(event.tenant_id, event.wa_id, stored)
         return None
 
 
