@@ -356,7 +356,7 @@ sequenceDiagram
     HIM->>DB: store inbound and outbound messages
     HIM->>DB: turn observers (RecordLeadTurn: lead, matches, events)
     Note over HIM,DB: all in the request's one transaction:<br/>a failure leaves no message, lead or checkpoint
-    HIM-->>CH: outbound messages (simulator: in the response;<br/>WhatsApp: queued for the send job)
+    HIM-->>CH: outbound messages<br/>(simulator returns them, WhatsApp queues the send job)
 ```
 
 **The lead graph** (`build_lead_graph` in `apps/inmo24x7/api/.../leads/graph.py`) has two
@@ -372,7 +372,7 @@ flowchart LR
     subgraph EX["extract node"]
         direction TB
         E1["llm.extract: values for the pending questions<br/>+ passive facts, name, contact,<br/>which offered card or slot was picked,<br/>wants a person?"]
-        E2["validate each value against its question's kind<br/>(parse_answer); unknown ids are dropped"]
+        E2["validate each value against its question's kind<br/>(parse_answer), unknown ids are dropped"]
         E3["tool save_contact (normalize phone or email)"]
         E1 --> E2 --> E3
     end
