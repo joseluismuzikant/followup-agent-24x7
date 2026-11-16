@@ -40,6 +40,16 @@ class ReplyIntent(StrEnum):
     SLOT_CHOSEN = "slot_chosen"
     HAND_OFF = "hand_off"  # a person from the team takes it from here
     AFTER_HAND_OFF = "after_hand_off"  # anything after the hand-off: polite, no new proposals
+    # Before visit times: facts["option"] needs facts["requirement"] ("pide seguro de
+    # caución"), which the lead does not meet; say it kindly and ask if they could meet it.
+    REQUIREMENT_CHECK = "requirement_check"
+    # The lead cannot meet it: suggest facts["options"] (already shown) and ask which.
+    OFFER_FITTING = "offer_fitting"
+    # Every option fails on facts["requirement"]: ask once if they would consider it.
+    ASK_RELAX = "ask_relax"
+    # Nothing fits: thank them, say the team lets them know if something comes up. Asks
+    # nothing.
+    NO_FIT = "no_fit"
 
 
 @dataclass(frozen=True, slots=True)

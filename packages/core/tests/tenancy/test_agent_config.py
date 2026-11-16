@@ -9,6 +9,7 @@ from followup_core.tenancy.application.agent_setup import (
     SaveAgentSetup,
 )
 from followup_core.tenancy.domain.agent_config import (
+    MAX_QUESTIONS,
     AgentConfig,
     QualificationQuestion,
     QuestionKind,
@@ -55,7 +56,9 @@ def test_question_rules() -> None:
     with pytest.raises(InvalidQuestionsError):
         sample_config(qualification_questions=(_question("a"), _question("a")))
     with pytest.raises(InvalidQuestionsError):
-        sample_config(qualification_questions=tuple(_question(f"q{i}") for i in range(11)))
+        sample_config(
+            qualification_questions=tuple(_question(f"q{i}") for i in range(MAX_QUESTIONS + 1))
+        )
 
 
 def test_non_choice_questions_drop_options() -> None:

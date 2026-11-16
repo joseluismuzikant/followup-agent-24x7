@@ -1,12 +1,19 @@
-import type { Property, PropertyInput } from "@followup/api-client-inmo24x7";
+import type {
+  ConditionSettings,
+  Property,
+  PropertyConditions,
+  PropertyInput,
+} from "@followup/api-client-inmo24x7";
 import { Button, Dialog, FormField, Input, SegmentedControl } from "@followup/ui";
 import { useId, useState } from "react";
 
+import { EMPTY_CONDITIONS, forOperation } from "../../lib/conditions";
 import {
   type PropertyDraft,
   type PropertyDraftErrors,
   validateProperty,
 } from "../../lib/properties";
+import { ConditionsFields } from "./ConditionsFields";
 
 interface PropertyFormDialogProps {
   open: boolean;
@@ -14,6 +21,8 @@ interface PropertyFormDialogProps {
   property: Property | null;
   saving: boolean;
   error: string | null;
+  /** The agency's "Condiciones generales" (shown where the property says nothing). */
+  settings?: ConditionSettings;
   onClose: () => void;
   onSave: (input: PropertyInput) => void;
 }
@@ -48,6 +57,7 @@ export function PropertyFormDialog({
   property,
   saving,
   error,
+  settings,
   onClose,
   onSave,
 }: PropertyFormDialogProps) {
@@ -63,6 +73,7 @@ export function PropertyFormDialog({
         property={property}
         saving={saving}
         error={error}
+        settings={settings}
         onCancel={onClose}
         onSave={onSave}
       />
@@ -74,12 +85,14 @@ function PropertyForm({
   property,
   saving,
   error,
+  settings,
   onCancel,
   onSave,
 }: {
   property: Property | null;
   saving: boolean;
   error: string | null;
+  settings?: ConditionSettings;
   onCancel: () => void;
   onSave: (input: PropertyInput) => void;
 }) {
@@ -93,6 +106,10 @@ function PropertyForm({
   };
   const [draft, setDraft] = useState<PropertyDraft>(() => toDraft(property));
   const [errors, setErrors] = useState<PropertyDraftErrors>({});
+  const [conditions, setConditions] = useState<PropertyConditions>(
+    () => property?.conditions ?? EMPTY_CONDITIONS,
+  );
+  const [conditionsError, setConditionsError] = useState<string | undefined>();
 
   function update<K extends keyof PropertyDraft>(key: K, value: PropertyDraft[K]) {
     setDraft((current) => {
@@ -113,8 +130,11 @@ function PropertyForm({
         event.preventDefault();
         const result = validateProperty(draft);
         setErrors(result.errors);
-        if (result.input) {
-          onSave(result.input);
+        const months = conditions.contrato_minimo_meses;
+        const badMonths = months !== null && months !== undefined && (months < 1 || months > 120);
+        setConditionsError(badMonths ? "Entre 1 y 120 meses." : undefined);
+        if (result.input && !badMonths) {
+          onSave({ ...result.input, conditions: forOperation(conditions, draft.operation) });
         }
       }}
     >
@@ -192,6 +212,22 @@ function PropertyForm({
           onChange={(event) => update("link", event.target.value)}
         />
       </FormField>
+      <section aria-label="Condiciones" className="flex flex-col gap-3 border-t pt-4">
+        <div>
+          <h3 className="text-sm font-semibold">Condiciones</h3>
+          <p className="text-sm text-muted-foreground">
+            Sofía las usa para ordenar las opciones y avisar antes de una visita. Lo que dejes en
+            «No informado» nunca descarta a nadie.
+          </p>
+        </div>
+        <ConditionsFields
+          operation={draft.operation}
+          value={conditions}
+          onChange={setConditions}
+          defaults={settings ? settings[draft.operation] : undefined}
+          error={conditionsError}
+        />
+      </section>
       {error ? (
         <p className="text-sm text-destructive" role="alert">
           {error}

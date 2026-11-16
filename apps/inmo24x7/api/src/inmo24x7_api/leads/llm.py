@@ -18,8 +18,8 @@ from followup_core.conversation.infrastructure.llm_providers import (
 from ..config import Settings
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
-EXTRACT_PROMPT = "extract.v3"
-REPLY_PROMPT = "reply.v3"
+EXTRACT_PROMPT = "extract.v4"
+REPLY_PROMPT = "reply.v4"
 
 logger = logging.getLogger("inmo24x7.llm")
 
@@ -43,6 +43,7 @@ def build_language_model(settings: Settings) -> LanguageModel:
         api_key=settings.llm_api_key,
         timeout_seconds=settings.llm_timeout_seconds,
         base_url=settings.llm_base_url or None,
+        reasoning_effort=settings.llm_reasoning_effort or None,
     )
     return LangChainLanguageModel(
         chat_model,

@@ -224,7 +224,7 @@ As `dueno@inmobiliariasur.test`. The files are in `docs/samples/`.
 - [ ] Propiedades: seeded list with search, the operation filter and pagination.
 - [ ] Import `propiedades.csv`: "Importamos 20 de 20". Import it again: nothing duplicated.
 - [ ] Import `propiedades.xlsx`: same result.
-- [ ] Import `propiedades-con-errores.csv`: 12 of 15, three Spanish errors, and "Descargar las 3 con errores" downloads only those rows.
+- [ ] Import `propiedades-con-errores.csv`: 2 of 6, four Spanish errors (row 7: «garantias» tiene un valor que no entiendo: «fiador»), one warning (row 2: «apto_credito» no aplica a un alquiler), and "Descargar las 4 con errores" downloads only those rows.
 - [ ] "Agregar una" creates a property; edit works; a paused one disappears from the agent's results.
 - [ ] "Probar el agente": the cards are your own properties, with no sample banner.
 - [ ] Visit slots: "me interesa la de Gorriti" gives two slot buttons inside team hours.
@@ -280,6 +280,36 @@ As the owner. Use Ana's lead and keep `$S`.
   - Visitas agendadas goes up.
 - [ ] "Cancelar visita" on another lead: back to "Pidió hablar con alguien".
 - [ ] 24-hour rule: on the old seeded lead the reply box is disabled with the "Pasaron más de 24 horas…" explanation.
+
+## Property conditions: requirements and features
+
+As `dueno@inmobiliariasur.test`. The seed imports `docs/samples/propiedades.csv`, which now has the ten condition columns. On an older dev database, import it again from Propiedades (it updates by link, nothing is duplicated). With the fake model the phrasing below matters; a real `LLM_MODEL` understands free text.
+
+- [ ] Propiedades: rows and phone cards show up to three badges ("Caución", "Mín. 24 meses", "Sin mascotas", "Apto crédito").
+- [ ] Edit Thames 1500 → "Condiciones":
+  - only the rent fields (no "Apta crédito"); each flag is Sí / No / No informado;
+  - guarantees are chips; "Otras condiciones" holds the free text.
+- [ ] Configuración → "Condiciones generales":
+  - set Alquiler → "Seguro de caución" and save: a rent property without its own guarantees shows "Por defecto: Seguro de caución (Condiciones generales)." in its form;
+  - the three switches start on, on, Sí;
+  - agents and viewers see it read-only (no seeded account has those roles; the front and API tests cover it).
+  Put the guarantee back to empty afterwards, or the Charcas visit steps above get the requirement check too.
+- [ ] Agente → Preguntas: "Qué garantía tiene para alquilar", "Por cuántos meses…" and "Si necesita crédito hipotecario" carry the "Antes de visitar" badge; they are never asked up front.
+- [ ] Import dialog: the note lists the optional condition columns.
+- [ ] Simulator, Reiniciar, then:
+  1. "Hola, busco alquilar un 2 ambientes en Palermo", "Tengo garantía propietaria y un perro": "Lo que el agente ya sabe" gets the guarantee and the pet without being asked.
+  2. "hasta 900000", "Ana", "Me interesa la de Thames": it asks the months (the decisive question for that property).
+  3. "24 meses": "Antes de coordinar: esta propiedad pide seguro de caución. ¿Podrías cumplir con eso? Además: Pide dos recibos…".
+  4. "no, no puedo": it offers Gorriti 4800, which fits, instead of the slots.
+  5. Say "sí" at step 4 instead: the visit slots come up.
+- [ ] Sale, after Reiniciar: "Hola, quiero comprar un 3 ambientes en Belgrano" lists Juramento 2700 (apta crédito) first; "Me interesa la de Juramento" asks about the mortgage before anything else; "sí" gives the slots.
+- [ ] Consultas:
+  - Ana's lead has the "No cumple" badge; the "Todas las condiciones" select filters by Cumple / No cumple / Sin datos;
+  - her panel has a "Condiciones" block: what she said, then each property she saw with "Cumple" / "No cumple: pide seguro de caución…", "(la eligió)" and "Coincide: acepta mascotas";
+  - "Cumple igual" flips Thames to Cumple (audited as `condition_match_overridden`); "Volver a lo que vio el agente" undoes it.
+- [ ] Email: with "Notificar al equipo las consultas que no cumplen" off, a hand-off where every chosen property is "No cumple" sends no email (Mailpit stays empty); on, the email has a "Condiciones" line.
+- [ ] Inicio: "Consultas que no cumplían" and "Visitas evitadas" (this month). Simulator leads don't count, as in every KPI; the API tests cover the numbers.
+- [ ] At 390 px nothing scrolls sideways: Propiedades, the form, Configuración, Consultas and Inicio.
 
 ## WhatsApp connection, backoffice and suspension (Day 7)
 

@@ -9,18 +9,20 @@ turn named after the tool.
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
 
 from followup_core.conversation.domain.tools import Tool, ToolRegistry
 from followup_core.tenancy.domain.business_settings import ScheduleBlock, is_within_hours
 
+from ..properties.domain.conditions import ConditionSettings
 from ..properties.domain.search import PropertyMatch, PropertyQuery, PropertySearch
 from .domain.contact import normalize_contact
 from .domain.lead import HandOffReason
 from .domain.slots import propose_slots, short_slot_label, slot_label
 
 SEARCH_PROPERTIES = "search_properties"
+CONDITION_POLICY = "condition_policy"
 SAVE_CONTACT = "save_contact"
 PROPOSE_VISIT = "propose_visit"
 HAND_OFF = "hand_off"
@@ -32,6 +34,24 @@ HAND_OFF_EVENT = "El agente derivó la consulta a tu equipo"
 class SearchPropertiesInput:
     tenant_id: UUID
     query: PropertyQuery
+
+
+@dataclass(frozen=True, slots=True)
+class ConditionPolicyInput:
+    tenant_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class ConditionPolicy:
+    """The agency's switches in "Condiciones generales" (both on by default)."""
+
+    warn_before_visit: bool = True
+    offer_alternatives: bool = True
+
+
+@runtime_checkable
+class PolicySource(Protocol):
+    def policy(self, tenant_id: UUID) -> ConditionSettings: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +101,11 @@ DECLARED: Mapping[str, tuple[str, type[Any]]] = {
         "Published properties of the tenant matching the lead's answers.",
         SearchPropertiesInput,
     ),
+    CONDITION_POLICY: (
+        "Whether to state unmet requirements before a visit and to ask once when nothing "
+        "fits (the agency's Condiciones generales).",
+        ConditionPolicyInput,
+    ),
     SAVE_CONTACT: (
         "Validates and normalizes a phone (+54 9 ...) or an email.",
         SaveContactInput,
@@ -125,8 +150,16 @@ def lead_handlers(search: PropertySearch) -> Mapping[str, Callable[[Any], Any]]:
     def save_contact(arguments: SaveContactInput) -> str | None:
         return normalize_contact(arguments.text)
 
+    def condition_policy(arguments: ConditionPolicyInput) -> ConditionPolicy:
+        source = search if isinstance(search, PolicySource) else None
+        if source is None:
+            return ConditionPolicy()
+        settings = source.policy(arguments.tenant_id)
+        return ConditionPolicy(settings.warn_before_visit, settings.offer_alternatives)
+
     return {
         SEARCH_PROPERTIES: search_properties,
+        CONDITION_POLICY: condition_policy,
         SAVE_CONTACT: save_contact,
         PROPOSE_VISIT: _propose_visit,
         HAND_OFF: _hand_off,

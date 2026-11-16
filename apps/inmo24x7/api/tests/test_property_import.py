@@ -26,6 +26,10 @@ from inmo24x7_api.properties.infrastructure.spreadsheet import read_spreadsheet
 
 SAMPLES = Path(__file__).resolve().parents[4] / "docs" / "samples"
 HEADER = "titulo,direccion,operacion,zona,precio,moneda,ambientes,link,estado"
+TEMPLATE_HEADER = (
+    HEADER + ",garantias,contrato_minimo_meses,temporal,amueblado,mascotas,apto_profesional,"
+    "apto_credito,acepta_financiacion,acepta_permuta,condiciones"
+)
 NOW = datetime(2026, 11, 2, 15, 0, tzinfo=UTC)
 
 
@@ -162,16 +166,18 @@ def test_sample_xlsx_imports_the_same_rows() -> None:
     assert fields(xlsx_import) == fields(csv_import)
 
 
-def test_the_errors_file_reports_exactly_the_three_s7_messages() -> None:
+def test_the_errors_file_reports_the_s7_messages_and_a_condition_error() -> None:
     importer = Importer()
 
     report = importer.run_sample("propiedades-con-errores.csv")
 
-    assert (report.total, report.imported, report.failed) == (5, 2, 3)
+    assert (report.total, report.imported, report.failed) == (6, 2, 4)
+    assert report.warnings == ["Fila 2: «apto_credito» no aplica a un alquiler; lo ignoramos."]
     assert [row.error for row in report.failed_rows] == [
         "Fila 3: falta el precio.",
         "Fila 5: el link no es una dirección web válida.",
         "Fila 6: la operación tiene que ser «venta» o «alquiler».",
+        "Fila 7: «garantias» tiene un valor que no entiendo: «fiador».",
     ]
 
 
@@ -182,8 +188,8 @@ def test_the_error_report_has_the_original_rows_plus_an_error_column() -> None:
     content = GetImportErrors(importer.imports).execute(importer.tenant_id, report.id)
 
     lines = content.lstrip("﻿").splitlines()
-    assert lines[0] == f"{HEADER},error"
-    assert len(lines) == 4
+    assert lines[0] == f"{TEMPLATE_HEADER},error"
+    assert len(lines) == 5
     assert lines[1].startswith("3 ambientes sin precio,Malabia 1800,alquiler,Palermo,,ARS,3,")
     assert lines[1].endswith(",Fila 3: falta el precio.")
     assert "ver en la web" in lines[2]
@@ -253,6 +259,8 @@ def test_unreadable_files_or_missing_columns_are_invalid(content: bytes) -> None
 def test_the_template_has_the_spanish_headers_and_an_example() -> None:
     lines = import_template().lstrip("﻿").splitlines()
 
-    assert lines[0] == HEADER
+    assert lines[0] == TEMPLATE_HEADER
     assert ColumnMap.of(lines[0].split(","))
-    assert len(lines) == 2
+    # One rent and one sale, each with its own conditions.
+    assert len(lines) == 3
+    assert ",alquiler," in lines[1] and ",venta," in lines[2]

@@ -141,15 +141,15 @@ describe("AgentSetupForm", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("limits the list to 10 questions", async () => {
+  it("limits the list to 12 questions", async () => {
     const { user } = renderForm();
     const add = screen.getByRole("button", { name: "+ Agregar una pregunta" });
 
-    for (let index = 0; index < 7; index += 1) {
+    for (let index = 0; index < 9; index += 1) {
       await user.click(add);
     }
 
-    expect(questionLabels()).toHaveLength(10);
+    expect(questionLabels()).toHaveLength(12);
     expect((add as HTMLButtonElement).disabled).toBe(true);
   });
 

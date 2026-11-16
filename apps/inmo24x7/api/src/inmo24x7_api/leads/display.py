@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from followup_core.tenancy.domain.agent_config import AgentConfig, QuestionKind
 
 from ..properties.domain.search import Listing
+from .conditions import CONDITION_KEYS, FACTS, fact_value
 from .domain.lead import LeadStatus, VisitStatus
 
 if TYPE_CHECKING:
@@ -64,17 +65,24 @@ def _answer(kind: QuestionKind, value: Any) -> str | None:
             return str(value)
 
 
-def known_rows(config: AgentConfig, state: Mapping[str, Any]) -> list[KnownRow]:
-    """One row per enabled question in config order, then name and contact.
-
-    Answers for keys outside the pinned config are not shown.
-    """
+def known_rows(
+    config: AgentConfig, state: Mapping[str, Any], conditions: bool = True
+) -> list[KnownRow]:
+    """One row per enabled question in config order, then the conditions facts the lead
+    mentioned (with `conditions`; the inbox shows them in its own block), then name and
+    contact. Answers for other keys are not shown."""
     answers: Mapping[str, Any] = state.get("answers") or {}
     rows = [
         KnownRow(question.key, question.label, _answer(question.kind, answers.get(question.key)))
         for question in config.qualification_questions
-        if question.enabled
+        if question.enabled and question.key not in CONDITION_KEYS
     ]
+    if conditions:
+        rows += [
+            KnownRow(key, FACTS[key].label, value)
+            for key in FACTS
+            if (value := fact_value(key, answers.get(key))) is not None
+        ]
     rows.append(KnownRow("visitor_name", "Nombre", state.get("visitor_name")))
     rows.append(KnownRow("contact", "Contacto", state.get("contact")))
     return rows

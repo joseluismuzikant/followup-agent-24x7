@@ -9,7 +9,7 @@ from followup_core.tenancy.domain.agent_config import AgentConfig
 
 from ..domain.errors import LeadNotFoundError
 from ..domain.lead import Lead, Visit
-from ..domain.repositories import LeadFilters, LeadPage, LeadRepository
+from ..domain.repositories import LeadFilters, LeadPage, LeadRepository, StoredMatch
 
 PAGE_SIZE = 25
 EXPORT_LIMIT = 5000
@@ -69,6 +69,8 @@ class LeadDetail:
     thread: Thread | None = None
     # Names of the team members in the transcript and of who controls the conversation.
     names: Mapping[UUID, str] = field(default_factory=dict)
+    # How each property shown compared with the lead's conditions (chosen ones first).
+    matches: Sequence[StoredMatch] = ()
 
 
 class GetLead:
@@ -102,4 +104,5 @@ class GetLead:
             agent_config=self._configs.current(tenant_id)[1],
             thread=thread,
             names=self._names(sorted(people)) if self._names and people else {},
+            matches=self._leads.matches(lead.id),
         )

@@ -3,9 +3,8 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from string import Template
-from typing import Any
+from typing import Any, Protocol
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from ..domain.errors import LlmUnavailableError
@@ -29,6 +28,12 @@ TRANSCRIPT_LABELS: Mapping[Author, str] = {
     Author.HUMAN: "equipo",
     Author.SYSTEM: "evento",
 }
+
+
+class ChatModel(Protocol):
+    """What this adapter needs from a LangChain chat model (or a wrapper around one)."""
+
+    def invoke(self, input: list[BaseMessage]) -> BaseMessage: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +117,7 @@ class LangChainLanguageModel:
     """
 
     def __init__(
-        self, chat_model: BaseChatModel, model_name: str, extract: PromptFile, reply: PromptFile
+        self, chat_model: ChatModel, model_name: str, extract: PromptFile, reply: PromptFile
     ) -> None:
         self._chat_model = chat_model
         self._model_name = model_name

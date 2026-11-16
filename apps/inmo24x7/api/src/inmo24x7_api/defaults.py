@@ -42,14 +42,27 @@ def build_setup_defaults() -> SetupDefaults:
                     kind=QuestionKind.MONEY,
                 ),
                 QualificationQuestion(
-                    key="mortgage_approved",
-                    label="Si tiene crédito hipotecario aprobado",
-                    kind=QuestionKind.BOOLEAN,
-                ),
-                QualificationQuestion(
                     key="rooms",
                     label="Cantidad de ambientes",
                     kind=QuestionKind.NUMBER,
+                ),
+                # Asked only when the chosen property needs them (leads/conditions.py),
+                # never up front; each can be turned off in Agente → Preguntas.
+                QualificationQuestion(
+                    key="garantia",
+                    label="Qué garantía tiene para alquilar",
+                    kind=QuestionKind.CHOICE,
+                    options=("propietaria", "caucion", "recibo_de_sueldo", "ninguna", "otra"),
+                ),
+                QualificationQuestion(
+                    key="plazo_meses",
+                    label="Por cuántos meses quiere alquilar",
+                    kind=QuestionKind.NUMBER,
+                ),
+                QualificationQuestion(
+                    key="necesita_credito",
+                    label="Si necesita crédito hipotecario",
+                    kind=QuestionKind.BOOLEAN,
                 ),
             ),
         ),

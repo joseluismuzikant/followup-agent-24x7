@@ -24,6 +24,7 @@ function dashboard(overrides: Partial<Dashboard> = {}): Dashboard {
     visits: { total: 0, confirmed: 0 },
     response_time_seconds: null,
     attention_today: [],
+    conditions: { month_start: null, mismatches: 0, visits_avoided: 0 },
     ...overrides,
   };
 }

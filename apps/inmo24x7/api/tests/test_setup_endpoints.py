@@ -78,8 +78,10 @@ def test_sign_up_creates_onboarding_and_default_settings(owner: Account) -> None
         "operation",
         "zone",
         "budget",
-        "mortgage_approved",
         "rooms",
+        "garantia",
+        "plazo_meses",
+        "necesita_credito",
     ]
     assert setup["config"] == setup["defaults"]
     assert setup["notification_emails"] == [owner.email]

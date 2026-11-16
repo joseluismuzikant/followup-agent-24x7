@@ -119,6 +119,18 @@ function WeekSummary({ dashboard }: { dashboard: Dashboard }) {
           hint="A cualquier hora"
         />
       </div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <KpiCard
+          label="Consultas que no cumplían"
+          value={dashboard.conditions.mismatches}
+          hint="Este mes · no cumplían un requisito de lo que eligieron"
+        />
+        <KpiCard
+          label="Visitas evitadas"
+          value={dashboard.conditions.visits_avoided}
+          hint="Este mes · dijeron que no podían antes de agendar"
+        />
+      </div>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle>Para atender hoy</CardTitle>

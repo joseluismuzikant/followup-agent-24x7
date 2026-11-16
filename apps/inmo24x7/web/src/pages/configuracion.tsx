@@ -17,6 +17,7 @@ import { fetchMe } from "../api/me";
 import { fetchTenantSettings, saveTenantSettings } from "../api/tenant-settings";
 import { fetchWhatsAppStatus } from "../api/whatsapp";
 import { NotificationEmailsField } from "../components/NotificationEmailsField";
+import { ConditionSettingsCard } from "../components/properties/ConditionSettingsCard";
 import { TeamHoursField } from "../components/TeamHoursField";
 import { WhatsAppStatusCard } from "../components/WhatsAppStatusCard";
 import { ConnectionErrorBanner } from "../components/whatsapp/ConnectionErrorBanner";
@@ -47,6 +48,7 @@ export function ConfiguracionPage() {
         settings={settingsQuery.data}
         readOnly={!canEditSetup(profile.role)}
       />
+      <ConditionSettingsCard readOnly={!canEditSetup(profile.role)} />
       <Card>
         <CardHeader>
           <CardTitle>Cuenta</CardTitle>

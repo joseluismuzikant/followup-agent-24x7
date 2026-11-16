@@ -317,9 +317,127 @@ The inmo24x7 **lead graph** lives in the product (`apps/inmo24x7/api/.../leads`)
    alguien"). After a hand-off the agent answers politely and never proposes a visit again.
 
 Card links come only from the search results, so they are the property's own listing link
-(or a local sample page). Prompts are versioned files in `leads/prompts/` (`extract.v2`,
-`reply.v2`; v1 is kept), and the versions are logged with every turn, along with tenant, thread
+(or a local sample page). Prompts are versioned files in `leads/prompts/` (`extract.v4`,
+`reply.v4`; earlier versions are kept), and the versions are logged with every turn, along with tenant, thread
 key, latency, model, token usage and the trace run id, never the message text.
+
+### How LangGraph is used
+
+LangGraph is the turn engine, and deliberately a small one. It gives the agent three things:
+a typed state that survives between messages (the **checkpointer**, in Postgres), a fixed
+order of steps per turn (the **graph**), and a place to hand each step its dependencies
+(the **runtime context**). It is not used for model-driven tool calling, agent loops or
+human-in-the-loop interrupts: the graph is a straight line, and the decisions are plain
+Python.
+
+**One message, one graph run.** Every channel (WhatsApp webhook, the panel's simulator)
+goes through `HandleIncomingMessage`, which calls the `AgentRuntime` port. `LangGraphRuntime`
+(core) compiles the product's graph once with `PostgresSaver` and, per message, invokes it
+with the thread key as LangGraph's `thread_id`:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CH as Channel<br/>(WhatsApp job · simulator API)
+    participant HIM as HandleIncomingMessage<br/>(core)
+    participant RT as LangGraphRuntime<br/>(core)
+    participant G as Lead graph<br/>(inmo24x7)
+    participant CP as PostgresSaver<br/>(checkpoints)
+    participant DB as Postgres<br/>(threads, messages, leads)
+
+    CH->>HIM: inbound text + visitor
+    HIM->>DB: advisory lock on the thread key, get or create the thread
+    HIM->>RT: handle(thread, TurnInput)
+    RT->>CP: load the state of thread_id = "tenant:channel:visitor"
+    RT->>G: invoke({inbound, outbox: []}, context=GraphContext)
+    G-->>RT: new state + outbox (this turn's messages)
+    RT->>CP: write one checkpoint (durability="exit")
+    RT-->>HIM: AgentTurn (outbound, state snapshot, metrics, trace id)
+    HIM->>DB: store inbound and outbound messages
+    HIM->>DB: turn observers (RecordLeadTurn: lead, matches, events)
+    Note over HIM,DB: all in the request's one transaction:<br/>a failure leaves no message, lead or checkpoint
+    HIM-->>CH: outbound messages (simulator: in the response;<br/>WhatsApp: queued for the send job)
+```
+
+**The lead graph** (`build_lead_graph` in `apps/inmo24x7/api/.../leads/graph.py`) has two
+nodes. `LeadState` is a `TypedDict` (answers, name and contact, the cards and slots offered,
+the visit, the hand-off, the property matches, …); `inbound` and `outbox` are the only
+per-turn keys and are never exposed as state. `GraphContext` carries what the nodes need and
+is never checkpointed: the agent configuration the thread pinned, the business (timezone,
+team hours), the recent transcript, the metered language model and the tool registry.
+
+```mermaid
+flowchart LR
+    START((START)) --> EX
+    subgraph EX["extract node"]
+        direction TB
+        E1["llm.extract: values for the pending questions<br/>+ passive facts, name, contact,<br/>which offered card or slot was picked,<br/>wants a person?"]
+        E2["validate each value against its question's kind<br/>(parse_answer); unknown ids are dropped"]
+        E3["tool save_contact (normalize phone or email)"]
+        E1 --> E2 --> E3
+    end
+    EX --> RS
+    subgraph RS["respond node"]
+        direction TB
+        R1["tool condition_policy"]
+        R2["plan_turn(state): pure Python,<br/>returns the ordered intents (Steps)"]
+        R3["per step: tools search_properties · propose_visit · hand_off"]
+        R4["llm.compose_reply words each intent<br/>→ one outbox message"]
+        R1 --> R2 --> R3 --> R4
+    end
+    RS --> END((END))
+```
+
+`plan_turn` is where the conversation is decided, and it never calls the model. It checks,
+in this order:
+
+```mermaid
+flowchart TD
+    A{"Already handed off?"} -- yes --> A1["SLOT_CHOSEN if the lead changes the visit time,<br/>else AFTER_HAND_OFF"]
+    A -- no --> B{"Asked for a person?"}
+    B -- yes --> B1["HAND_OFF"]
+    B -- no --> C{"Picked a slot?"}
+    C -- yes --> C1["SLOT_CHOSEN, then continue below"]
+    C -- no --> D{"Picked a (new) card?"}
+    D -- yes --> D1["gate_step: ASK its decisive question,<br/>REQUIREMENT_CHECK, or OFFER_SLOTS"]
+    D -- no --> E{"Answering a requirement check,<br/>a decisive question or 'see them anyway'?"}
+    E -- yes --> E1["OFFER_SLOTS · OFFER_FITTING · NO_FIT<br/>· gate_step again · PRESENT_OPTIONS again"]
+    E -- no --> F["PRESENT_OPTIONS once the filters are known,<br/>then the next of: ASK question · ASK_NAME ·<br/>ASK_CONTACT · OFFER_VISIT · HAND_OFF"]
+    C1 --> F
+```
+
+Only one step per turn asks something, so a message never asks two things; a greeting is
+prepended on the first turn.
+
+**Why this shape.**
+
+- **The model words, the code decides.** The two LLM operations are narrow (`extract` returns
+  validated values and an offered id, `compose_reply` writes the text for an intent already
+  chosen), so a model cannot skip a step, invent a property or promise a visit. Swapping
+  providers (`LLM_MODEL`) or running the deterministic `FakeLanguageModel` in tests changes
+  nothing in the flow.
+- **Tools are called by the graph's code**, through `context.tools.call(name, input)`, never
+  chosen by the model. Each is declared once in `lead_tools` (`DECLARED` must match the
+  handlers), and the runtime wraps each one so it shows up as a child run in the trace.
+- **State is the checkpoint, not the transcript.** The checkpointer keeps only `LeadState`;
+  transcripts live in `conversation_messages`. `RecordLeadTurn` projects the state into
+  `leads` and `lead_property_matches` after every turn, which keeps it idempotent.
+- **One transaction, one checkpoint.** The saver writes on the request's connection and the
+  graph runs with `durability="exit"`, so a model timeout in `respond` stores nothing of
+  that turn: no message, no lead change, and the previous checkpoint stays as it was.
+- **Testable without LangGraph.** `plan_turn`, `gate_step` and the condition evaluation are
+  pure functions with their own unit tests; the scenario tests run the whole compiled graph
+  with the fake model and an in-memory search.
+- **Observability.** With LangSmith on, a turn is one run (tags: channel; metadata: tenant,
+  thread key, config and prompt versions) whose children are `llm.extract`,
+  `llm.compose_reply` and every tool call; PII is redacted by default
+  (`LANGSMITH_REDACT_PII`). Every model call is also
+  recorded for Consumo (tokens, latency, cost) whether tracing is on or not.
+
+To change the agent: add a state key to `LeadState`, a step to `plan_turn` (and a
+`ReplyIntent` with its fake template), and a tool to `DECLARED` if it needs the outside
+world. A new node is rarely needed; if one is, add it in `build_lead_graph`, and keep
+`outbox` as the only way to emit messages.
 
 ### Leads
 
@@ -355,6 +473,35 @@ key, latency, model, token usage and the trace run id, never the message text.
   the sample fixture and the simulator shows the sample banner; once one is published the
   fixture is never used for that tenant.
 - **Inquiries per property** count distinct non-test leads the agent showed it to.
+
+### Property conditions
+
+- **Requirements** (rent: `garantias`, `contrato_minimo_meses`, `temporal`; both: `mascotas`)
+  can leave a lead out; **features** (furnished, professional use, credit, financing, permuta)
+  only order the options and become notes for the team. `condiciones` is free text the agent
+  may mention and never compares. A property stores its own values as JSON
+  (`properties.conditions`); the effective value is the property's, else the agency's
+  "Condiciones generales" for that operation (`inmo_condition_settings`), else none.
+- **`evaluate(lead, conditions)`** in `properties/domain/conditions.py` is pure: `cumple`,
+  `no_cumple` (with Spanish reasons) or `sin_datos`, plus the matching features. Unknown on
+  either side never fails. `rank` stable-sorts the results by that status, then by unmet
+  wishes and matching features, before the cap of results.
+- **In the graph**, condition facts (guarantee, months, pet, credit, …) are captured
+  passively by `extract` and never asked up front. When the lead picks a card, `gate_step`
+  asks the one decisive question for that property if it is unknown and enabled, then, with
+  `warn_before_visit`, a failing requirement becomes `REQUIREMENT_CHECK` before any slot. A
+  "no" offers the shown cards that fit (`OFFER_FITTING`) or ends politely (`NO_FIT`); when
+  every option fails on the same requirement and `offer_alternatives` is on, the agent asks
+  once (`ASK_RELAX`). The agent never asks income or documents.
+- **Persistence**: `RecordLeadTurn` stores the evaluation per property shown
+  (`lead_property_matches.status/match`, `chosen`), the lead's overall `conditions_status`
+  (from the chosen properties, else the shown ones) and `lead_condition_events`
+  (`mismatch`, `visit_avoided`, `no_fit`, deduplicated) for the Inicio metrics. The team's
+  "Cumple igual" is an audited override that wins over the agent's status. With
+  `notify_mismatches` off, a hand-off whose chosen properties all fail sends no email.
+- The legacy `mortgage_approved` answer is read as `necesita_credito` (true only), and
+  `inmo_0009` migrates configs and answers. Prompts `extract.v4` and `reply.v4` add the passive
+  capture, the confirmations and data minimization.
 
 ### Tracing (LangSmith)
 

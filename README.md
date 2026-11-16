@@ -469,10 +469,27 @@ resumes everything; nothing is deleted.
 
 ### Sample files
 
-`docs/samples/` has `propiedades.csv` (20 valid CABA listings), the same rows as
-`propiedades.xlsx`, and `propiedades-con-errores.csv` (5 rows, 3 with the S7 errors: missing
-price, invalid link, invalid operation). The seed and the tests use them; import them from
+`docs/samples/` has `propiedades.csv` (20 valid CABA listings, most with conditions), the
+same rows as `propiedades.xlsx`, and `propiedades-con-errores.csv` (6 rows: 4 errors, namely
+missing price, invalid link, invalid operation and an unknown guarantee «fiador», plus a
+warning for `apto_credito` on a rental). The seed and the tests use them; import them from
 Propiedades to see the report.
+
+#### Property condition columns (optional)
+
+| Column | Operation | Values |
+|---|---|---|
+| `garantias` | alquiler | comma-separated: `propietaria`, `caucion` (also «seguro de caución»), `recibo_de_sueldo` (also «recibo»), `otra` |
+| `contrato_minimo_meses` | alquiler | 1–120 |
+| `temporal`, `amueblado` | alquiler | sí / no (also si, x, true, 1, yes; no, false, 0) |
+| `apto_credito`, `acepta_financiacion`, `acepta_permuta` | venta | sí / no |
+| `mascotas`, `apto_profesional` | both | sí / no |
+| `condiciones` | both | free text, up to 300 characters; the agent may mention it, it is never compared |
+
+Empty means "no informado" and never rules anyone out. A value for the other operation is
+ignored with a warning ("Fila 2: «apto_credito» no aplica a un alquiler; lo ignoramos.").
+An effective condition is the property's own value, else the agency's "Condiciones generales"
+for that operation, else none.
 
 `docs/samples/cuentas-claras/` has `facturas.csv` (40 invoices of 25 clients of an elevator
 maintenance company), the same rows as `facturas.xlsx`, and `facturas-con-errores.csv` (four
@@ -686,15 +703,17 @@ All routes below need an access token (Supabase, or `dev:<email>` with `AUTH_MOD
 | `GET /properties?search=&operation=&status=&page=` | S7 list, 20 per page, with inquiries per property. Search covers address and zone, without accents or case. |
 | `POST /properties`, `PATCH /properties/{id}` | Manual create and edit. `422 property_invalid`, `409 property_link_taken`, `404 property_not_found`. |
 | `POST /properties/{id}/publish`, `POST /properties/{id}/pause` | Publish or pause (there is no delete). |
-| `POST /properties/import` | Multipart `file` (CSV or XLSX, up to 5 MB and 2,000 rows): report with `imported`, `total`, `failed` and the row errors. `413 import_too_large`, `422 import_file_invalid`. |
+| `POST /properties/import` | Multipart `file` (CSV or XLSX, up to 5 MB and 2,000 rows): report with `imported`, `total`, `failed`, the row errors and `warnings`. `413 import_too_large`, `422 import_file_invalid`. |
 | `GET /properties/import/{id}/errors.csv`, `GET /properties/import-template.csv` | The failed rows plus an `error` column, and the template with the Spanish headers. |
+| `GET /condition-settings`, `PUT /condition-settings` | "Condiciones generales": defaults per operation (`rent`, `sale`) and the switches `warn_before_visit`, `offer_alternatives`, `notify_mismatches`. Saving: owner or manager. Properties return `conditions`, `effective_conditions` and `from_defaults`. |
+| `POST /leads/{id}/properties/{property_id}/conditions` `{status}` | "Cumple igual" (`cumple`), or `null` to go back to the agent's evaluation. Audited. `404 property_not_shown`. `GET /leads?conditions=cumple\|no_cumple\|sin_datos` filters the inbox; the lead detail has a `conditions` block. |
 | `GET /leads?tab=attention\|visits\|all&q=&include_test=&page=` | The inbox: 25 per page, with `counts` per tab. `attention` = needs the team (most urgent first), `visits` = proposed or confirmed visit (by visit time), `all` = by last activity. `q` matches name, zone/answers or a phone in any format, accent-insensitive. Simulator leads only with `include_test=true`. |
 | `GET /leads/export.csv?tab=&q=&include_test=` | The same leads as CSV (UTF-8 with BOM, `;`), one column per configured question, at most 5,000 rows. |
 | `POST /leads/{id}/takeover`, `POST /leads/{id}/release` | Take the conversation from the agent (also from a teammate) or give it back. Owner, manager, agent; `403 forbidden` for viewers. |
 | `POST /leads/{id}/messages` `{text}` | A team reply, sent on WhatsApp by the send job. `409 conversation_not_taken`, `409 outside_service_window`. |
 | `POST /leads/{id}/visits/{visit_id}/confirm` `{starts_at?}` | Confirms (optionally at another future time) and tells the lead: text, or the visit template after 24 hours. `409 template_not_configured`, `409 visit_cancelled`, `422 visit_time_in_past`. |
 | `POST /leads/{id}/visits/{visit_id}/cancel` `{message?}` | Cancels the visit; the lead goes back to "Pidió hablar con alguien". |
-| `GET /dashboard` | Inicio: this week's KPIs (received and out of hours, qualified, visits, average response) and "Para atender hoy". Real leads only. |
+| `GET /dashboard` | Inicio: this week's KPIs (received and out of hours, qualified, visits, average response), this month's `conditions` (mismatches, visits avoided) and "Para atender hoy". Real leads only. |
 | `GET /whatsapp` | The business's WhatsApp status for the panel (badge, S4 card, error banner): number, quality, business verification, `error {code, title, message, action}` in Spanish, `failing_since`, and the signup step when it stopped halfway. Any role. |
 | `POST /whatsapp/embedded-signup` `{code, waba_id, phone_number_id, business_id?}` | Embedded Signup: exchange, subscribe, register, read, connect. Owner or manager. `409 whatsapp_phone_number_taken`, `502 whatsapp_signup_failed {step, meta_code, error}` (progress is kept). |
 | `POST /whatsapp/embedded-signup/retry` | Resumes from the failed step with the stored token. `409 whatsapp_signup_restart` when the code was never exchanged. |

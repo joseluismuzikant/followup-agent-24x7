@@ -1,10 +1,11 @@
-import type { InboxTab, Lead } from "@followup/api-client-inmo24x7";
+import type { ConditionStatus, InboxTab, Lead } from "@followup/api-client-inmo24x7";
 import { Badge, Button, Card, CardContent, Input, Pagination, cn } from "@followup/ui";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 
 import { downloadLeadsCsv, fetchLeads } from "../../api/leads";
 import { apiErrorMessage } from "../../lib/api-errors";
+import { STATUS_LABELS, STATUS_TONES } from "../../lib/conditions";
 import { age, leadName } from "../../lib/leads";
 import { LeadStatusBadge } from "./LeadStatusBadge";
 
@@ -34,7 +35,9 @@ export function InboxList({
   onSelect,
 }: InboxListProps) {
   const toggleId = useId();
+  const conditionsId = useId();
   const [includeTest, setIncludeTest] = useState(true);
+  const [conditions, setConditions] = useState<ConditionStatus | "">("");
   const [page, setPage] = useState(1);
   const [draft, setDraft] = useState(search);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -51,7 +54,7 @@ export function InboxList({
     return () => clearTimeout(timer);
   }, [draft, search, onSearchChange]);
 
-  const filters = { tab, q: search, includeTest, page };
+  const filters = { tab, q: search, includeTest, page, conditions: conditions || undefined };
   const listQuery = useQuery({
     queryKey: ["leads", filters],
     queryFn: () => fetchLeads(filters),
@@ -122,6 +125,23 @@ export function InboxList({
             />
             Mostrar pruebas del simulador
           </label>
+          <label htmlFor={conditionsId} className="sr-only">
+            Condiciones
+          </label>
+          <select
+            id={conditionsId}
+            value={conditions}
+            onChange={(event) => {
+              setConditions(event.target.value as ConditionStatus | "");
+              setPage(1);
+            }}
+            className="h-11 rounded-md border bg-card px-2 text-sm md:h-9"
+          >
+            <option value="">Todas las condiciones</option>
+            <option value="cumple">Cumple</option>
+            <option value="no_cumple">No cumple</option>
+            <option value="sin_datos">Sin datos</option>
+          </select>
           <Button variant="outline" size="sm" onClick={() => void exportCsv()}>
             Exportar CSV
           </Button>
@@ -198,8 +218,13 @@ function LeadItem({
         <span className="truncate text-sm text-muted-foreground">
           {lead.looking_for || "Todavía no contó qué busca"}
         </span>
-        <span>
+        <span className="flex flex-wrap gap-1">
           <LeadStatusBadge status={lead.status} />
+          {lead.conditions_status && lead.conditions_status !== "sin_datos" ? (
+            <Badge tone={STATUS_TONES[lead.conditions_status]}>
+              {STATUS_LABELS[lead.conditions_status]}
+            </Badge>
+          ) : null}
         </span>
       </button>
     </li>

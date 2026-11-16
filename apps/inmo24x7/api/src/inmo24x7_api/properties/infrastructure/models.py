@@ -5,6 +5,7 @@ from uuid import UUID
 from followup_core.infrastructure.db import Base
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -43,6 +45,10 @@ class PropertyModel(Base):
     status: Mapped[str] = mapped_column(String(10), nullable=False)
     # Lowercase, accent-free address and zone, for search without the unaccent extension.
     search_text: Mapped[str] = mapped_column(String(300), nullable=False)
+    # PropertyConditions.to_json(): requirements and features, only those set.
+    conditions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -59,4 +65,22 @@ class PropertyImportModel(Base):
     updated: Mapped[int] = mapped_column(Integer, nullable=False)
     columns: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     failed_rows: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    # Cells ignored because they do not apply to the row's operation.
+    warnings: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ConditionSettingsModel(Base):
+    """ "Condiciones generales": the agency's defaults per operation and Sofía's switches."""
+
+    __tablename__ = "inmo_condition_settings"
+
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), primary_key=True)
+    rent: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    sale: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    warn_before_visit: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    offer_alternatives: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    notify_mismatches: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

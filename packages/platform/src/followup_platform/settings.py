@@ -11,7 +11,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
-from followup_core.conversation.infrastructure.llm_providers import parse_model_spec
+from followup_core.conversation.infrastructure.llm_providers import (
+    REASONING_EFFORTS,
+    parse_model_spec,
+)
 from followup_core.messaging.infrastructure.crypto import TokenCipherError, parse_key
 from followup_core.tenancy.domain.product import FIRST_PRODUCT, Product
 from sqlalchemy.engine import make_url
@@ -111,6 +114,8 @@ class Settings:
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
+    # OpenAI GPT-5 only: "minimal" or "low"; empty = the provider's default.
+    llm_reasoning_effort: str = ""
     simulator_daily_limit: int = DEFAULT_SIMULATOR_DAILY_LIMIT
     langsmith_tracing: bool = False
     langsmith_api_key: str = ""
@@ -217,6 +222,16 @@ def _llm_settings(
     if not api_key:
         raise ConfigurationError(f"{provider.api_key_env} must be set for LLM_MODEL={model}.")
     return model, api_key
+
+
+def _reasoning_effort() -> str:
+    """LLM_REASONING_EFFORT: empty (the provider's default), "minimal" or "low". Only OpenAI's
+    GPT-5 models receive it."""
+    value = os.getenv("LLM_REASONING_EFFORT", "").strip().lower()
+    if value and value not in REASONING_EFFORTS:
+        allowed = " or ".join(f"'{effort}'" for effort in REASONING_EFFORTS)
+        raise ConfigurationError(f"LLM_REASONING_EFFORT must be empty, {allowed}.")
+    return value
 
 
 def _auth_mode(production: bool) -> str:
@@ -437,6 +452,7 @@ def load_settings(spec: ProductSpec) -> Settings:
         llm_api_key=llm_api_key,
         llm_base_url=os.getenv("LLM_BASE_URL", "").strip(),
         llm_timeout_seconds=_positive_number("LLM_TIMEOUT_SECONDS", DEFAULT_LLM_TIMEOUT_SECONDS),
+        llm_reasoning_effort=_reasoning_effort(),
         simulator_daily_limit=int(
             _positive_number("SIMULATOR_DAILY_LIMIT", DEFAULT_SIMULATOR_DAILY_LIMIT)
         ),

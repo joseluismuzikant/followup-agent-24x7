@@ -11,6 +11,7 @@ import {
   downloadLeadsCsv,
   fetchLead,
   fetchLeads,
+  overrideConditions,
   releaseLead,
   sendTeamMessage,
   takeOverLead,
@@ -28,6 +29,7 @@ vi.mock("../api/leads", () => ({
   confirmVisit: vi.fn(),
   cancelVisit: vi.fn(),
   downloadLeadsCsv: vi.fn(),
+  overrideConditions: vi.fn(),
 }));
 vi.mock("../api/me", () => ({ fetchMe: vi.fn() }));
 
@@ -48,6 +50,7 @@ function lead(overrides: Partial<Lead> = {}): Lead {
     last_activity_at: new Date(Date.now() - 12 * 60_000).toISOString(),
     needs_attention: true,
     next_visit_at: "2026-11-07T13:30:00Z",
+    conditions_status: null,
     ...overrides,
   };
 }
@@ -61,6 +64,7 @@ function detail(overrides: Partial<LeadDetail> = {}): LeadDetail {
       { key: "visitor_name", label: "Nombre", value: "Ana Pérez" },
       { key: "contact", label: "Contacto", value: "+54 9 11 5555-0188" },
     ],
+    conditions: { status: null, facts: [], properties: [] },
     status_history: [{ status: "visit_proposed", changed_at: "2026-11-02T14:58:00Z" }],
     visits: [
       {
@@ -400,6 +404,74 @@ describe("ConsultasPage", () => {
 
     expect(await within(panel).findByText("¿Siguen ahí?")).toBeTruthy();
     expect((within(panel).getByLabelText("Respuesta") as HTMLTextAreaElement).value).toBe("Hola An");
+  });
+
+  it("filters by conditions and badges the leads that don't meet them", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchLeads).mockResolvedValue(list([lead({ conditions_status: "no_cumple" })]));
+    renderPage();
+    const items = within(await screen.findByRole("list", { name: "Lista de consultas" }));
+    expect(items.getByText("No cumple")).toBeTruthy();
+
+    await user.selectOptions(screen.getByLabelText("Condiciones"), "no_cumple");
+
+    await waitFor(() =>
+      expect(vi.mocked(fetchLeads)).toHaveBeenLastCalledWith({
+        tab: "attention",
+        q: "",
+        includeTest: true,
+        page: 1,
+        conditions: "no_cumple",
+      }),
+    );
+  });
+
+  it("shows the conditions per property and lets the team say «Cumple igual»", async () => {
+    const user = userEvent.setup();
+    const seen = {
+      property_id: "p1",
+      title: "2 ambientes luminoso",
+      address: "Gorriti 4800",
+      chosen: true,
+      status: "no_cumple" as const,
+      agent_status: "no_cumple" as const,
+      overridden: false,
+      summary: "No cumple: pide seguro de caución",
+      reasons: ["pide seguro de caución"],
+      features: ["acepta mascotas"],
+      notes: [],
+      evaluated_at: "2026-11-02T15:00:00Z",
+    };
+    vi.mocked(fetchLead).mockResolvedValue(
+      detail({
+        conditions: {
+          status: "no_cumple",
+          facts: [{ key: "garantia", label: "Garantía", value: "Garantía propietaria" }],
+          properties: [seen],
+        },
+      }),
+    );
+    vi.mocked(overrideConditions).mockResolvedValue(
+      detail({
+        conditions: {
+          status: "cumple",
+          facts: [{ key: "garantia", label: "Garantía", value: "Garantía propietaria" }],
+          properties: [{ ...seen, status: "cumple", overridden: true }],
+        },
+      }),
+    );
+    renderPage("/consultas?lead=l1");
+
+    const block = within(await screen.findByRole("region", { name: "Condiciones" }));
+    expect(block.getByText("Garantía propietaria")).toBeTruthy();
+    expect(block.getByText("(la eligió)")).toBeTruthy();
+    expect(block.getByText("No cumple: pide seguro de caución")).toBeTruthy();
+    expect(block.getByText("Coincide: acepta mascotas")).toBeTruthy();
+
+    await user.click(block.getByRole("button", { name: "Cumple igual" }));
+
+    expect(vi.mocked(overrideConditions)).toHaveBeenCalledWith("l1", "p1", "cumple");
+    expect(await block.findByRole("button", { name: "Volver a lo que vio el agente" })).toBeTruthy();
   });
 
   it("is read-only for viewers", async () => {

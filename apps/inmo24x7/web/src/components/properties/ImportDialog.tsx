@@ -62,6 +62,15 @@ export function ImportDialog({ open, onClose }: ImportDialogProps) {
         >
           Descargar la plantilla
         </Button>
+        <p className="text-sm text-muted-foreground">
+          Columnas opcionales de condiciones: <code>garantias</code>,{" "}
+          <code>contrato_minimo_meses</code>, <code>temporal</code>, <code>amueblado</code>,{" "}
+          <code>mascotas</code>, <code>apto_profesional</code>, <code>apto_credito</code>,{" "}
+          <code>acepta_financiacion</code>, <code>acepta_permuta</code> y{" "}
+          <code>condiciones</code>. Sí/No se escribe «sí» o «no»; las garantías, separadas por
+          comas («caución, propietaria»). Vacío es «no informado». La plantilla trae un alquiler y
+          una venta de ejemplo.
+        </p>
 
         {upload.isError ? (
           <p className="text-sm text-destructive" role="alert">
@@ -115,6 +124,13 @@ export function ImportReportCard({
       ) : (
         <p className="text-sm text-muted-foreground">Todas las filas quedaron cargadas.</p>
       )}
+      {report.warnings.length ? (
+        <ul aria-label="Avisos" className="flex flex-col gap-1 text-sm text-muted-foreground">
+          {report.warnings.slice(0, SHOWN_ERRORS).map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }

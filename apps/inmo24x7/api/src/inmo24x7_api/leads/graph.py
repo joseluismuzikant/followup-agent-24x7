@@ -9,7 +9,12 @@ the registry in `tools.py`. Rules enforced here, not in prompts:
 - each message asks at most one thing (a greeting without a question asks nothing);
 - one message per idea: a slot noted in the turn that hands off also carries the hand-off;
 - property links come only from the search results (own links or the sample pages);
-- after a hand-off the agent answers politely and never proposes a visit again.
+- after a hand-off the agent answers politely and never proposes a visit again;
+- property conditions (leads/conditions.py): the lead's situation is captured whenever they
+  mention it; options are ordered what-fits-first but never hidden; when the lead chooses a
+  property, Sofía asks only the one question that property needs, and before offering visit
+  times she says plainly which requirement they do not meet (when the agency wants it);
+  when every option fails on the same requirement she asks about it once.
 """
 
 from collections.abc import Sequence
@@ -30,15 +35,35 @@ from followup_core.tenancy.domain.agent_config import QualificationQuestion
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
+from ..properties.domain.conditions import (
+    Match,
+    MatchStatus,
+    PropertyConditions,
+    common_failure,
+    evaluate,
+)
 from ..properties.domain.property import Currency, Operation
 from ..properties.domain.search import PropertyMatch, PropertyQuery
+from .conditions import (
+    ACCEPTED,
+    CONDITION_KEYS,
+    CONFIRMATIONS,
+    PUEDE_CUMPLIR,
+    VER_ALTERNATIVAS,
+    facts_for,
+    gate_question,
+    lead_conditions,
+)
 from .display import money, price_label
 from .domain.lead import HandOffReason
 from .tools import (
+    CONDITION_POLICY,
     HAND_OFF,
     PROPOSE_VISIT,
     SAVE_CONTACT,
     SEARCH_PROPERTIES,
+    ConditionPolicy,
+    ConditionPolicyInput,
     HandOffInput,
     HandOffResult,
     ProposeVisitInput,
@@ -49,8 +74,10 @@ from .tools import (
 
 # Questions whose answers must be known before showing properties, when enabled.
 REQUIRED_FILTERS = ("operation", "zone")
-# Questions that only make sense when buying: never asked once the lead said they rent.
+# Questions that only make sense when buying: never asked once the lead said they rent
+# ("mortgage_approved" is the old name of necesita_credito).
 SALE_ONLY_QUESTIONS = frozenset({"mortgage_approved"})
+_ORDINALS = ("primera", "segunda", "tercera")
 MAX_CONTACT_LENGTH = 120
 MAX_NAME_LENGTH = 80
 
@@ -78,12 +105,36 @@ class LeadState(TypedDict):
     turn_choice: NotRequired[str | None]
     turn_wants_human: NotRequired[bool]
     turn_contact_invalid: NotRequired[bool]
+    # The lead's yes / no to "¿Podrías conseguirlo?" and to the "nothing fits" question.
+    turn_can_meet: NotRequired[bool | None]
+    turn_wants_alternatives: NotRequired[bool | None]
+    # Conditions (leads/conditions.py). The card chosen while a decisive question is pending,
+    # and the questions already asked about it.
+    pending_card: NotRequired[str | None]
+    gate_asked: NotRequired[list[str]]
+    # A requirement the lead was told about before the visit: {"card_id", "requirement",
+    # "asks"}; waiting for their yes or no.
+    requirement_check: NotRequired[dict[str, Any] | None]
+    # "Nothing fits" was asked (once per conversation): {"requirement", "asks"}.
+    relax_offer: NotRequired[dict[str, Any] | None]
+    relax_asked: NotRequired[bool]
+    # The match of each card shown (Match.to_json()), as the agent knew it.
+    property_matches: NotRequired[dict[str, dict[str, Any]]]
+    chosen_property_ids: NotRequired[list[str]]
+    # "mismatch" / "visit_avoided" / "no_fit" with their property id, for Inicio's counts.
+    condition_events: NotRequired[list[dict[str, Any]]]
 
 
 @dataclass(frozen=True, slots=True)
 class Step:
     intent: ReplyIntent
     question: QualificationQuestion | None = None
+    # The card this step is about (a decisive question, a requirement, its visit times).
+    card_id: str | None = None
+    # REQUIREMENT_CHECK / ASK_RELAX: {"requirement", "asks"}.
+    failure: dict[str, Any] | None = None
+    # PRESENT_OPTIONS again after the lead accepted a requirement ("nothing fits": yes).
+    again: bool = False
 
 
 def enabled_questions(context: GraphContext) -> list[QualificationQuestion]:
@@ -93,9 +144,64 @@ def enabled_questions(context: GraphContext) -> list[QualificationQuestion]:
 def applicable_questions(
     questions: Sequence[QualificationQuestion], answers: dict[str, Any]
 ) -> list[QualificationQuestion]:
+    """The questions asked up front, in order. The conditions' active questions are not
+    among them: they are asked only when the chosen property needs them."""
+    upfront = [q for q in questions if q.key not in CONDITION_KEYS]
     if _operation(answers.get("operation")) is not Operation.RENT:
-        return list(questions)
-    return [q for q in questions if q.key not in SALE_ONLY_QUESTIONS]
+        return upfront
+    return [q for q in upfront if q.key not in SALE_ONLY_QUESTIONS]
+
+
+def _card_conditions(card: dict[str, Any]) -> PropertyConditions:
+    return PropertyConditions.from_json(card.get("conditions"))
+
+
+def _card_operation(card: dict[str, Any]) -> Operation | None:
+    value = card.get("operation")
+    return Operation(value) if value in (Operation.RENT.value, Operation.SALE.value) else None
+
+
+def card_match(card: dict[str, Any], answers: dict[str, Any]) -> Match:
+    return evaluate(lead_conditions(answers), _card_conditions(card))
+
+
+def gate_step(
+    state: LeadState,
+    card: dict[str, Any],
+    questions: Sequence[QualificationQuestion],
+    policy: ConditionPolicy,
+) -> Step:
+    """What happens when the lead chooses `card`: the one question it still needs, the
+    requirement they do not meet, or its visit times."""
+    answers = state.get("answers") or {}
+    asked = (state.get("gate_asked") or []) if state.get("pending_card") == card["id"] else []
+    question = gate_question(
+        _card_conditions(card),
+        _card_operation(card),
+        answers,
+        {q.key for q in questions},
+        asked,
+    )
+    if question is not None:
+        return Step(ReplyIntent.ASK, question, card_id=card["id"])
+    match = card_match(card, answers)
+    if match.status is MatchStatus.NO_CUMPLE and policy.warn_before_visit:
+        failure = match.failed[0]
+        return Step(
+            ReplyIntent.REQUIREMENT_CHECK,
+            card_id=card["id"],
+            failure={"requirement": failure.requirement.value, "asks": failure.asks},
+        )
+    return Step(ReplyIntent.OFFER_SLOTS, card_id=card["id"])
+
+
+def _fitting_cards(state: LeadState, excluding: str | None) -> list[dict[str, Any]]:
+    answers = state.get("answers") or {}
+    return [
+        card
+        for card in state.get("offered_cards") or []
+        if card["id"] != excluding and card_match(card, answers).status is not MatchStatus.NO_CUMPLE
+    ]
 
 
 def _slot(state: LeadState, choice_id: str | None) -> dict[str, Any] | None:
@@ -150,9 +256,14 @@ def _changes_visit(state: LeadState, slot: dict[str, Any] | None) -> bool:
     )
 
 
-def plan_turn(state: LeadState, questions: Sequence[QualificationQuestion]) -> list[Step]:
+def plan_turn(
+    state: LeadState,
+    questions: Sequence[QualificationQuestion],
+    policy: ConditionPolicy | None = None,
+) -> list[Step]:
     """The intents of this turn, in order. Each step becomes one outbound message, and only
     one step per turn asks something, so a message never asks two things."""
+    policy = policy or ConditionPolicy()
     first_turn = state.get("turns", 0) == 0
     choice = state.get("turn_choice")
     slot = _slot(state, choice)
@@ -173,8 +284,30 @@ def plan_turn(state: LeadState, questions: Sequence[QualificationQuestion]) -> l
         steps.append(Step(ReplyIntent.SLOT_CHOSEN))
         visit = True
     elif card is not None and card["id"] != offer.get("property_id"):
-        # A (different) property: offer its slots; picking one later replaces the visit.
-        return [Step(ReplyIntent.OFFER_SLOTS)]
+        # A (different) property: what it still needs, its requirements, then its slots;
+        # picking one later replaces the visit.
+        return [gate_step(state, card, questions, policy)]
+    else:
+        check = state.get("requirement_check")
+        can_meet = state.get("turn_can_meet")
+        if check and can_meet is not None:
+            if can_meet:
+                return [Step(ReplyIntent.OFFER_SLOTS, card_id=check["card_id"])]
+            fitting = _fitting_cards(state, check["card_id"])
+            if fitting:
+                return [Step(ReplyIntent.OFFER_FITTING, card_id=check["card_id"])]
+            return [Step(ReplyIntent.NO_FIT, card_id=check["card_id"])]
+        pending_card = _card(state, state.get("pending_card"))
+        if pending_card is not None and not visit:
+            # The answer to the decisive question: go on with that property.
+            return [gate_step(state, pending_card, questions, policy)]
+        relax = state.get("relax_offer")
+        wants_alternatives = state.get("turn_wants_alternatives")
+        if relax and wants_alternatives is not None:
+            if wants_alternatives:
+                steps.append(Step(ReplyIntent.PRESENT_OPTIONS, again=True))
+            else:
+                steps.append(Step(ReplyIntent.NO_FIT))
 
     answers = state.get("answers") or {}
     pending = next(
@@ -184,7 +317,10 @@ def plan_turn(state: LeadState, questions: Sequence[QualificationQuestion]) -> l
     required = [key for key in REQUIRED_FILTERS if key in enabled_keys]
     filters_ready = all(key in answers for key in required) if required else pending is None
 
-    if filters_ready and not state.get("properties_presented"):
+    relaxed = any(
+        step.intent in (ReplyIntent.PRESENT_OPTIONS, ReplyIntent.NO_FIT) for step in steps
+    )
+    if filters_ready and not state.get("properties_presented") and not relaxed:
         steps.append(Step(ReplyIntent.PRESENT_OPTIONS))
     if pending is not None and not visit:
         steps.append(Step(ReplyIntent.ASK, pending))
@@ -259,6 +395,13 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     handed_off = bool(state.get("hand_off_reason"))
     questions = applicable_questions(enabled_questions(context), answers)
     pending = [] if handed_off else [q for q in questions if q.key not in answers]
+    # The lead's situation is read from every message, asked or not (never guessed).
+    facts = (
+        []
+        if handed_off
+        else [q for q in facts_for(_operation(answers.get("operation"))) if q.key not in answers]
+    )
+    confirmation = CONFIRMATIONS.get(state.get("asked_key") or "")
     update: dict[str, Any] = {}
     # The channel may already know how to reach the visitor (WhatsApp: their own number),
     # so the agent never asks for it.
@@ -270,7 +413,7 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
 
     result = context.llm.extract(
         ExtractionRequest(
-            questions=pending,
+            questions=[*pending, *facts, *([confirmation] if confirmation else [])],
             transcript=turn.transcript,
             latest=state["inbound"],
             asked_key=state.get("asked_key"),
@@ -284,10 +427,14 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     if handed_off:
         return update
 
-    for question in pending:
+    for question in [*pending, *facts]:
         value = parse_answer(question, result.values.get(question.key))
         if value is not None:
             answers[question.key] = value
+    if confirmation is not None:
+        said = parse_answer(confirmation, result.values.get(confirmation.key))
+        key = "turn_can_meet" if confirmation.key == PUEDE_CUMPLIR else "turn_wants_alternatives"
+        update[key] = said if isinstance(said, bool) else None
     update["answers"] = answers
     # A message that picks a card or a slot is that pick, never a name or a contact.
     picked = update["turn_choice"] is not None
@@ -321,6 +468,7 @@ def _query(answers: dict[str, Any], enabled_keys: set[str]) -> PropertyQuery:
         max_budget=budget["amount"] if budget else None,
         budget_currency=Currency(budget["currency"]) if budget else None,
         rooms=rooms if isinstance(rooms, int) else None,
+        lead=lead_conditions(answers),
     )
 
 
@@ -345,15 +493,40 @@ def card_label(card: dict[str, Any]) -> str:
     return f"{card['title']} · {card['address']}"
 
 
+def feature_line(matches: Sequence[PropertyMatch]) -> str:
+    """One short positive line ("La primera acepta mascotas"), never a "no cumple"."""
+    for position, match in enumerate(matches[: len(_ORDINALS)]):
+        if match.match.status is MatchStatus.CUMPLE and match.match.features:
+            return f"La {_ORDINALS[position]} {match.match.features[0]}."
+    return ""
+
+
+def plural(asks: str) -> str:
+    """ "pide contrato de 2 años" -> "piden contrato de 2 años" (said of every option)."""
+    for one, many in (("pide ", "piden "), ("no acepta ", "no aceptan ")):
+        if asks.startswith(one):
+            return many + asks.removeprefix(one)
+    return asks
+
+
+def _event(kind: str, card_id: str | None) -> dict[str, Any]:
+    return {"kind": kind, "property_id": card_id}
+
+
 def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     context = runtime.context
     turn = context.turn
     config = turn.agent_config
     questions = enabled_questions(context)
-    answers = state.get("answers") or {}
-    steps = plan_turn(state, questions)
+    answers: dict[str, Any] = dict(state.get("answers") or {})
+    policy: ConditionPolicy = context.tools.call(
+        CONDITION_POLICY, ConditionPolicyInput(turn.business.tenant_id)
+    )
+    steps = plan_turn(state, questions, policy)
     update: dict[str, Any] = {}
     facts: dict[str, str] = {"visitor_name": state.get("visitor_name") or ""}
+    events: list[dict[str, Any]] = list(state.get("condition_events") or [])
+    chosen: list[str] = list(state.get("chosen_property_ids") or [])
 
     def reply(step: Step) -> str:
         return context.llm.compose_reply(
@@ -367,6 +540,21 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             )
         ).text
 
+    def choose(card_id: str | None) -> None:
+        if card_id and card_id not in chosen:
+            chosen.append(card_id)
+
+    def accept(requirement: str) -> None:
+        accepted = list(answers.get(ACCEPTED) or [])
+        if requirement not in accepted:
+            answers[ACCEPTED] = [*accepted, requirement]
+        update["answers"] = answers
+
+    def card_of(card_id: str | None) -> dict[str, Any] | None:
+        return next(
+            (card for card in state.get("offered_cards") or [] if card["id"] == card_id), None
+        )
+
     outbox: list[dict[str, Any]] = []
     asked_key: str | None = None
     for index, step in enumerate(steps):
@@ -375,15 +563,30 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         facts = {"visitor_name": state.get("visitor_name") or ""}
         payload: dict[str, Any] | None = None
         intent = step.intent
+        relax: dict[str, Any] | None = None
 
         if intent is ReplyIntent.GREET:
             facts["looking_for"] = looking_for_fact(answers)
 
+        elif intent is ReplyIntent.ASK and step.card_id is not None:
+            # The decisive question of the chosen property: its slots come after the answer.
+            assert step.question is not None
+            choose(step.card_id)
+            update["pending_card"] = step.card_id
+            previous = state.get("gate_asked") if state.get("pending_card") == step.card_id else []
+            update["gate_asked"] = [*(previous or []), step.question.key]
+
         elif intent is ReplyIntent.PRESENT_OPTIONS:
+            if step.again:
+                offer = state.get("relax_offer") or {}
+                if offer.get("requirement"):
+                    accept(offer["requirement"])
+                update["relax_offer"] = None
             matches = context.tools.call(
                 SEARCH_PROPERTIES,
                 SearchPropertiesInput(
-                    turn.business.tenant_id, _query(answers, {q.key for q in questions})
+                    turn.business.tenant_id,
+                    _query(answers, {q.key for q in questions}),
                 ),
             )
             update["properties_presented"] = True
@@ -392,15 +595,70 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             else:
                 cards = [_card_payload(match) for match in matches]
                 payload = {"cards": cards}
-                update["offered_cards"] = [{"id": c["id"], "label": card_label(c)} for c in cards]
+                update["offered_cards"] = [
+                    {
+                        "id": card["id"],
+                        "label": card_label(card),
+                        "operation": card["operation"],
+                        # Effective conditions as shown: the inbox never recomputes them.
+                        "conditions": match.listing.conditions.to_json(),
+                    }
+                    for card, match in zip(cards, matches, strict=True)
+                ]
                 update["shown_property_ids"] = [
                     *(state.get("shown_property_ids") or []),
                     *(card["id"] for card in cards),
                 ]
+                facts["feature_line"] = feature_line(matches)
+                failure = common_failure([match.match for match in matches])
+                if (
+                    failure is not None
+                    and policy.offer_alternatives
+                    and not state.get("relax_asked")
+                    and not step.again
+                ):
+                    relax = {"requirement": failure.requirement.value, "asks": failure.asks}
+
+        elif intent is ReplyIntent.REQUIREMENT_CHECK:
+            card = card_of(step.card_id)
+            assert card is not None and step.failure is not None
+            choose(card["id"])
+            update["pending_card"] = None
+            update["requirement_check"] = {"card_id": card["id"], **step.failure}
+            events.append(_event("mismatch", card["id"]))
+            facts["option"] = card["label"]
+            facts["requirement"] = step.failure["asks"]
+            note = _card_conditions(card).condiciones
+            if note:
+                facts["conditions_note"] = note
+
+        elif intent is ReplyIntent.OFFER_FITTING:
+            events.append(_event("visit_avoided", step.card_id))
+            update["requirement_check"] = None
+            fitting = _fitting_cards(state, step.card_id)
+            facts["options"] = " y ".join(card["label"] for card in fitting)
+
+        elif intent is ReplyIntent.NO_FIT:
+            if state.get("requirement_check"):
+                events.append(_event("visit_avoided", step.card_id))
+            else:
+                events.append(_event("no_fit", None))
+            update["requirement_check"] = None
+            update["relax_offer"] = None
+            # Nothing to visit: never invite to one afterwards.
+            update["visit_invited"] = True
 
         elif intent is ReplyIntent.OFFER_SLOTS:
-            card = _card(state, state.get("turn_choice"))
+            card_id = step.card_id or state.get("turn_choice")
+            card = card_of(card_id)
             assert card is not None
+            check = state.get("requirement_check")
+            if check and check.get("card_id") == card["id"]:
+                # "Sí, lo consigo": noted for the team, and the visit goes on as today.
+                accept(check["requirement"])
+                update["requirement_check"] = None
+            choose(card["id"])
+            update["pending_card"] = None
             proposal: VisitProposal = context.tools.call(
                 PROPOSE_VISIT,
                 ProposeVisitInput(
@@ -432,6 +690,9 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                 facts["option"] = card["label"]
                 facts["slots"] = " o ".join(slot["label"] for slot in slots)
                 facts["after_hours"] = "sí" if proposal.after_hours else ""
+                note = _card_conditions(card).condiciones
+                if note:
+                    facts["conditions_note"] = note
                 payload = {
                     "slots": [
                         {"id": s["id"], "label": s["label"], "short_label": s["short_label"]}
@@ -470,16 +731,36 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             continue
 
         outbox.append({"text": reply(Step(intent, step.question)), "payload": payload})
+        if relax is not None:
+            # Every option fails on the same requirement: ask about it once, and nothing else
+            # this turn.
+            update["relax_offer"] = relax
+            update["relax_asked"] = True
+            facts = {
+                "visitor_name": state.get("visitor_name") or "",
+                "requirement": plural(relax["asks"]),
+            }
+            outbox.append({"text": reply(Step(ReplyIntent.ASK_RELAX)), "payload": None})
+            asked_key = VER_ALTERNATIVAS
+            break
         if step.question is not None:
             asked_key = step.question.key
         elif intent is ReplyIntent.ASK_NAME:
             asked_key = NAME_KEY
         elif intent in (ReplyIntent.ASK_CONTACT, ReplyIntent.INVALID_CONTACT):
             asked_key = CONTACT_KEY
+        elif intent is ReplyIntent.REQUIREMENT_CHECK:
+            asked_key = PUEDE_CUMPLIR
 
     # A lead who asks for a person after another kind of hand-off still gets human_requested.
     if state.get("hand_off_reason") and state.get("turn_wants_human"):
         update["hand_off_reason"] = HandOffReason.HUMAN.value
+
+    # How every card shown compares with what the lead said, as of this turn.
+    cards = update.get("offered_cards") or state.get("offered_cards") or []
+    matches = dict(state.get("property_matches") or {})
+    for card in cards:
+        matches[card["id"]] = card_match(card, answers).to_json()
 
     return {
         **update,
@@ -490,6 +771,11 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         "turn_choice": None,
         "turn_wants_human": False,
         "turn_contact_invalid": False,
+        "turn_can_meet": None,
+        "turn_wants_alternatives": None,
+        "property_matches": matches,
+        "chosen_property_ids": chosen,
+        "condition_events": events,
     }
 
 

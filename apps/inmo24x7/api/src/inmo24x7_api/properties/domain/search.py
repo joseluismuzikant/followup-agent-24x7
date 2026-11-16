@@ -7,6 +7,14 @@ from uuid import UUID
 
 from followup_core.conversation.domain.answers import normalize
 
+from .conditions import (
+    STATUS_ORDER,
+    LeadConditions,
+    Match,
+    MatchStatus,
+    PropertyConditions,
+    evaluate,
+)
 from .property import Currency, Operation, Property
 
 MAX_RESULTS = 3
@@ -29,9 +37,11 @@ class Listing:
     rooms: int
     link: str
     is_sample: bool
+    # Effective conditions: the property's own, over the agency's defaults.
+    conditions: PropertyConditions = PropertyConditions()
 
     @classmethod
-    def of(cls, item: Property) -> "Listing":
+    def of(cls, item: Property, conditions: PropertyConditions | None = None) -> "Listing":
         fields = item.fields
         return cls(
             id=str(item.id),
@@ -44,6 +54,7 @@ class Listing:
             rooms=fields.rooms,
             link=fields.link,
             is_sample=False,
+            conditions=fields.conditions if conditions is None else conditions,
         )
 
 
@@ -54,12 +65,16 @@ class PropertyQuery:
     max_budget: int | None = None
     budget_currency: Currency | None = None
     rooms: int | None = None
+    # The lead's situation: never filters, only orders (what fits first).
+    lead: LeadConditions | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class PropertyMatch:
     listing: Listing
     over_budget: bool
+    # How the lead's situation compares with this listing's conditions.
+    match: Match = Match(MatchStatus.SIN_DATOS)
 
 
 class PropertySearch(Protocol):
@@ -75,7 +90,9 @@ def rank(listings: Iterable[Listing], query: PropertyQuery) -> list[PropertyMatc
     """Operation, zone and rooms filter. Listings with exactly the rooms asked for come first;
     bigger ones only fill the slots they leave. Within each group, with a budget, same
     currency only (no conversion), within budget first, then up to OVER_BUDGET_TOLERANCE over
-    it, cheapest first."""
+    it, cheapest first. With the lead's situation, what fits goes first, then what has no
+    data, then what does not fit; inside a group the listings that meet the lead's wishes
+    come first, and otherwise that order stays. Nothing is filtered out by conditions."""
     candidates = [
         item
         for item in listings
@@ -84,10 +101,29 @@ def rank(listings: Iterable[Listing], query: PropertyQuery) -> list[PropertyMatc
         and (query.rooms is None or item.rooms >= query.rooms)
     ]
     if query.rooms is None:
-        return _by_budget(candidates, query)[:MAX_RESULTS]
-    exact = [item for item in candidates if item.rooms == query.rooms]
-    bigger = [item for item in candidates if item.rooms > query.rooms]
-    return (_by_budget(exact, query) + _by_budget(bigger, query))[:MAX_RESULTS]
+        ordered = _by_budget(candidates, query)
+    else:
+        exact = [item for item in candidates if item.rooms == query.rooms]
+        bigger = [item for item in candidates if item.rooms > query.rooms]
+        ordered = _by_budget(exact, query) + _by_budget(bigger, query)
+    if query.lead is None:
+        return ordered[:MAX_RESULTS]
+    lead = query.lead
+    evaluated = [
+        PropertyMatch(item.listing, item.over_budget, evaluate(lead, item.listing.conditions))
+        for item in ordered
+    ]
+    # sorted() is stable: inside each group the budget / rooms order stays, except that
+    # a listing meeting the lead's wishes (apta crédito, acepta mascotas) goes before one
+    # that does not.
+    return sorted(
+        evaluated,
+        key=lambda item: (
+            STATUS_ORDER[item.match.status],
+            bool(item.match.notes),
+            -len(item.match.features),
+        ),
+    )[:MAX_RESULTS]
 
 
 def _by_budget(candidates: Sequence[Listing], query: PropertyQuery) -> list[PropertyMatch]:

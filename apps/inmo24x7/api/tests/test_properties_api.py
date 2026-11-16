@@ -163,20 +163,22 @@ def test_import_report_errors_csv_and_template(owner: Account) -> None:
     }
 
     bad = _import(owner, "propiedades-con-errores.csv").json()
-    assert (bad["imported"], bad["total"], bad["failed"]) == (2, 5, 3)
+    assert (bad["imported"], bad["total"], bad["failed"]) == (2, 6, 4)
     assert bad["errors"] == [
         "Fila 3: falta el precio.",
         "Fila 5: el link no es una dirección web válida.",
         "Fila 6: la operación tiene que ser «venta» o «alquiler».",
+        "Fila 7: «garantias» tiene un valor que no entiendo: «fiador».",
     ]
+    assert bad["warnings"] == ["Fila 2: «apto_credito» no aplica a un alquiler; lo ignoramos."]
 
     download = owner.get(f"/properties/import/{bad['id']}/errors.csv")
     assert download.status_code == 200
     assert download.headers["content-type"].startswith("text/csv")
     assert "attachment" in download.headers["content-disposition"]
     lines = download.content.decode("utf-8-sig").splitlines()
-    assert lines[0].endswith(",estado,error")
-    assert len(lines) == 4
+    assert lines[0].endswith(",condiciones,error")
+    assert len(lines) == 5
 
     template = owner.get("/properties/import-template.csv")
     assert template.content.decode("utf-8-sig").startswith("titulo,direccion,operacion")

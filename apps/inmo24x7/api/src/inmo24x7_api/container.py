@@ -109,7 +109,7 @@ from followup_core.tenancy.application.tenant_settings import (
     GetTenantSettings,
     UpdateTenantSettings,
 )
-from followup_core.tenancy.domain.audit import AuditLog
+from followup_core.tenancy.domain.audit import ActorKind, AuditEvent, AuditLog
 from followup_core.tenancy.domain.errors import TenantNotFoundError
 from followup_core.tenancy.infrastructure.audit_repository import (
     SqlAlchemyAuditLog,
@@ -130,6 +130,7 @@ from langgraph.graph import StateGraph
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .audit import InmoAction
 from .backoffice.application.overview import GetBusiness, ListBusinesses
 from .backoffice.infrastructure.queries import SqlAlchemyBackofficeQueries
 from .backoffice.infrastructure.sentry_issues import SentryIssuesClient
@@ -142,6 +143,7 @@ from .dashboard.application.get_dashboard import GetDashboard
 from .dashboard.infrastructure.queries import SqlAlchemyDashboardQueries
 from .database import UsageSessionLocal, get_session
 from .defaults import build_setup_defaults
+from .leads.application.conditions import OverrideMatch
 from .leads.application.inbox import (
     CancelVisit,
     ConfirmVisit,
@@ -171,7 +173,9 @@ from .properties.application.properties import (
     SetPropertyStatus,
     UpdateProperty,
 )
+from .properties.domain.conditions import ConditionSettings
 from .properties.infrastructure.repositories import (
+    SqlAlchemyConditionSettingsRepository,
     SqlAlchemyPropertyImportRepository,
     SqlAlchemyPropertyRepository,
     TenantPropertySearch,
@@ -379,7 +383,7 @@ def agent_runtime(
     connection = session.connection().connection.driver_connection
     if not isinstance(connection, psycopg.Connection):
         raise TypeError("The agent runtime needs a psycopg 3 connection.")
-    tools = lead_tools(TenantPropertySearch(SqlAlchemyPropertyRepository(session)))
+    tools = lead_tools(property_search(session))
     return LangGraphRuntime(get_lead_graph(), PostgresSaver(connection), llm, tracing, tools, usage)
 
 
@@ -495,6 +499,43 @@ def import_properties_use_case(session: SessionDep) -> ImportProperties:
 
 def import_errors_use_case(session: SessionDep) -> GetImportErrors:
     return GetImportErrors(SqlAlchemyPropertyImportRepository(session))
+
+
+def condition_settings(session: SessionDep) -> SqlAlchemyConditionSettingsRepository:
+    return SqlAlchemyConditionSettingsRepository(session)
+
+
+def save_condition_settings_use_case(
+    session: SessionDep,
+) -> Callable[[UUID, UUID, ConditionSettings], ConditionSettings]:
+    """ "Condiciones generales": saved and audited (switches only, never values)."""
+    repository = SqlAlchemyConditionSettingsRepository(session)
+    audit = SqlAlchemyAuditLog(session)
+
+    def save(tenant_id: UUID, profile_id: UUID, settings: ConditionSettings) -> ConditionSettings:
+        now = utc_now()
+        repository.save(tenant_id, settings, now)
+        audit.record(
+            AuditEvent(
+                tenant_id,
+                now,
+                ActorKind.USER,
+                InmoAction.CONDITION_SETTINGS_SAVED,
+                {"status": "warn" if settings.warn_before_visit else "silent"},
+                actor_profile_id=profile_id,
+            )
+        )
+        return repository.get(tenant_id)
+
+    return save
+
+
+def property_search(session: Session) -> TenantPropertySearch:
+    """Published listings with their effective conditions (own over the agency's)."""
+    return TenantPropertySearch(
+        SqlAlchemyPropertyRepository(session),
+        settings=SqlAlchemyConditionSettingsRepository(session),
+    )
 
 
 def list_leads_use_case(session: SessionDep) -> ListLeads:
@@ -668,12 +709,14 @@ def job_handlers(
             is_active,
         )(job)
 
+    conditions = SqlAlchemyConditionSettingsRepository(session)
     lead_email = SendLeadEmail(
         get_lead_use_case(session),
         SqlAlchemyBusinessSettingsRepository(session),
         services.email,
         settings.panel_url,
         is_active,
+        lambda tenant_id: conditions.get(tenant_id).notify_mismatches,
     )
     return JobHandlers(
         [
@@ -767,6 +810,10 @@ def build_lead_actions(
         ),
         cancel=CancelVisit(leads, threads, messages, add_message, add_event, deliver, clock),
     )
+
+
+def override_match_use_case(session: SessionDep) -> OverrideMatch:
+    return OverrideMatch(SqlAlchemyLeadRepository(session), SqlAlchemyAuditLog(session))
 
 
 def lead_actions(session: SessionDep, services: ServicesDep) -> LeadActions:
