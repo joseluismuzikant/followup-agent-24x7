@@ -7,7 +7,9 @@ from typing import Any
 from .errors import InvalidAgentNameError, InvalidQuestionsError
 
 MAX_AGENT_NAME_LENGTH = 40
-MAX_QUESTIONS = 10
+# Ten of the business's own plus room for a product's built-in ones (inmo24x7 added two
+# condition questions; existing configs keep fitting).
+MAX_QUESTIONS = 12
 MAX_LABEL_LENGTH = 120
 _KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _CUSTOM_KEY_PATTERN = re.compile(r"^custom_([1-9][0-9]*)$")

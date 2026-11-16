@@ -36,11 +36,6 @@ def test_get_creates_nothing_and_shows_the_empty_panel(owner: Account, db_sessio
         {"key": "operation", "label": "Si busca comprar o alquilar", "value": None},
         {"key": "zone", "label": "Zona o barrio", "value": None},
         {"key": "budget", "label": "Presupuesto", "value": None},
-        {
-            "key": "mortgage_approved",
-            "label": "Si tiene crédito hipotecario aprobado",
-            "value": None,
-        },
         {"key": "rooms", "label": "Cantidad de ambientes", "value": None},
         {"key": "visitor_name", "label": "Nombre", "value": None},
         {"key": "contact", "label": "Contacto", "value": None},

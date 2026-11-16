@@ -76,6 +76,9 @@ ALLOWED_DETAIL_KEYS = frozenset(
         "steps",
         "window",
         "removed",
+        # inmo24x7 property conditions: the lead and property of a "Cumple igual".
+        "lead_id",
+        "property_id",
     }
 )
 

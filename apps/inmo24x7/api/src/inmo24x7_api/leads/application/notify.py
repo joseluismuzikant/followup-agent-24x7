@@ -8,7 +8,7 @@ keys), to the tenant's notification emails:
 
 import html
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -17,8 +17,10 @@ from followup_core.notifications.domain.email import Email, EmailError, EmailSen
 from followup_core.scheduling.domain.jobs import Job, JobError, JobQueue, NewJob
 from followup_core.tenancy.domain.business_settings_repository import BusinessSettingsRepository
 
+from ...properties.domain.conditions import Match
 from ..display import KnownRow, known_rows, looking_for
 from ..domain.lead import HandOffReason, Lead, VisitStatus
+from ..domain.repositories import StoredMatch
 from ..domain.slots import slot_label
 from .queries import GetLead
 
@@ -68,7 +70,9 @@ class SendLeadEmail:
         sender: EmailSender,
         panel_url: str,
         is_active: Callable[[UUID], bool] = lambda _tenant_id: True,
+        notify_mismatches: Callable[[UUID], bool] = lambda _tenant_id: True,
     ) -> None:
+        self._notify_mismatches = notify_mismatches
         self._get_lead = get_lead
         self._settings = settings
         self._sender = sender
@@ -95,6 +99,20 @@ class SendLeadEmail:
         )
         visit = next((v for v in detail.visits if v.status is VisitStatus.PROPOSED), None)
         handoff = job.kind == HANDOFF_EMAIL_JOB
+        chosen = [item for item in detail.matches if item.chosen]
+        if (
+            handoff
+            and chosen
+            and all(item.status == "no_cumple" for item in chosen)
+            and not self._notify_mismatches(tenant_id)
+        ):
+            # "Notificar al equipo las consultas que no cumplen" = No: it stays in the inbox,
+            # marked "No cumple".
+            logger.info("lead_email_skipped_mismatch", extra={"lead_id": str(lead.id)})
+            return
+        line = conditions_line(detail.matches)
+        if line:
+            rows = [*rows, KnownRow("conditions", "Condiciones", line)]
         if handoff:
             subject = f"Nueva consulta: {_who(lead)}"
             if visit is not None:
@@ -127,6 +145,24 @@ class SendLeadEmail:
             "lead_email_sent",
             extra={"tenant_id": str(tenant_id), "lead_id": str(lead.id), "kind": job.kind},
         )
+
+
+def conditions_line(matches: Sequence[StoredMatch]) -> str | None:
+    """ "Gorriti 4800: No cumple: pide seguro de caución; tiene garantía propietaria"."""
+    chosen = [item for item in matches if item.chosen] or list(matches[:1])
+    parts = []
+    for item in chosen:
+        if not item.status:
+            continue
+        summary = Match.from_json(item.match).summary if item.match else "Sin datos"
+        if item.override_status:
+            summary = (
+                "Cumple (lo marcó el equipo)"
+                if item.override_status == "cumple"
+                else ("No cumple (lo marcó el equipo)")
+            )
+        parts.append(f"{item.address}: {summary}")
+    return " · ".join(parts) or None
 
 
 def _channel(lead: Lead) -> str:

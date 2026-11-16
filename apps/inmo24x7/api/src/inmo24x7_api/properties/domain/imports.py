@@ -34,6 +34,8 @@ class PropertyImport:
     columns: Sequence[str]
     failed_rows: Sequence[FailedRow]
     created_at: datetime
+    # "Fila 4: «apto_credito» no aplica a un alquiler; lo ignoramos."
+    warnings: Sequence[str] = ()
 
     @property
     def failed(self) -> int:

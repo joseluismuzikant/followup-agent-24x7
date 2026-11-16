@@ -24,12 +24,14 @@ import { useState } from "react";
 import { fetchMe } from "../api/me";
 import {
   createProperty,
+  fetchConditionSettings,
   fetchProperties,
   setPropertyPublished,
   updateProperty,
 } from "../api/properties";
 import { ImportDialog } from "../components/properties/ImportDialog";
 import { PropertyFormDialog } from "../components/properties/PropertyFormDialog";
+import { conditionBadges } from "../lib/conditions";
 import { apiErrorMessage } from "../lib/api-errors";
 import { formatPrice, operationLabels } from "../lib/properties";
 import { canEditSetup } from "../lib/setup";
@@ -55,6 +57,10 @@ export function PropiedadesPage() {
   const [rowError, setRowError] = useState<string | null>(null);
 
   const meQuery = useQuery({ queryKey: ["me"], queryFn: fetchMe });
+  const settingsQuery = useQuery({
+    queryKey: ["condition-settings"],
+    queryFn: fetchConditionSettings,
+  });
   const filters = {
     search: search.trim(),
     operation: operation === "all" ? undefined : operation,
@@ -229,6 +235,7 @@ export function PropiedadesPage() {
             ? apiErrorMessage(save.error, "No pudimos guardar la propiedad. Probá de nuevo.")
             : null
         }
+        settings={settingsQuery.data}
         onClose={() => setEditing(null)}
         onSave={(input) => save.mutate(input)}
       />
@@ -267,6 +274,7 @@ function PropertyRow({
               ver aviso
             </a>
           </span>
+          <ConditionBadges property={property} />
         </div>
       </TableCell>
       <TableCell>{operationLabels[property.operation]}</TableCell>
@@ -332,6 +340,7 @@ function PropertyListItem({
         <div className="flex min-w-0 flex-col">
           <span className="font-medium">{property.title}</span>
           <span className="text-sm text-muted-foreground">{property.address}</span>
+          <ConditionBadges property={property} max={2} />
         </div>
         <Badge tone={published ? "success" : "neutral"}>
           {published ? "Publicada" : "Pausada"}
@@ -379,5 +388,22 @@ function PropertyListItem({
         ) : null}
       </div>
     </li>
+  );
+}
+
+/** The most useful conditions (own or the agency's), small: "Caución", "Mascotas". */
+function ConditionBadges({ property, max = 3 }: { property: Property; max?: number }) {
+  const badges = conditionBadges(property.effective_conditions, max);
+  if (!badges.length) {
+    return null;
+  }
+  return (
+    <span className="mt-1 flex flex-wrap gap-1" aria-label="Condiciones">
+      {badges.map((badge) => (
+        <span key={badge} className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+          {badge}
+        </span>
+      ))}
+    </span>
   );
 }

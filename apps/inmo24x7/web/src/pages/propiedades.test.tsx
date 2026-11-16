@@ -1,5 +1,10 @@
 import { ApiRequestError } from "@followup/api-client-inmo24x7";
-import type { ImportReport, Property, PropertyList } from "@followup/api-client-inmo24x7";
+import type {
+  ConditionSettings,
+  ImportReport,
+  Property,
+  PropertyList,
+} from "@followup/api-client-inmo24x7";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,10 +14,12 @@ import { fetchMe } from "../api/me";
 import {
   createProperty,
   downloadImportErrors,
+  fetchConditionSettings,
   fetchProperties,
   importProperties,
   setPropertyPublished,
 } from "../api/properties";
+import { EMPTY_CONDITIONS } from "../lib/conditions";
 import { me, phoneViewport } from "../test-fixtures";
 import { PropiedadesPage } from "./propiedades";
 
@@ -25,7 +32,19 @@ vi.mock("../api/properties", () => ({
   importProperties: vi.fn(),
   downloadImportErrors: vi.fn(),
   downloadImportTemplate: vi.fn(),
+  fetchConditionSettings: vi.fn(),
+  saveConditionSettings: vi.fn(),
 }));
+
+function settings(): ConditionSettings {
+  return {
+    rent: { ...EMPTY_CONDITIONS, garantias: ["caucion"] },
+    sale: { ...EMPTY_CONDITIONS, apto_credito: true },
+    warn_before_visit: true,
+    offer_alternatives: true,
+    notify_mismatches: true,
+  };
+}
 
 function property(overrides: Partial<Property> = {}): Property {
   return {
@@ -42,6 +61,9 @@ function property(overrides: Partial<Property> = {}): Property {
     inquiries: 3,
     created_at: "2026-11-02T12:00:00Z",
     updated_at: "2026-11-02T12:00:00Z",
+    conditions: { ...EMPTY_CONDITIONS },
+    effective_conditions: { ...EMPTY_CONDITIONS },
+    from_defaults: [],
     ...overrides,
   };
 }
@@ -73,12 +95,14 @@ const errorsReport: ImportReport = {
     "Fila 5: el link no es una dirección web válida.",
     "Fila 6: la operación tiene que ser «venta» o «alquiler».",
   ],
+  warnings: [],
 };
 
 describe("PropiedadesPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchMe).mockResolvedValue(me());
+    vi.mocked(fetchConditionSettings).mockResolvedValue(settings());
     vi.mocked(fetchProperties).mockResolvedValue(
       page([property(), property({ id: "p2", title: "Loft", operation: "sale", currency: "USD", price: 155000, status: "paused" })], 23),
     );
@@ -178,7 +202,54 @@ describe("PropiedadesPage", () => {
       rooms: 3,
       link: "https://inmo.example/p/1",
       status: "published",
+      conditions: EMPTY_CONDITIONS,
     });
+  });
+
+  it("saves the conditions of the operation and shows where a default applies", async () => {
+    vi.mocked(createProperty).mockResolvedValue(property());
+    const user = renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Agregar una" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Agregar una propiedad" }));
+    expect(dialog.getByText(/Por defecto: Seguro de caución/)).toBeTruthy();
+    expect(dialog.queryByRole("radiogroup", { name: "Apta crédito hipotecario" })).toBeNull();
+
+    await user.type(dialog.getByLabelText("Título"), "Depto");
+    await user.type(dialog.getByLabelText("Dirección"), "Calle 1");
+    await user.type(dialog.getByLabelText("Zona o barrio"), "Palermo");
+    await user.type(dialog.getByLabelText("Precio"), "100000");
+    await user.type(dialog.getByLabelText("Ambientes"), "1");
+    await user.type(dialog.getByLabelText("Link del aviso"), "https://inmo.example/p/9");
+    await user.click(dialog.getByRole("button", { name: "Garantía propietaria" }));
+    await user.type(dialog.getByLabelText("Contrato mínimo (meses)"), "24");
+    const pets = within(dialog.getByRole("radiogroup", { name: "Acepta mascotas" }));
+    await user.click(pets.getByRole("radio", { name: "No" }));
+    await user.type(dialog.getByLabelText("Otras condiciones"), "Requiere dos garantías");
+    await user.click(dialog.getByRole("button", { name: "Guardar" }));
+
+    expect(vi.mocked(createProperty).mock.calls[0]?.[0].conditions).toEqual({
+      ...EMPTY_CONDITIONS,
+      garantias: ["propietaria"],
+      contrato_minimo_meses: 24,
+      mascotas: false,
+      condiciones: "Requiere dos garantías",
+    });
+  });
+
+  it("shows the main conditions as badges in the list", async () => {
+    vi.mocked(fetchProperties).mockResolvedValue(
+      page([
+        property({
+          effective_conditions: { ...EMPTY_CONDITIONS, garantias: ["caucion"], mascotas: false },
+        }),
+      ]),
+    );
+    renderPage();
+
+    const row = (await screen.findByText("2 ambientes luminoso")).closest("tr") as HTMLElement;
+    expect(within(row).getByText("Caución")).toBeTruthy();
+    expect(within(row).getByText("Sin mascotas")).toBeTruthy();
   });
 
   it("shows the link conflict from the API", async () => {
@@ -228,6 +299,7 @@ describe("PropiedadesPage on a phone", () => {
     vi.clearAllMocks();
     phoneViewport(390);
     vi.mocked(fetchMe).mockResolvedValue(me());
+    vi.mocked(fetchConditionSettings).mockResolvedValue(settings());
     vi.mocked(fetchProperties).mockResolvedValue(
       page([property(), property({ id: "p2", title: "Loft", operation: "sale", currency: "USD", price: 155000, status: "paused" })], 23),
     );

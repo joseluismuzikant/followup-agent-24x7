@@ -33,6 +33,10 @@ interface AgentSetupFormProps {
   showIntro?: boolean;
 }
 
+
+/** Asked only when the chosen property needs them (the conditions), never up front. */
+const BEFORE_VISIT = new Set(["garantia", "plazo_meses", "necesita_credito"]);
+
 /** A question in the form. `id` keeps React rows stable while a new question has no key. */
 type FormQuestion = AgentQuestionInput & { id: string };
 type FormConfig = Omit<AgentConfigInput, "qualification_questions"> & {
@@ -187,7 +191,7 @@ export function AgentSetupForm({
 
       <FormField
         label="Qué le pregunta tu agente a cada persona"
-        hint="De a una pregunta por mensaje, y siempre después de mostrarle opciones."
+        hint="De a una pregunta por mensaje, y siempre después de mostrarle opciones. Las marcadas «Antes de visitar» (garantía, plazo, crédito) se preguntan solo si la propiedad elegida lo pide."
       >
         <ul className="flex flex-col gap-2">
           {questions.map((question, index) => (
@@ -205,6 +209,14 @@ export function AgentSetupForm({
                 aria-label={`Pregunta ${index + 1}`}
                 onChange={(event) => updateQuestion(index, { label: event.target.value })}
               />
+              {question.key && BEFORE_VISIT.has(question.key) ? (
+                <span
+                  className="hidden shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground sm:inline"
+                  title="Se pregunta solo cuando la persona elige una propiedad que lo pide."
+                >
+                  Antes de visitar
+                </span>
+              ) : null}
               {readOnly ? null : (
                 <>
                   <Button

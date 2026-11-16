@@ -9,7 +9,7 @@ export {
   type HoursPresetValue,
 } from "@followup/app-shell";
 
-export const MAX_QUESTIONS = 10;
+export const MAX_QUESTIONS = 12;
 
 export const businessTypes = [
   { value: "inmobiliaria", label: "Inmobiliaria" },

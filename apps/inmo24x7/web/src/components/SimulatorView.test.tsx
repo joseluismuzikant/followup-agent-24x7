@@ -165,6 +165,7 @@ describe("SimulatorView", () => {
         updated: 0,
         failed: 3,
         errors: ["Fila 3: falta el precio."],
+        warnings: [],
       };
     });
     const user = renderView();

@@ -7,17 +7,17 @@ from enum import StrEnum
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from .conditions import PropertyConditions
+from .operation import Operation
+
+__all__ = ["Operation"]
+
 MAX_TITLE_LENGTH = 120
 MAX_ADDRESS_LENGTH = 200
 MAX_ZONE_LENGTH = 80
 MAX_LINK_LENGTH = 500
 MAX_ROOMS = 20
 MAX_PRICE = 10_000_000_000
-
-
-class Operation(StrEnum):
-    SALE = "sale"
-    RENT = "rent"
 
 
 class Currency(StrEnum):
@@ -80,6 +80,8 @@ class PropertyFields:
     rooms: int
     link: str
     status: PropertyStatus = PropertyStatus.PUBLISHED
+    # Requirements and features (conditions.py); only those of its operation are kept.
+    conditions: PropertyConditions = PropertyConditions()
 
     def clean(self) -> "PropertyFields":
         return replace(
@@ -88,6 +90,7 @@ class PropertyFields:
             address=" ".join(self.address.split()),
             zone=" ".join(self.zone.split()),
             link=self.link.strip(),
+            conditions=self.conditions.for_operation(self.operation),
         )
 
     def problems(self) -> list[Problem]:
@@ -126,6 +129,7 @@ class PropertyChanges:
     rooms: int | None = None
     link: str | None = None
     status: PropertyStatus | None = None
+    conditions: PropertyConditions | None = None
 
     def apply(self, fields: PropertyFields) -> PropertyFields:
         changes = {

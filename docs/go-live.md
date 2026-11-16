@@ -155,7 +155,12 @@ Every variable has a comment. Where each value comes from:
 - The domains and `ACME_EMAIL`.
 - `DATABASE_URL`: step 3.2.
 - `SUPABASE_*`: steps 3.9 and 3.10.
-- `LLM_MODEL` and its key.
+- `LLM_MODEL` and its key. With OpenAI (`openai:gpt-5.4-mini`, or `openai:gpt-5.4-nano` for the
+  lowest cost) also set `LLM_REASONING_EFFORT=low`, the recommended value for Sofía: each turn
+  is a short JSON extraction and a short reply, and `low` keeps WhatsApp latency down while
+  extracting reliably. Empty leaves the model's default (`none` on GPT-5.4); `minimal` is
+  accepted for GPT-5 models that support it, and GPT-5.4, which doesn't, retries with `low`
+  (log `llm_reasoning_effort_fallback`) without failing the turn. Other providers ignore it.
 - `META_APP_ID`, `META_APP_SECRET`, `META_EMBEDDED_SIGNUP_CONFIG_ID`: step 8.
 - `WHATSAPP_VERIFY_TOKEN`: `openssl rand -hex 24`.
 - `TOKEN_ENCRYPTION_KEY`: `python3 -c "import base64, os;

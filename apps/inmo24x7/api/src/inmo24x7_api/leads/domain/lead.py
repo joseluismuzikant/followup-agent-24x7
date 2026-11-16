@@ -63,6 +63,9 @@ class Lead:
     last_activity_at: datetime
     # The last message someone from the team sent the lead.
     last_human_reply_at: datetime | None = None
+    # cumple / no_cumple / sin_datos for what the lead chose (or else was shown), with the
+    # team's overrides; None until a property with data was evaluated.
+    conditions_status: str | None = None
 
     @classmethod
     def start(

@@ -35,7 +35,7 @@ from ..domain.repositories import (
     PropertyPage,
     PropertyRepository,
 )
-from .rows import COLUMNS, ColumnMap, parse_row, row_error
+from .rows import COLUMNS, ColumnMap, ParsedRow, ignored_warning, parse_row, row_error
 
 PAGE_SIZE = 20
 
@@ -152,14 +152,17 @@ class ImportProperties:
         now = self._clock()
         created = updated = 0
         failed: list[FailedRow] = []
+        warnings: list[str] = []
         for number, row in rows:
             parsed = parse_row(columns, row)
-            if not isinstance(parsed, PropertyFields):
+            if not isinstance(parsed, ParsedRow):
                 failed.append(
                     FailedRow(number, row_error(number, parsed), _values(table.columns, row))
                 )
                 continue
-            if self._upsert(tenant_id, parsed, now):
+            if parsed.ignored:
+                warnings.append(ignored_warning(number, parsed.ignored, parsed.fields.operation))
+            if self._upsert(tenant_id, parsed.fields, now):
                 created += 1
             else:
                 updated += 1
@@ -175,6 +178,7 @@ class ImportProperties:
             columns=list(table.columns),
             failed_rows=failed,
             created_at=now,
+            warnings=warnings,
         )
         self._imports.add(record)
         self._audit.record(
@@ -247,18 +251,54 @@ class GetImportErrors:
         )
 
 
-TEMPLATE_EXAMPLE = [
-    "2 ambientes luminoso",
-    "Gorriti 4800",
-    "alquiler",
-    "Palermo",
-    "850.000",
-    "ARS",
-    "2",
-    "https://www.tuinmobiliaria.com.ar/propiedades/gorriti-4800",
-    "publicada",
+# One rent and one sale, so each shows its own conditions (the others stay empty).
+TEMPLATE_EXAMPLES = [
+    [
+        "2 ambientes luminoso",
+        "Gorriti 4800",
+        "alquiler",
+        "Palermo",
+        "850.000",
+        "ARS",
+        "2",
+        "https://www.tuinmobiliaria.com.ar/propiedades/gorriti-4800",
+        "publicada",
+        "caución, propietaria",
+        "24",
+        "no",
+        "no",
+        "sí",
+        "no",
+        "",
+        "",
+        "",
+        "Pide dos recibos de sueldo además de la garantía.",
+    ],
+    [
+        "3 ambientes con balcón",
+        "Cabildo 2100",
+        "venta",
+        "Belgrano",
+        "USD 185.000",
+        "USD",
+        "3",
+        "https://www.tuinmobiliaria.com.ar/propiedades/cabildo-2100",
+        "publicada",
+        "",
+        "",
+        "",
+        "",
+        "sí",
+        "sí",
+        "sí",
+        "no",
+        "sí",
+        "",
+    ],
 ]
+# The first example as a single row (kept for callers of the Day 4 template).
+TEMPLATE_EXAMPLE = TEMPLATE_EXAMPLES[0]
 
 
 def import_template() -> str:
-    return _csv(list(COLUMNS), [TEMPLATE_EXAMPLE])
+    return _csv(list(COLUMNS), TEMPLATE_EXAMPLES)

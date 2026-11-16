@@ -1,5 +1,7 @@
 import { apiError, ApiRequestError } from "@followup/api-client-inmo24x7";
 import type {
+  ConditionSettings,
+  ConditionSettingsInput,
   ImportReport,
   Property,
   PropertyChanges,
@@ -95,4 +97,23 @@ export function downloadImportErrors(importId: string): Promise<void> {
 
 export function downloadImportTemplate(): Promise<void> {
   return download("/properties/import-template.csv", "plantilla-propiedades.csv");
+}
+
+export async function fetchConditionSettings(): Promise<ConditionSettings> {
+  const { data, error, response } = await apiClient.GET("/condition-settings");
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
+}
+
+/** "Condiciones generales": the agency's defaults and Sofía's behavior. */
+export async function saveConditionSettings(
+  input: ConditionSettingsInput,
+): Promise<ConditionSettings> {
+  const { data, error, response } = await apiClient.PUT("/condition-settings", { body: input });
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
 }

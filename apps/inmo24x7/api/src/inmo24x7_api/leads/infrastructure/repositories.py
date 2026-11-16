@@ -7,6 +7,7 @@ from sqlalchemy import ColumnElement, and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from ...properties.infrastructure.models import PropertyModel
 from ..domain.lead import (
     WAITING_FOR_TEAM,
     HandOffReason,
@@ -16,8 +17,23 @@ from ..domain.lead import (
     Visit,
     VisitStatus,
 )
-from ..domain.repositories import InboxTab, LeadFilters, LeadPage, Search
-from .models import LeadModel, LeadPropertyMatchModel, LeadStatusChangeModel, VisitModel
+from ..domain.repositories import (
+    ConditionCounts,
+    Evaluation,
+    InboxTab,
+    LeadFilters,
+    LeadPage,
+    Search,
+    StoredMatch,
+    lead_status,
+)
+from .models import (
+    LeadConditionEventModel,
+    LeadModel,
+    LeadPropertyMatchModel,
+    LeadStatusChangeModel,
+    VisitModel,
+)
 
 
 class SqlAlchemyLeadRepository:
@@ -50,6 +66,7 @@ class SqlAlchemyLeadRepository:
             created_at=model.created_at,
             last_activity_at=model.last_activity_at,
             last_human_reply_at=model.last_human_reply_at,
+            conditions_status=model.conditions_status,
         )
 
     def get(self, tenant_id: UUID, lead_id: UUID) -> Lead | None:
@@ -105,6 +122,8 @@ class SqlAlchemyLeadRepository:
         if not filters.include_test:
             conditions.append(~LeadModel.is_test)
         conditions.extend(_search_conditions(filters.search))
+        if filters.conditions:
+            conditions.append(LeadModel.conditions_status == filters.conditions)
         return conditions
 
     def _count(self, conditions: Sequence[ColumnElement[bool]]) -> int:
@@ -196,6 +215,121 @@ class SqlAlchemyLeadRepository:
             )
             .on_conflict_do_nothing(index_elements=["lead_id", "property_id"])
         )
+
+    def record_evaluations(
+        self, lead_id: UUID, evaluations: Sequence[Evaluation], at: datetime
+    ) -> None:
+        for item in evaluations:
+            match = dict(item.match) if item.match is not None else None
+            status = str(match["status"]) if match else None
+            statement = insert(LeadPropertyMatchModel).values(
+                lead_id=lead_id,
+                property_id=item.property_id,
+                shown_at=at,
+                status=status,
+                match=match,
+                evaluated_at=at if match else None,
+                chosen=item.chosen,
+            )
+            self._session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["lead_id", "property_id"],
+                    set_={
+                        "status": func.coalesce(
+                            statement.excluded.status, LeadPropertyMatchModel.status
+                        ),
+                        "match": func.coalesce(
+                            statement.excluded.match, LeadPropertyMatchModel.match
+                        ),
+                        "evaluated_at": func.coalesce(
+                            statement.excluded.evaluated_at, LeadPropertyMatchModel.evaluated_at
+                        ),
+                        # Once chosen, always chosen.
+                        "chosen": LeadPropertyMatchModel.chosen | statement.excluded.chosen,
+                    },
+                )
+            )
+
+    def matches(self, lead_id: UUID) -> Sequence[StoredMatch]:
+        rows = self._session.execute(
+            select(LeadPropertyMatchModel, PropertyModel.title, PropertyModel.address)
+            .join(PropertyModel, PropertyModel.id == LeadPropertyMatchModel.property_id)
+            .where(LeadPropertyMatchModel.lead_id == lead_id)
+            .order_by(LeadPropertyMatchModel.chosen.desc(), LeadPropertyMatchModel.shown_at)
+        ).all()
+        return [
+            StoredMatch(
+                property_id=row[0].property_id,
+                title=row.title,
+                address=row.address,
+                match=row[0].match,
+                chosen=row[0].chosen,
+                override_status=row[0].override_status,
+                evaluated_at=row[0].evaluated_at,
+            )
+            for row in rows
+        ]
+
+    def refresh_conditions_status(self, lead_id: UUID) -> str | None:
+        status = lead_status(self.matches(lead_id))
+        model = self._session.get(LeadModel, lead_id)
+        if model is not None:
+            model.conditions_status = status
+            self._session.flush()
+        return status
+
+    def override_match(
+        self, lead_id: UUID, property_id: UUID, status: str | None, profile_id: UUID, at: datetime
+    ) -> bool:
+        model = self._session.get(LeadPropertyMatchModel, (lead_id, property_id))
+        if model is None:
+            return False
+        model.override_status = status
+        model.overridden_by_profile_id = profile_id if status else None
+        model.overridden_at = at if status else None
+        self._session.flush()
+        return True
+
+    def record_condition_events(
+        self,
+        tenant_id: UUID,
+        lead_id: UUID,
+        events: Sequence[tuple[str, UUID | None]],
+        at: datetime,
+    ) -> None:
+        for kind, property_id in events:
+            self._session.execute(
+                insert(LeadConditionEventModel)
+                .values(
+                    id=uuid4(),
+                    tenant_id=tenant_id,
+                    lead_id=lead_id,
+                    kind=kind,
+                    dedupe=f"{kind}:{property_id or ''}",
+                    property_id=property_id,
+                    created_at=at,
+                )
+                .on_conflict_do_nothing(index_elements=["lead_id", "dedupe"])
+            )
+
+    def condition_counts(self, tenant_id: UUID, start: datetime, end: datetime) -> ConditionCounts:
+        def count(kind: str) -> int:
+            return int(
+                self._session.scalar(
+                    select(func.count(func.distinct(LeadConditionEventModel.lead_id)))
+                    .join(LeadModel, LeadModel.id == LeadConditionEventModel.lead_id)
+                    .where(
+                        LeadConditionEventModel.tenant_id == tenant_id,
+                        LeadConditionEventModel.kind == kind,
+                        LeadConditionEventModel.created_at >= start,
+                        LeadConditionEventModel.created_at < end,
+                        ~LeadModel.is_test,
+                    )
+                )
+                or 0
+            )
+
+        return ConditionCounts(count("mismatch"), count("visit_avoided"))
 
 
 _ACTIVE_VISITS = (VisitStatus.PROPOSED.value, VisitStatus.CONFIRMED.value)

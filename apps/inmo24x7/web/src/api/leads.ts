@@ -1,5 +1,6 @@
 import { apiError, ApiRequestError, REQUEST_ID_HEADER } from "@followup/api-client-inmo24x7";
 import type {
+  ConditionStatus,
   InboxTab,
   LeadDetail,
   LeadList,
@@ -12,6 +13,8 @@ export interface LeadFilters {
   tab?: InboxTab;
   q?: string;
   includeTest?: boolean;
+  /** "Cumple / No cumple / Sin datos". */
+  conditions?: ConditionStatus;
   page?: number;
 }
 
@@ -25,7 +28,13 @@ function leadQuery(filters: LeadFilters) {
 
 export async function fetchLeads(filters: LeadFilters = {}): Promise<LeadList> {
   const { data, error, response } = await apiClient.GET("/leads", {
-    params: { query: { ...leadQuery(filters), page: filters.page ?? 1 } },
+    params: {
+      query: {
+        ...leadQuery(filters),
+        conditions: filters.conditions,
+        page: filters.page ?? 1,
+      },
+    },
   });
   if (data) {
     return data;
@@ -130,4 +139,20 @@ export async function downloadLeadsCsv(filters: LeadFilters): Promise<void> {
   link.download = name;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** "Cumple igual" (or back to the agent's evaluation with null). */
+export async function overrideConditions(
+  leadId: string,
+  propertyId: string,
+  status: "cumple" | "no_cumple" | null,
+): Promise<LeadDetail> {
+  const { data, error, response } = await apiClient.POST(
+    "/leads/{lead_id}/properties/{property_id}/conditions",
+    { params: { path: { lead_id: leadId, property_id: propertyId } }, body: { status } },
+  );
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
 }

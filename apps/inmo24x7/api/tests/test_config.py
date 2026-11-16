@@ -495,3 +495,19 @@ def test_bad_monitoring_values_stop_startup(
 
     with pytest.raises(ConfigurationError, match=message):
         get_settings()
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("", ""), ("low", "low"), (" Minimal ", "minimal")])
+def test_llm_reasoning_effort_is_optional(monkeypatch, raw, expected) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", raw)
+
+    assert get_settings().llm_reasoning_effort == expected
+
+
+def test_llm_reasoning_effort_rejects_other_values(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "high")
+
+    with pytest.raises(ConfigurationError, match="LLM_REASONING_EFFORT"):
+        get_settings()

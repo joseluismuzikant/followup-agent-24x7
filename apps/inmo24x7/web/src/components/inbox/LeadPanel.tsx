@@ -24,6 +24,7 @@ import {
   takeOverLead,
 } from "../../api/leads";
 import { fetchMe } from "../../api/me";
+import { ConditionsBlock } from "./ConditionsBlock";
 import { apiErrorMessage } from "../../lib/api-errors";
 import {
   channelLabel,
@@ -190,6 +191,7 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
       ) : null}
 
       <KnownFactsPanel title="Lo que contó" facts={lead.answers} collapsible={!wide} />
+      <ConditionsBlock leadId={leadId} conditions={lead.conditions} canAct={canAct} />
 
       <section aria-label="Conversación" className="flex flex-col gap-3 rounded-lg border bg-card p-4">
         <h3 className="text-sm font-semibold">Conversación</h3>

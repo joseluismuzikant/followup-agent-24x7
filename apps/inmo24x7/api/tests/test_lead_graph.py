@@ -63,13 +63,15 @@ def test_one_question_per_message_in_config_order() -> None:
         assert sum(text.count("?") for text in (m["text"] for m in messages)) <= 1
 
 
-def test_the_mortgage_question_is_only_asked_when_buying() -> None:
+def test_the_credit_question_is_never_asked_up_front() -> None:
+    """necesita_credito (the old mortgage_approved) is asked only when a chosen property
+    needs it; buying asks the same questions as renting."""
     chat = Chat()
-    for text in ["Hola", "Quiero comprar", "Palermo", "hasta 150 mil dólares", "no", "2"]:
+    for text in ["Hola", "Quiero comprar", "Palermo", "hasta 150 mil dólares", "2"]:
         chat.say(text)
 
-    assert chat.asked() == ["operation", "zone", "budget", "mortgage_approved", "rooms"]
-    assert chat.state()["answers"]["mortgage_approved"] is False
+    assert chat.asked() == ["operation", "zone", "budget", "rooms"]
+    assert "necesita_credito" not in chat.state()["answers"]
 
 
 def test_order_follows_the_config_and_disabled_questions_are_skipped() -> None:
@@ -170,7 +172,7 @@ def test_declining_the_visit_hands_off_and_the_flow_never_restarts() -> None:
         ({"operation": "alquiler"}, "Alquiler"),
         ({"budget": {"amount": 900000, "currency": "ARS"}}, "Hasta $900.000"),
         ({"budget": {"amount": 120000, "currency": "USD"}}, "USD 120.000"),
-        ({"mortgage_approved": True}, "Sí"),
+        ({"tiene_mascota": True}, "Sí"),
     ],
 )
 def test_known_values_are_formatted_for_display(answers: dict, expected: str) -> None:

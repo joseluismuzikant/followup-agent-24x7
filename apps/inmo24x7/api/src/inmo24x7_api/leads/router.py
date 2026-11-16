@@ -23,13 +23,17 @@ from pydantic import BaseModel, Field
 
 from ..auth import current_profile, require_role
 from ..http_errors import ApiError
+from ..properties.domain.conditions import Match
 from ..simulator import KnownFactRead, MessageRead, message_read
+from .application.conditions import OverrideMatch
 from .application.inbox import LeadActions, service_window
 from .application.queries import ExportLeads, GetLead, LeadDetail, ListLeads
+from .conditions import FACTS, fact_value
 from .display import known_rows, lead_csv, looking_for
 from .domain.errors import (
     InvalidLeadTransitionError,
     LeadNotFoundError,
+    MatchNotFoundError,
     OutsideServiceWindowError,
     TemplateNotConfiguredError,
     VisitCancelledError,
@@ -50,6 +54,9 @@ MAX_TEAM_MESSAGE = 4096
 can_act = require_role(Role.OWNER, Role.MANAGER, Role.AGENT)
 
 
+ConditionStatusName = Literal["cumple", "no_cumple", "sin_datos"]
+
+
 class LeadRead(BaseModel):
     id: UUID
     visitor_name: str | None
@@ -67,6 +74,42 @@ class LeadRead(BaseModel):
     needs_attention: bool = False
     # The next proposed or confirmed visit (list only).
     next_visit_at: datetime | None = None
+    # How the lead compares with the conditions of what they chose (or saw).
+    conditions_status: ConditionStatusName | None = None
+
+
+class ConditionFactRead(BaseModel):
+    key: str
+    label: str
+    value: str
+
+
+class PropertyConditionRead(BaseModel):
+    property_id: UUID
+    title: str
+    address: str
+    chosen: bool
+    # The team's override wins over the agent's evaluation.
+    status: ConditionStatusName | None
+    agent_status: ConditionStatusName | None
+    overridden: bool
+    # "No cumple: pide seguro de caución; tiene garantía propietaria".
+    summary: str
+    reasons: list[str]
+    features: list[str]
+    notes: list[str]
+    evaluated_at: datetime | None
+
+
+class LeadConditionsRead(BaseModel):
+    status: ConditionStatusName | None
+    facts: list[ConditionFactRead]
+    properties: list[PropertyConditionRead]
+
+
+class OverrideWrite(BaseModel):
+    # "cumple" = "Cumple igual"; null goes back to the agent's evaluation.
+    status: Literal["cumple", "no_cumple"] | None
 
 
 class TabCountsRead(BaseModel):
@@ -123,6 +166,7 @@ class LeadDetailRead(LeadRead):
     control: ControlRead
     # WhatsApp only.
     service_window: ServiceWindowRead | None
+    conditions: LeadConditionsRead
 
 
 class TeamMessageWrite(BaseModel):
@@ -154,6 +198,7 @@ def lead_read(lead: Lead, next_visit_at: datetime | None = None) -> LeadRead:
         last_activity_at=lead.last_activity_at,
         needs_attention=lead.needs_attention,
         next_visit_at=next_visit_at,
+        conditions_status=lead.conditions_status,  # type: ignore[arg-type]
     )
 
 
@@ -162,8 +207,55 @@ def actor(profile: Profile) -> Actor:
     return Actor(profile.id, profile.display_name.strip() or profile.email)
 
 
-def _filters(tab: TabName, q: str | None, include_test: bool) -> LeadFilters:
-    return LeadFilters(tab=InboxTab(tab), search=Search.parse(q), include_test=include_test)
+def _filters(
+    tab: TabName, q: str | None, include_test: bool, conditions: str | None = None
+) -> LeadFilters:
+    return LeadFilters(
+        tab=InboxTab(tab),
+        search=Search.parse(q),
+        include_test=include_test,
+        conditions=conditions,
+    )
+
+
+def conditions_read(detail: LeadDetail) -> LeadConditionsRead:
+    lead = detail.lead
+    facts = [
+        ConditionFactRead(key=key, label=FACTS[key].label, value=value)
+        for key in FACTS
+        if (value := fact_value(key, lead.answers.get(key))) is not None
+    ]
+    properties = []
+    for item in detail.matches:
+        match = Match.from_json(item.match) if item.match else None
+        agent = match.status.value if match else None
+        status = item.status
+        summary = match.summary if match else "Sin datos"
+        if item.override_status == "cumple":
+            summary = "Cumple igual (lo marcó el equipo)"
+        elif item.override_status == "no_cumple":
+            summary = "No cumple (lo marcó el equipo)"
+        properties.append(
+            PropertyConditionRead(
+                property_id=item.property_id,
+                title=item.title,
+                address=item.address,
+                chosen=item.chosen,
+                status=status,  # type: ignore[arg-type]
+                agent_status=agent,  # type: ignore[arg-type]
+                overridden=item.override_status is not None,
+                summary=summary,
+                reasons=[failure.reason for failure in match.failed] if match else [],
+                features=list(match.features) if match else [],
+                notes=list(match.notes) if match else [],
+                evaluated_at=item.evaluated_at,
+            )
+        )
+    return LeadConditionsRead(
+        status=lead.conditions_status,  # type: ignore[arg-type]
+        facts=facts,
+        properties=properties,
+    )
 
 
 def detail_read(
@@ -183,7 +275,7 @@ def detail_read(
         **lead_read(lead).model_dump(),
         answers=[
             KnownFactRead(key=row.key, label=row.label, value=row.value)
-            for row in known_rows(detail.agent_config, state)
+            for row in known_rows(detail.agent_config, state, conditions=False)
         ],
         status_history=[
             StatusChangeRead(status=change.status.value, changed_at=change.changed_at)
@@ -217,6 +309,7 @@ def detail_read(
             changed_at=thread.control_changed_at if thread else None,
         ),
         service_window=window,
+        conditions=conditions_read(detail),
     )
 
 
@@ -226,6 +319,7 @@ def build_leads_router(
     delivery_factory: Callable[..., OutboundRepository],
     export_factory: Callable[..., ExportLeads],
     actions_factory: Callable[..., LeadActions],
+    override_factory: Callable[..., OverrideMatch],
 ) -> APIRouter:
     router = APIRouter(tags=["leads"])
 
@@ -236,9 +330,12 @@ def build_leads_router(
         tab: TabName = "all",
         q: Annotated[str | None, Query(max_length=100)] = None,
         include_test: bool = False,
+        conditions: ConditionStatusName | None = None,
         page: Annotated[int, Query(ge=1)] = 1,
     ) -> LeadListRead:
-        result = use_case.execute(profile.tenant_id, _filters(tab, q, include_test), page)
+        result = use_case.execute(
+            profile.tenant_id, _filters(tab, q, include_test, conditions), page
+        )
         return LeadListRead(
             items=[lead_read(lead, result.next_visits.get(lead.id)) for lead in result.items],
             total=result.total,
@@ -296,6 +393,27 @@ def build_leads_router(
         lead_id: UUID, profile: Profile, get: GetLead, delivery: OutboundRepository
     ) -> LeadDetailRead:
         return detail_read(get.execute(profile.tenant_id, lead_id), delivery)
+
+    @router.post(
+        "/leads/{lead_id}/properties/{property_id}/conditions", response_model=LeadDetailRead
+    )
+    def override_conditions(
+        lead_id: UUID,
+        property_id: UUID,
+        payload: OverrideWrite,
+        profile: Annotated[Profile, Depends(current_profile)],
+        override: Annotated[OverrideMatch, Depends(override_factory)],
+        get: Annotated[GetLead, Depends(get_factory)],
+        delivery: Annotated[OutboundRepository, Depends(delivery_factory)],
+    ) -> LeadDetailRead:
+        """ "Cumple igual" (audited); null goes back to the agent's evaluation."""
+        try:
+            override.execute(profile.tenant_id, profile.id, lead_id, property_id, payload.status)
+        except LeadNotFoundError as error:
+            raise ApiError(404, "lead_not_found") from error
+        except MatchNotFoundError as error:
+            raise ApiError(404, "property_not_shown") from error
+        return refreshed(lead_id, profile, get, delivery)
 
     @router.post("/leads/{lead_id}/takeover", response_model=LeadDetailRead)
     def take_over(

@@ -5,7 +5,7 @@ Extraction uses simple keyword and regex rules; replies come from templates per 
 """
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from followup_core.tenancy.domain.agent_config import QualificationQuestion, QuestionKind, Tone
@@ -106,7 +106,8 @@ def _value(question: QualificationQuestion, text: str, asked: bool) -> Any:
         case QuestionKind.BOOLEAN:
             if not asked:
                 return None
-            first = normalize(text).split()[:1]
+            # The first word, without punctuation ("sí," and "no." count).
+            first = re.findall(r"[a-z]+", normalize(text))[:1]
             if first and first[0] in _YES:
                 return True
             return False if first and first[0] == "no" else None
@@ -115,6 +116,67 @@ def _value(question: QualificationQuestion, text: str, asked: bool) -> Any:
                 return text.strip()
             place = _PLACE.search(text)
             return place.group(1) if place else None
+
+
+def _flag(yes: str, no: str | None = None) -> Callable[[str, bool], bool | None]:
+    """A fact said in passing: `no` wins over `yes` ("sin mascotas" before "mascotas")."""
+
+    def read(text: str, asked: bool) -> bool | None:
+        said = normalize(text)
+        if no and re.search(no, said):
+            return False
+        if re.search(yes, said):
+            return True
+        return None
+
+    return read
+
+
+def _term(text: str, asked: bool) -> int | None:
+    said = normalize(text)
+    years = re.search(r"(\d+|un|dos|tres)\s*anos?", said)
+    if years:
+        count = {"un": 1, "dos": 2, "tres": 3}.get(years.group(1))
+        return (count or int(years.group(1))) * 12
+    months = re.search(r"(\d+)\s*mes", said)
+    if months:
+        return int(months.group(1))
+    number = re.search(r"\d+", said)
+    return int(number.group(0)) if asked and number else None
+
+
+def _guarantee(text: str, asked: bool) -> str | None:
+    said = normalize(text)
+    if re.search(r"\b(no tengo|sin|ninguna)\b[^.]*\bgarant|\bninguna\b", said):
+        return "ninguna"
+    for pattern, value in (
+        (r"caucion", "caucion"),
+        (r"propietari", "propietaria"),
+        (r"recibo", "recibo_de_sueldo"),
+        (r"otra garant", "otra"),
+    ):
+        if re.search(pattern, said):
+            return value
+    return None
+
+
+# Facts a lead mentions without being asked ("tengo un perro"), by question key. Products
+# name them; a key without a rule is read by kind, as any other question.
+_PASSIVE: Mapping[str, Callable[[str, bool], Any]] = {
+    "tiene_mascota": _flag(
+        r"\b(perr[oa]s?|gat[oa]s?|mascotas?|cachorr[oa])\b", r"\b(sin|no tengo)\s+mascota"
+    ),
+    "uso_profesional": _flag(r"consultorio|uso profesional|\bestudio\b|oficina"),
+    "quiere_amueblado": _flag(r"amueblad|amoblad", r"sin amueblar|no (?:lo quiero )?amueblad"),
+    "temporal": _flag(r"temporari|\btemporal\b"),
+    "plazo_meses": _term,
+    "garantia": _guarantee,
+    "necesita_credito": _flag(
+        r"credito|hipotecari", r"no necesito credito|sin credito|de contado|en efectivo"
+    ),
+    "necesita_financiacion": _flag(r"financiacion|en cuotas"),
+    "ofrece_permuta": _flag(r"permuta"),
+}
 
 
 _GREETINGS = {
@@ -203,6 +265,41 @@ _TEMPLATES: dict[ReplyIntent, dict[Tone, str]] = {
         Tone.PROFESSIONAL: "Gracias{name}. Una persona del equipo sigue con tu consulta.",
         Tone.FORMAL: "Muchas gracias{name}. Una persona del equipo continuará con su consulta.",
     },
+    ReplyIntent.REQUIREMENT_CHECK: {
+        Tone.WARM: "Antes de coordinar: esta propiedad {requirement}. ¿Podrías cumplir con eso?",
+        Tone.PROFESSIONAL: "Esta propiedad {requirement}. ¿Podrías cumplir con eso?",
+        Tone.FORMAL: "Le comento que esta propiedad {requirement}. ¿Podría cumplir con eso?",
+    },
+    ReplyIntent.OFFER_FITTING: {
+        Tone.WARM: "¡Entendido! Entonces te pueden servir {options}. ¿Querés visitar alguna?",
+        Tone.PROFESSIONAL: "Entendido. Te pueden servir {options}. ¿Querés visitar alguna?",
+        Tone.FORMAL: "Entendido. Le pueden servir {options}. ¿Desea visitar alguna?",
+    },
+    ReplyIntent.ASK_RELAX: {
+        Tone.WARM: (
+            "Por ahora las opciones que tenemos {requirement}. ¿Te interesaría verlas igual?"
+        ),
+        Tone.PROFESSIONAL: (
+            "Por ahora las opciones disponibles {requirement}. ¿Te interesaría verlas igual?"
+        ),
+        Tone.FORMAL: (
+            "Por el momento las opciones disponibles {requirement}. ¿Le interesaría verlas?"
+        ),
+    },
+    ReplyIntent.NO_FIT: {
+        Tone.WARM: (
+            "¡Gracias por contarme{name}! Por ahora no tengo opciones con esas condiciones; "
+            "si entra algo, el equipo te avisa."
+        ),
+        Tone.PROFESSIONAL: (
+            "Gracias{name}. Por ahora no hay opciones con esas condiciones; el equipo te avisa "
+            "si aparece alguna."
+        ),
+        Tone.FORMAL: (
+            "Muchas gracias{name}. Por el momento no contamos con opciones en esas condiciones; "
+            "el equipo le avisará si surge alguna."
+        ),
+    },
     ReplyIntent.AFTER_HAND_OFF: {
         Tone.WARM: (
             "Ya le pasé tu consulta al equipo, te escriben muy pronto. ¡Gracias por la paciencia!"
@@ -257,7 +354,7 @@ class FakeLanguageModel:
         values = {
             question.key: value
             for question in request.questions
-            if (value := _value(question, text, request.asked_key == question.key)) is not None
+            if (value := self._read(question, text, request.asked_key == question.key)) is not None
         }
         name = None
         if request.wants_name:
@@ -277,6 +374,14 @@ class FakeLanguageModel:
             choice_id=_choice_id(request.choices, text),
             wants_human=bool(_HUMAN.search(normalize(text))),
         )
+
+    @staticmethod
+    def _read(question: QualificationQuestion, text: str, asked: bool) -> Any:
+        passive = _PASSIVE.get(question.key)
+        value = passive(text, asked) if passive else None
+        if value is None and (passive is None or asked):
+            value = _value(question, text, asked)
+        return value
 
     def compose_reply(self, request: ReplyRequest) -> Reply:
         self._call()
@@ -307,7 +412,16 @@ class FakeLanguageModel:
             option=facts.get("option", "esa propiedad"),
             slots=facts.get("slots", ""),
             slot=facts.get("slot", ""),
+            requirement=facts.get("requirement", ""),
+            options=facts.get("options", ""),
         )
         if request.intent is ReplyIntent.OFFER_SLOTS and facts.get("after_hours"):
             text += _AFTER_HOURS[tone]
+        if request.intent is ReplyIntent.PRESENT_OPTIONS and facts.get("feature_line"):
+            text += f" {facts['feature_line']}"
+        if facts.get("conditions_note") and request.intent in (
+            ReplyIntent.OFFER_SLOTS,
+            ReplyIntent.REQUIREMENT_CHECK,
+        ):
+            text += f" Además: {facts['conditions_note']}"
         return Reply(text)

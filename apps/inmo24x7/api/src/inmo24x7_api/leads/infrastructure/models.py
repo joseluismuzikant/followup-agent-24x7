@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    false,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -28,6 +29,7 @@ class LeadModel(Base):
         Index("ix_leads_tenant_last_activity", "tenant_id", "last_activity_at"),
         Index("ix_leads_tenant_created", "tenant_id", "created_at"),
         Index("ix_leads_tenant_status", "tenant_id", "status"),
+        Index("ix_leads_tenant_conditions", "tenant_id", "conditions_status"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
@@ -52,6 +54,8 @@ class LeadModel(Base):
     )
     # Lowercase, accent-free name, contact, contact digits and answers (Lead.search_text).
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # cumple / no_cumple / sin_datos for what the lead chose (or was shown); None = no data.
+    conditions_status: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class LeadStatusChangeModel(Base):
@@ -70,14 +74,58 @@ class LeadStatusChangeModel(Base):
 
 
 class LeadPropertyMatchModel(Base):
-    """A property the agent showed to the lead (S7 inquiries, Day 6 inbox)."""
+    """A property the agent showed to the lead (S7 inquiries, Day 6 inbox), and how the
+    lead's situation compared with its conditions when the agent evaluated it."""
 
     __tablename__ = "lead_property_matches"
-    __table_args__ = (Index("ix_lead_property_matches_property", "property_id"),)
+    __table_args__ = (
+        Index("ix_lead_property_matches_property", "property_id"),
+        CheckConstraint(
+            "status IS NULL OR status IN ('cumple', 'no_cumple', 'sin_datos')",
+            name="ck_lead_property_matches_status",
+        ),
+        CheckConstraint(
+            "override_status IS NULL OR override_status IN ('cumple', 'no_cumple')",
+            name="ck_lead_property_matches_override",
+        ),
+    )
 
     lead_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("leads.id"), primary_key=True)
     property_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("properties.id"), primary_key=True)
     shown_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Match.to_json(): failed requirements with their reasons, features and notes.
+    match: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "Cumple igual": the team's decision (audited), over the agent's evaluation.
+    override_status: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    overridden_by_profile_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    overridden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The lead chose this property (asked to visit it), not only saw it.
+    chosen: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+
+
+class LeadConditionEventModel(Base):
+    """ "No cumple" (a chosen property's requirement the lead fails), "visita evitada" (they
+    said they cannot meet it before booking) and "no_fit" (nothing fits): Inicio counts
+    them per month."""
+
+    __tablename__ = "lead_condition_events"
+    __table_args__ = (
+        UniqueConstraint("lead_id", "dedupe", name="uq_lead_condition_events_dedupe"),
+        CheckConstraint(
+            "kind IN ('mismatch', 'visit_avoided', 'no_fit')", name="ck_lead_condition_events_kind"
+        ),
+        Index("ix_lead_condition_events_tenant_created", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
+    lead_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("leads.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    dedupe: Mapped[str] = mapped_column(String(80), nullable=False)
+    property_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class VisitModel(Base):

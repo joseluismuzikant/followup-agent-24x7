@@ -2,14 +2,30 @@
 
 Headers are matched without accents or case ("Dirección" == "direccion"). Prices accept
 Argentine formats: 850.000, 850000, $ 900.000, USD 185.000, 1.250.000,50.
+
+The conditions columns are optional (files without them import as before):
+- yes/no columns accept sí, si, s, yes, x, 1 / no, n, 0 (case and accents ignored); empty
+  is "no informado";
+- `garantias`: a list separated by commas or slashes, with aliases ("caución", "seguro de
+  caución", "garantía propietaria", "recibo de sueldo", ...);
+- a column that does not apply to the row's operation (`apto_credito` on a rent) is ignored
+  with a warning, never an error.
 """
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from followup_core.conversation.domain.answers import normalize
 
+from ..domain.conditions import (
+    FIELDS_BY_OPERATION,
+    MAX_CONDITIONS_TEXT,
+    MAX_CONTRACT_MONTHS,
+    ConditionsInvalidError,
+    Guarantee,
+    PropertyConditions,
+)
 from ..domain.errors import ImportFileInvalidError
 from ..domain.property import (
     Currency,
@@ -19,6 +35,25 @@ from ..domain.property import (
     PropertyStatus,
     default_currency,
 )
+
+# Requirements and features (properties/domain/conditions.py), all optional.
+CONDITION_COLUMNS = (
+    "garantias",
+    "contrato_minimo_meses",
+    "temporal",
+    "amueblado",
+    "mascotas",
+    "apto_profesional",
+    "apto_credito",
+    "acepta_financiacion",
+    "acepta_permuta",
+    "condiciones",
+)
+BOOLEAN_COLUMNS = frozenset(CONDITION_COLUMNS) - {
+    "garantias",
+    "contrato_minimo_meses",
+    "condiciones",
+}
 
 COLUMNS = (
     "titulo",
@@ -30,8 +65,9 @@ COLUMNS = (
     "ambientes",
     "link",
     "estado",
+    *CONDITION_COLUMNS,
 )
-OPTIONAL_COLUMNS = frozenset({"moneda", "estado"})
+OPTIONAL_COLUMNS = frozenset({"moneda", "estado", *CONDITION_COLUMNS})
 
 MESSAGES: Mapping[Problem, str] = {
     Problem.MISSING_TITLE: "falta el título.",
@@ -73,8 +109,126 @@ _ARS = re.compile(r"\$|ars|pesos?", re.IGNORECASE)
 _THOUSANDS = re.compile(r"^\d{1,3}(\.\d{3})+$")
 
 
-def row_error(row: int, problem: Problem) -> str:
+def row_error(row: int, problem: "Problem | CellError") -> str:
+    if isinstance(problem, CellError):
+        return f"Fila {row}: {problem.message}"
     return f"Fila {row}: {MESSAGES[problem]}"
+
+
+@dataclass(frozen=True, slots=True)
+class CellError:
+    """A condition cell that cannot be read; its message names the column and the value."""
+
+    column: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedRow:
+    fields: PropertyFields
+    # Condition columns ignored because they do not apply to the row's operation.
+    ignored: tuple[str, ...] = ()
+
+
+_TRUE = frozenset({"si", "s", "yes", "y", "x", "1", "true", "verdadero"})
+_FALSE = frozenset({"no", "n", "0", "false", "falso"})
+_GUARANTEE_ALIASES = {
+    "propietaria": Guarantee.PROPIETARIA,
+    "garantia propietaria": Guarantee.PROPIETARIA,
+    "propiedad": Guarantee.PROPIETARIA,
+    "caucion": Guarantee.CAUCION,
+    "seguro de caucion": Guarantee.CAUCION,
+    "seguro caucion": Guarantee.CAUCION,
+    "recibo": Guarantee.RECIBO_DE_SUELDO,
+    "recibo de sueldo": Guarantee.RECIBO_DE_SUELDO,
+    "recibos de sueldo": Guarantee.RECIBO_DE_SUELDO,
+    "recibo_de_sueldo": Guarantee.RECIBO_DE_SUELDO,
+    "otra": Guarantee.OTRA,
+    "otras": Guarantee.OTRA,
+}
+_OPERATION_WORD = {Operation.RENT: "un alquiler", Operation.SALE: "una venta"}
+
+
+def _not_understood(column: str, value: str) -> CellError:
+    return CellError(column, f"«{column}» tiene un valor que no entiendo: «{value}».")
+
+
+def parse_flag(text: str) -> bool | None:
+    """True, False, or None when the cell is empty. Raises ValueError otherwise."""
+    value = normalize(text).strip(" .")
+    if not value:
+        return None
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    raise ValueError(text)
+
+
+def parse_guarantees(text: str) -> frozenset[Guarantee] | None:
+    """ "caución / garantía propietaria" -> {caucion, propietaria}. Raises ValueError with
+    the part it did not understand."""
+    if not text.strip():
+        return None
+    found: set[Guarantee] = set()
+    for part in re.split(r"[,/;]| y | o ", normalize(text)):
+        key = " ".join(part.split())
+        if not key:
+            continue
+        if key not in _GUARANTEE_ALIASES:
+            raise ValueError(part.strip())
+        found.add(_GUARANTEE_ALIASES[key])
+    return frozenset(found) or None
+
+
+def parse_conditions(
+    columns: "ColumnMap", row: Sequence[str], operation: Operation
+) -> tuple[PropertyConditions, tuple[str, ...]] | CellError:
+    """The row's conditions for its operation and the columns ignored, or the first cell
+    error from left to right."""
+    allowed = FIELDS_BY_OPERATION[operation]
+    values: dict[str, object] = {}
+    ignored: list[str] = []
+    for column in CONDITION_COLUMNS:
+        text = columns.cell(row, column)
+        if not text:
+            continue
+        if column not in allowed:
+            ignored.append(column)
+            continue
+        try:
+            if column in BOOLEAN_COLUMNS:
+                values[column] = parse_flag(text)
+            elif column == "garantias":
+                values[column] = parse_guarantees(text)
+            elif column == "contrato_minimo_meses":
+                months = parse_amount(text)
+                if months is None or not 1 <= months <= MAX_CONTRACT_MONTHS:
+                    return CellError(
+                        column,
+                        f"«{column}» tiene que ser un número de meses entre 1 y "
+                        f"{MAX_CONTRACT_MONTHS}: «{text}».",
+                    )
+                values[column] = months
+            else:
+                if len(" ".join(text.split())) > MAX_CONDITIONS_TEXT:
+                    return CellError(
+                        column, f"«{column}» es demasiado largo (hasta {MAX_CONDITIONS_TEXT})."
+                    )
+                values[column] = text
+        except ValueError as error:
+            shown = str(error) if column == "garantias" else text
+            return _not_understood(column, shown)
+    try:
+        return PropertyConditions(**values), tuple(ignored)  # type: ignore[arg-type]
+    except ConditionsInvalidError as error:
+        return _not_understood(error.field, columns.cell(row, error.field))
+
+
+def ignored_warning(row: int, ignored: Sequence[str], operation: Operation) -> str:
+    names = ", ".join(f"«{name}»" for name in ignored)
+    verb = "no aplica" if len(ignored) == 1 else "no aplican"
+    return f"Fila {row}: {names} {verb} a {_OPERATION_WORD[operation]}; lo ignoramos."
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +290,7 @@ def parse_price(text: str) -> tuple[int | None, Currency | None]:
     return parse_amount(text), currency
 
 
-def parse_row(columns: ColumnMap, row: Sequence[str]) -> PropertyFields | Problem:
+def parse_row(columns: ColumnMap, row: Sequence[str]) -> ParsedRow | Problem | CellError:
     """The fields of one data row, or its first problem from left to right."""
     problems: list[Problem] = []
 
@@ -188,4 +342,9 @@ def parse_row(columns: ColumnMap, row: Sequence[str]) -> PropertyFields | Proble
     problems += [p for p in fields.problems() if _COLUMN_OF[p] not in reported]
     if problems:
         return min(problems, key=lambda problem: COLUMNS.index(_COLUMN_OF[problem]))
-    return fields
+    # The conditions come after every other column: their errors are reported last.
+    conditions = parse_conditions(columns, row, fields.operation)
+    if isinstance(conditions, CellError):
+        return conditions
+    own, ignored = conditions
+    return ParsedRow(replace(fields, conditions=own), ignored)

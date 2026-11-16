@@ -37,6 +37,14 @@ class TodayLeadRead(BaseModel):
     last_activity_at: datetime
 
 
+class ConditionsKpiRead(BaseModel):
+    """This month: "Consultas que no cumplían" and "Visitas evitadas"."""
+
+    month_start: datetime | None
+    mismatches: int
+    visits_avoided: int
+
+
 class DashboardRead(BaseModel):
     business_name: str
     # Monday 00:00 in the business's timezone.
@@ -48,6 +56,7 @@ class DashboardRead(BaseModel):
     # Average seconds from a lead's message to the agent's first reply; null without data.
     response_time_seconds: float | None
     attention_today: list[TodayLeadRead]
+    conditions: ConditionsKpiRead
 
 
 def build_dashboard_router(dashboard_factory: Callable[..., GetDashboard]) -> APIRouter:
@@ -66,6 +75,11 @@ def build_dashboard_router(dashboard_factory: Callable[..., GetDashboard]) -> AP
             qualified=dashboard.qualified,
             visits=VisitsKpiRead(total=dashboard.visits, confirmed=dashboard.visits_confirmed),
             response_time_seconds=dashboard.response_seconds,
+            conditions=ConditionsKpiRead(
+                month_start=dashboard.month_start,
+                mismatches=dashboard.mismatches,
+                visits_avoided=dashboard.visits_avoided,
+            ),
             attention_today=[
                 TodayLeadRead(
                     id=lead.id,

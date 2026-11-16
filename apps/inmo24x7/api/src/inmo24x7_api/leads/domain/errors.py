@@ -28,3 +28,7 @@ class OutsideServiceWindowError(LeadsError):
 
 class TemplateNotConfiguredError(LeadsError):
     """The WhatsApp connection has no visit confirmation template."""
+
+
+class MatchNotFoundError(LookupError):
+    """The property was never shown to the lead."""

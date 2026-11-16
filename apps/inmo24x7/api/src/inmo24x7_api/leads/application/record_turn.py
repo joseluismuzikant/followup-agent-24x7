@@ -10,12 +10,14 @@ from followup_core.conversation.domain.thread import Channel
 from followup_core.scheduling.domain.jobs import JobQueue
 
 from ..domain.lead import HandOffReason, Lead, LeadStatus, Visit, VisitStatus
-from ..domain.repositories import LeadRepository
+from ..domain.repositories import Evaluation, LeadRepository
 from .notify import queue_lead_emails
 
 
 def own_property_id(value: Any) -> UUID | None:
     """Own properties have UUID ids; sample listings have slugs and are not stored."""
+    if value is None:
+        return None
     try:
         return UUID(str(value))
     except ValueError:
@@ -68,6 +70,12 @@ class RecordLeadTurn:
         if reason:
             lead = lead.hand_off(HandOffReason(reason), at)
         self._leads.save(lead)
+
+        if visit:
+            self._record_visit(lead.id, visit, at)
+        shown = [own_property_id(item) for item in state.get("shown_property_ids") or []]
+        self._leads.record_matches(lead.id, [item for item in shown if item], at)
+        self._record_conditions(lead, state, at)
         if self._queue is not None:
             queue_lead_emails(
                 self._queue,
@@ -77,10 +85,26 @@ class RecordLeadTurn:
                 and (existing is None or not existing.is_handed_off),
             )
 
-        if visit:
-            self._record_visit(lead.id, visit, at)
-        shown = [own_property_id(item) for item in state.get("shown_property_ids") or []]
-        self._leads.record_matches(lead.id, [item for item in shown if item], at)
+    def _record_conditions(self, lead: Lead, state: Mapping[str, Any], at: datetime) -> None:
+        """Each shown property's match as the agent knew it this turn (the inbox never
+        recomputes it), the lead's overall status, and the events Inicio counts."""
+        matches = state.get("property_matches") or {}
+        chosen = {str(item) for item in state.get("chosen_property_ids") or []}
+        evaluations = [
+            Evaluation(property_id, matches.get(card_id), card_id in chosen)
+            for card_id in matches
+            if (property_id := own_property_id(card_id)) is not None
+        ]
+        if evaluations:
+            self._leads.record_evaluations(lead.id, evaluations, at)
+            self._leads.refresh_conditions_status(lead.id)
+        events = [
+            (str(item["kind"]), own_property_id(item.get("property_id")))
+            for item in state.get("condition_events") or []
+            if item.get("kind") in ("mismatch", "visit_avoided", "no_fit")
+        ]
+        if events:
+            self._leads.record_condition_events(lead.tenant_id, lead.id, events, at)
 
     def _record_visit(self, lead_id: UUID, visit: Mapping[str, Any], at: datetime) -> None:
         """The visit in the state is the current one: a different slot or property cancels

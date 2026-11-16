@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from followup_core.conversation.application.ports import AgentConfigSource, BusinessContextSource
 from followup_core.conversation.application.threads import Clock, utc_now
@@ -55,6 +56,16 @@ class Dashboard:
     visits_confirmed: int
     response_seconds: float | None
     attention_today: Sequence[Lead]
+    # This month, in the business's timezone, from stored events (never estimated).
+    month_start: datetime | None = None
+    mismatches: int = 0
+    visits_avoided: int = 0
+
+
+def month_start(now: datetime, timezone: str) -> datetime:
+    """The first day of this month at 00:00 in the business's timezone."""
+    local = now.astimezone(ZoneInfo(timezone))
+    return local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 class GetDashboard:
@@ -78,6 +89,8 @@ class GetDashboard:
         week = self._queries.leads_created_since(tenant_id, since)
         keys = qualifying_keys(self._configs.current(tenant_id)[1])
         visits, confirmed = self._queries.visits_since(tenant_id, since)
+        month = month_start(self._clock(), business.timezone)
+        counts = self._leads.condition_counts(tenant_id, month, self._clock())
         return Dashboard(
             business_name=business.business_name,
             week_start=since,
@@ -93,6 +106,9 @@ class GetDashboard:
                 response_times(self._queries.transcript_since(tenant_id, since), since)
             ),
             attention_today=self._today(tenant_id),
+            month_start=month,
+            mismatches=counts.mismatches,
+            visits_avoided=counts.visits_avoided,
         )
 
     def _today(self, tenant_id: UUID) -> list[Lead]:

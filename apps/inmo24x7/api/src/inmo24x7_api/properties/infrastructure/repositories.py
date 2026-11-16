@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import datetime
 from uuid import UUID
 
 from followup_core.conversation.domain.answers import normalize
@@ -6,11 +7,12 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from ...leads.infrastructure.models import LeadModel, LeadPropertyMatchModel
+from ..domain.conditions import ConditionSettings, PropertyConditions
 from ..domain.imports import FailedRow, PropertyImport
 from ..domain.property import Currency, Operation, Property, PropertyFields, PropertyStatus
 from ..domain.repositories import PropertyFilters, PropertyPage, PropertyRow
 from ..domain.search import Listing, PropertyMatch, PropertyQuery, rank
-from .models import PropertyImportModel, PropertyModel
+from .models import ConditionSettingsModel, PropertyImportModel, PropertyModel
 from .sample import SAMPLE_LISTINGS
 
 
@@ -32,6 +34,7 @@ def _to_domain(model: PropertyModel) -> Property:
             rooms=model.rooms,
             link=model.link,
             status=PropertyStatus(model.status),
+            conditions=PropertyConditions.from_json(model.conditions),
         ),
         created_at=model.created_at,
         updated_at=model.updated_at,
@@ -50,6 +53,7 @@ def _copy(item: Property, model: PropertyModel) -> None:
     model.link = fields.link
     model.status = fields.status.value
     model.search_text = search_text(fields)
+    model.conditions = fields.conditions.to_json()
     model.updated_at = item.updated_at
 
 
@@ -168,6 +172,7 @@ class SqlAlchemyPropertyImportRepository:
                     {"row": item.row, "error": item.error, "values": dict(item.values)}
                     for item in record.failed_rows
                 ],
+                warnings=list(record.warnings),
                 created_at=record.created_at,
             )
         )
@@ -190,11 +195,45 @@ class SqlAlchemyPropertyImportRepository:
                 FailedRow(item["row"], item["error"], item["values"]) for item in model.failed_rows
             ],
             created_at=model.created_at,
+            warnings=list(model.warnings or []),
         )
 
 
+class SqlAlchemyConditionSettingsRepository:
+    """ "Condiciones generales" (the defaults when a business never saved them)."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get(self, tenant_id: UUID) -> ConditionSettings:
+        model = self._session.get(ConditionSettingsModel, tenant_id)
+        if model is None:
+            return ConditionSettings()
+        return ConditionSettings(
+            rent=PropertyConditions.from_json(model.rent),
+            sale=PropertyConditions.from_json(model.sale),
+            warn_before_visit=model.warn_before_visit,
+            offer_alternatives=model.offer_alternatives,
+            notify_mismatches=model.notify_mismatches,
+        )
+
+    def save(self, tenant_id: UUID, settings: ConditionSettings, now: datetime) -> None:
+        model = self._session.get(ConditionSettingsModel, tenant_id)
+        if model is None:
+            model = ConditionSettingsModel(tenant_id=tenant_id)
+            self._session.add(model)
+        model.rent = settings.defaults(Operation.RENT).to_json()
+        model.sale = settings.defaults(Operation.SALE).to_json()
+        model.warn_before_visit = settings.warn_before_visit
+        model.offer_alternatives = settings.offer_alternatives
+        model.notify_mismatches = settings.notify_mismatches
+        model.updated_at = now
+        self._session.flush()
+
+
 class TenantPropertySearch:
-    """The tenant's published properties; the sample fixture while it has none.
+    """The tenant's published properties, with their effective conditions (the property's
+    own over the agency's defaults); the sample fixture while it has none.
 
     As soon as one own property is published, the fixture is never used for that tenant.
     """
@@ -203,14 +242,25 @@ class TenantPropertySearch:
         self,
         properties: SqlAlchemyPropertyRepository,
         samples: Sequence[Listing] = SAMPLE_LISTINGS,
+        settings: SqlAlchemyConditionSettingsRepository | None = None,
     ) -> None:
         self._properties = properties
         self._samples = samples
+        self._settings = settings
 
     def search(self, tenant_id: UUID, query: PropertyQuery) -> Sequence[PropertyMatch]:
         own = self._properties.published(tenant_id)
-        listings = [Listing.of(item) for item in own] if own else self._samples
+        if not own:
+            return rank(self._samples, query)
+        settings = self._settings.get(tenant_id) if self._settings else ConditionSettings()
+        listings = [
+            Listing.of(item, settings.effective(item.fields.operation, item.fields.conditions))
+            for item in own
+        ]
         return rank(listings, query)
+
+    def policy(self, tenant_id: UUID) -> ConditionSettings:
+        return self._settings.get(tenant_id) if self._settings else ConditionSettings()
 
     def uses_samples(self, tenant_id: UUID) -> bool:
         return not self._properties.has_published(tenant_id)

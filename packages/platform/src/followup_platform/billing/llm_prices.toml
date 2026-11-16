@@ -28,3 +28,19 @@ input_per_mtok = ""
 output_per_mtok = ""
 cached_input_per_mtok = ""
 source = ""
+
+[[price]]
+model = "openai:gpt-5.4-nano"
+effective_from = 2026-11-16
+input_per_mtok = "0.20"
+output_per_mtok = "1.25"
+cached_input_per_mtok = "0.02"
+source = "https://developers.openai.com/api/docs/pricing"
+
+[[price]]
+model = "openai:gpt-5.4-mini"
+effective_from = 2026-11-16
+input_per_mtok = "0.75"
+output_per_mtok = "4.50"
+cached_input_per_mtok = "0.075"
+source = "https://developers.openai.com/api/docs/pricing"

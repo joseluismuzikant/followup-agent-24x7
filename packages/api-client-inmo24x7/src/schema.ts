@@ -491,6 +491,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/condition-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Condition Settings */
+        get: operations["get_condition_settings_condition_settings_get"];
+        /**
+         * Save Condition Settings
+         * @description "Condiciones generales" (Configuración).
+         */
+        put: operations["save_condition_settings_condition_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/leads": {
         parameters: {
             query?: never;
@@ -536,6 +557,26 @@ export interface paths {
         get: operations["get_lead_leads__lead_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/properties/{property_id}/conditions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Override Conditions
+         * @description "Cumple igual" (audited); null goes back to the agent's evaluation.
+         */
+        post: operations["override_conditions_leads__lead_id__properties__property_id__conditions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1469,6 +1510,78 @@ export interface components {
              */
             completed_at: string;
         };
+        /** ConditionFactRead */
+        ConditionFactRead: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
+        /**
+         * ConditionSettingsRead
+         * @description "Condiciones generales": defaults per operation and Sofía's behavior.
+         */
+        ConditionSettingsRead: {
+            rent: components["schemas"]["ConditionsModel"];
+            sale: components["schemas"]["ConditionsModel"];
+            /** Warn Before Visit */
+            warn_before_visit: boolean;
+            /** Offer Alternatives */
+            offer_alternatives: boolean;
+            /** Notify Mismatches */
+            notify_mismatches: boolean;
+        };
+        /** ConditionSettingsWrite */
+        ConditionSettingsWrite: {
+            rent: components["schemas"]["ConditionsModel"];
+            sale: components["schemas"]["ConditionsModel"];
+            /** Warn Before Visit */
+            warn_before_visit: boolean;
+            /** Offer Alternatives */
+            offer_alternatives: boolean;
+            /** Notify Mismatches */
+            notify_mismatches: boolean;
+        };
+        /**
+         * ConditionsKpiRead
+         * @description This month: "Consultas que no cumplían" and "Visitas evitadas".
+         */
+        ConditionsKpiRead: {
+            /** Month Start */
+            month_start: string | null;
+            /** Mismatches */
+            mismatches: number;
+            /** Visits Avoided */
+            visits_avoided: number;
+        };
+        /**
+         * ConditionsModel
+         * @description Requirements and features; null = no informado. Only those of the operation apply.
+         */
+        ConditionsModel: {
+            /** Garantias */
+            garantias?: ("propietaria" | "caucion" | "recibo_de_sueldo" | "otra")[] | null;
+            /** Contrato Minimo Meses */
+            contrato_minimo_meses?: number | null;
+            /** Temporal */
+            temporal?: boolean | null;
+            /** Amueblado */
+            amueblado?: boolean | null;
+            /** Mascotas */
+            mascotas?: boolean | null;
+            /** Apto Profesional */
+            apto_profesional?: boolean | null;
+            /** Apto Credito */
+            apto_credito?: boolean | null;
+            /** Acepta Financiacion */
+            acepta_financiacion?: boolean | null;
+            /** Acepta Permuta */
+            acepta_permuta?: boolean | null;
+            /** Condiciones */
+            condiciones?: string | null;
+        };
         /** ConfirmVisitWrite */
         ConfirmVisitWrite: {
             /** Starts At */
@@ -1514,6 +1627,7 @@ export interface components {
             response_time_seconds: number | null;
             /** Attention Today */
             attention_today: components["schemas"]["TodayLeadRead"][];
+            conditions: components["schemas"]["ConditionsKpiRead"];
         };
         /** DevSession */
         DevSession: {
@@ -1590,6 +1704,8 @@ export interface components {
             failed: number;
             /** Errors */
             errors: string[];
+            /** Warnings */
+            warnings: string[];
         };
         /** InvitationAccept */
         InvitationAccept: {
@@ -1681,6 +1797,15 @@ export interface components {
             /** Whatsapp Problems */
             whatsapp_problems: number;
         };
+        /** LeadConditionsRead */
+        LeadConditionsRead: {
+            /** Status */
+            status: ("cumple" | "no_cumple" | "sin_datos") | null;
+            /** Facts */
+            facts: components["schemas"]["ConditionFactRead"][];
+            /** Properties */
+            properties: components["schemas"]["PropertyConditionRead"][];
+        };
         /** LeadDetailRead */
         LeadDetailRead: {
             /**
@@ -1724,6 +1849,8 @@ export interface components {
             needs_attention: boolean;
             /** Next Visit At */
             next_visit_at?: string | null;
+            /** Conditions Status */
+            conditions_status?: ("cumple" | "no_cumple" | "sin_datos") | null;
             /** Answers */
             answers: components["schemas"]["KnownFactRead"][];
             /** Status History */
@@ -1734,6 +1861,7 @@ export interface components {
             transcript: components["schemas"]["MessageRead"][];
             control: components["schemas"]["ControlRead"];
             service_window: components["schemas"]["ServiceWindowRead"] | null;
+            conditions: components["schemas"]["LeadConditionsRead"];
         };
         /** LeadListRead */
         LeadListRead: {
@@ -1790,6 +1918,8 @@ export interface components {
             needs_attention: boolean;
             /** Next Visit At */
             next_visit_at?: string | null;
+            /** Conditions Status */
+            conditions_status?: ("cumple" | "no_cumple" | "sin_datos") | null;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -1874,6 +2004,11 @@ export interface components {
             /** Finished */
             finished: boolean;
             checklist: components["schemas"]["ChecklistRead"];
+        };
+        /** OverrideWrite */
+        OverrideWrite: {
+            /** Status */
+            status: ("cumple" | "no_cumple") | null;
         };
         /** PasswordChange */
         PasswordChange: {
@@ -1972,6 +2107,36 @@ export interface components {
             /** Is Sample */
             is_sample: boolean;
         };
+        /** PropertyConditionRead */
+        PropertyConditionRead: {
+            /**
+             * Property Id
+             * Format: uuid
+             */
+            property_id: string;
+            /** Title */
+            title: string;
+            /** Address */
+            address: string;
+            /** Chosen */
+            chosen: boolean;
+            /** Status */
+            status: ("cumple" | "no_cumple" | "sin_datos") | null;
+            /** Agent Status */
+            agent_status: ("cumple" | "no_cumple" | "sin_datos") | null;
+            /** Overridden */
+            overridden: boolean;
+            /** Summary */
+            summary: string;
+            /** Reasons */
+            reasons: string[];
+            /** Features */
+            features: string[];
+            /** Notes */
+            notes: string[];
+            /** Evaluated At */
+            evaluated_at: string | null;
+        };
         /** PropertyCreate */
         PropertyCreate: {
             /** Title */
@@ -1999,6 +2164,7 @@ export interface components {
              * @enum {string}
              */
             status: "published" | "paused";
+            conditions?: components["schemas"]["ConditionsModel"] | null;
         };
         /** PropertyListRead */
         PropertyListRead: {
@@ -2057,6 +2223,10 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            conditions: components["schemas"]["ConditionsModel"];
+            effective_conditions: components["schemas"]["ConditionsModel"];
+            /** From Defaults */
+            from_defaults: string[];
         };
         /** PropertyUpdate */
         PropertyUpdate: {
@@ -2078,6 +2248,7 @@ export interface components {
             link?: string | null;
             /** Status */
             status?: ("published" | "paused") | null;
+            conditions?: components["schemas"]["ConditionsModel"] | null;
         };
         /**
          * QuestionInputModel
@@ -3637,12 +3808,66 @@ export interface operations {
             };
         };
     };
+    get_condition_settings_condition_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConditionSettingsRead"];
+                };
+            };
+        };
+    };
+    save_condition_settings_condition_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConditionSettingsWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConditionSettingsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_leads_leads_get: {
         parameters: {
             query?: {
                 tab?: "attention" | "visits" | "all";
                 q?: string | null;
                 include_test?: boolean;
+                conditions?: ("cumple" | "no_cumple" | "sin_datos") | null;
                 page?: number;
             };
             header?: never;
@@ -3714,6 +3939,42 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDetailRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    override_conditions_leads__lead_id__properties__property_id__conditions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+                property_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverrideWrite"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

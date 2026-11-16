@@ -317,8 +317,8 @@ The inmo24x7 **lead graph** lives in the product (`apps/inmo24x7/api/.../leads`)
    alguien"). After a hand-off the agent answers politely and never proposes a visit again.
 
 Card links come only from the search results, so they are the property's own listing link
-(or a local sample page). Prompts are versioned files in `leads/prompts/` (`extract.v2`,
-`reply.v2`; v1 is kept), and the versions are logged with every turn, along with tenant, thread
+(or a local sample page). Prompts are versioned files in `leads/prompts/` (`extract.v4`,
+`reply.v4`; earlier versions are kept), and the versions are logged with every turn, along with tenant, thread
 key, latency, model, token usage and the trace run id, never the message text.
 
 ### Leads
@@ -355,6 +355,35 @@ key, latency, model, token usage and the trace run id, never the message text.
   the sample fixture and the simulator shows the sample banner; once one is published the
   fixture is never used for that tenant.
 - **Inquiries per property** count distinct non-test leads the agent showed it to.
+
+### Property conditions
+
+- **Requirements** (rent: `garantias`, `contrato_minimo_meses`, `temporal`; both: `mascotas`)
+  can leave a lead out; **features** (furnished, professional use, credit, financing, permuta)
+  only order the options and become notes for the team. `condiciones` is free text the agent
+  may mention and never compares. A property stores its own values as JSON
+  (`properties.conditions`); the effective value is the property's, else the agency's
+  "Condiciones generales" for that operation (`inmo_condition_settings`), else none.
+- **`evaluate(lead, conditions)`** in `properties/domain/conditions.py` is pure: `cumple`,
+  `no_cumple` (with Spanish reasons) or `sin_datos`, plus the matching features. Unknown on
+  either side never fails. `rank` stable-sorts the results by that status, then by unmet
+  wishes and matching features, before the cap of results.
+- **In the graph**, condition facts (guarantee, months, pet, credit, …) are captured
+  passively by `extract` and never asked up front. When the lead picks a card, `gate_step`
+  asks the one decisive question for that property if it is unknown and enabled, then, with
+  `warn_before_visit`, a failing requirement becomes `REQUIREMENT_CHECK` before any slot. A
+  "no" offers the shown cards that fit (`OFFER_FITTING`) or ends politely (`NO_FIT`); when
+  every option fails on the same requirement and `offer_alternatives` is on, the agent asks
+  once (`ASK_RELAX`). The agent never asks income or documents.
+- **Persistence**: `RecordLeadTurn` stores the evaluation per property shown
+  (`lead_property_matches.status/match`, `chosen`), the lead's overall `conditions_status`
+  (from the chosen properties, else the shown ones) and `lead_condition_events`
+  (`mismatch`, `visit_avoided`, `no_fit`, deduplicated) for the Inicio metrics. The team's
+  "Cumple igual" is an audited override that wins over the agent's status. With
+  `notify_mismatches` off, a hand-off whose chosen properties all fail sends no email.
+- The legacy `mortgage_approved` answer is read as `necesita_credito` (true only), and
+  `inmo_0009` migrates configs and answers. Prompts `extract.v4` and `reply.v4` add the passive
+  capture, the confirmations and data minimization.
 
 ### Tracing (LangSmith)
 
