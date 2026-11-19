@@ -70,6 +70,14 @@ class SupabaseAccountDirectory:
             logger.warning("account_password_failed", extra={"status": response.status_code})
             raise AccountDirectoryError(f"Supabase Auth answered {response.status_code}.")
 
+    def delete_user(self, user_id: UUID, email: str) -> None:
+        response = self._request("DELETE", f"{self._url}/{user_id}", {})
+        if response.status_code == 404:
+            return  # already gone (a retried job)
+        if not response.is_success:
+            logger.warning("account_delete_failed", extra={"status": response.status_code})
+            raise AccountDirectoryError(f"Supabase Auth answered {response.status_code}.")
+
 
 # scrypt with the standard library: fine for a development table nobody exposes.
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1}
@@ -110,6 +118,12 @@ class DevAccountDirectory:
 
     def set_password(self, user_id: UUID, email: str, password: str) -> None:
         self._save(email, password)
+
+    def delete_user(self, user_id: UUID, email: str) -> None:
+        model = self._session.get(DevPasswordModel, email.strip().lower())
+        if model is not None:
+            self._session.delete(model)
+            self._session.flush()
 
     def verify(self, email: str, password: str) -> bool:
         model = self._session.get(DevPasswordModel, email.strip().lower())

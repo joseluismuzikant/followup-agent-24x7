@@ -17,9 +17,11 @@ from ..domain.connection import (
     WhatsAppConnection,
 )
 from ..domain.events import EventStatus, InboundEvent
+from ..domain.opt_out import DoNotContact, OptOutSource
 from ..domain.outbound import DeliveryStatus, OutboundPart, advances
 from ..domain.signup import Signup, SignupStep
 from .models import (
+    DoNotContactModel,
     WebhookCounterModel,
     WhatsAppConnectionModel,
     WhatsAppInboundEventModel,
@@ -427,3 +429,45 @@ class SqlAlchemyWebhookCounters:
             )
             or 0
         )
+
+
+class SqlAlchemyDoNotContactRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def get(self, tenant_id: UUID, wa_id: str) -> DoNotContact | None:
+        model = self._session.get(DoNotContactModel, (tenant_id, wa_id))
+        if model is None:
+            return None
+        return DoNotContact(
+            tenant_id=model.tenant_id,
+            wa_id=model.wa_id,
+            created_at=model.created_at,
+            source=OptOutSource(model.source),
+            source_message_id=model.source_message_id,
+            set_by_profile_id=model.set_by_profile_id,
+            confirmation_message_id=model.confirmation_message_id,
+        )
+
+    def add(self, entry: DoNotContact) -> None:
+        values = {
+            "created_at": entry.created_at,
+            "source": entry.source.value,
+            "source_message_id": entry.source_message_id,
+            "set_by_profile_id": entry.set_by_profile_id,
+            "confirmation_message_id": entry.confirmation_message_id,
+        }
+        self._session.execute(
+            insert(DoNotContactModel)
+            .values(tenant_id=entry.tenant_id, wa_id=entry.wa_id, **values)
+            .on_conflict_do_update(index_elements=["tenant_id", "wa_id"], set_=values)
+        )
+        self._session.flush()
+
+    def remove(self, tenant_id: UUID, wa_id: str) -> bool:
+        model = self._session.get(DoNotContactModel, (tenant_id, wa_id))
+        if model is None:
+            return False
+        self._session.delete(model)
+        self._session.flush()
+        return True

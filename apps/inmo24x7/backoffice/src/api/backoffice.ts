@@ -1,5 +1,9 @@
 import { apiError, errorCode } from "@followup/api-client-inmo24x7";
 import type {
+  ClosureSummary,
+  ContactDeleted,
+  DoNotContactPhone,
+  PrivacyContact,
   ErrorList,
   TenantUsage,
   UsageReport,
@@ -174,4 +178,57 @@ export async function triggerApiTestError(): Promise<string | null> {
     throw apiError(response, null);
   }
   return response.headers.get("X-Request-ID")?.slice(0, 8) ?? null;
+}
+
+// --- Datos y privacidad -----------------------------------------------------------------
+
+/** A business's WhatsApp contacts by phone (any format or part of it) or name. */
+export async function findContacts(tenantId: string, query: string): Promise<PrivacyContact[]> {
+  const { data, error, response } = await apiClient.GET("/admin/tenants/{tenant_id}/contacts", {
+    params: { path: { tenant_id: tenantId }, query: { q: query } },
+  });
+  return data ?? fail(response, error);
+}
+
+/** Deletes everything of one contact in that business; `confirmation` is the phone typed again. */
+export async function deleteContactData(
+  tenantId: string,
+  waId: string,
+  confirmation: string,
+): Promise<ContactDeleted> {
+  const { data, error, response } = await apiClient.POST(
+    "/admin/tenants/{tenant_id}/contacts/delete",
+    { ...tenantPath(tenantId), body: { wa_id: waId, confirmation } },
+  );
+  return data ?? fail(response, error);
+}
+
+/** "No contactar" for a phone (also one that never wrote), or "Quitar". */
+export async function setContactDoNotContact(
+  tenantId: string,
+  phone: string,
+  blocked: boolean,
+): Promise<DoNotContactPhone> {
+  const { data, error, response } = await apiClient.POST(
+    "/admin/tenants/{tenant_id}/do-not-contact",
+    { ...tenantPath(tenantId), body: { phone, blocked } },
+  );
+  return data ?? fail(response, error);
+}
+
+export async function fetchClosureSummary(tenantId: string): Promise<ClosureSummary> {
+  const { data, error, response } = await apiClient.GET(
+    "/admin/tenants/{tenant_id}/closure",
+    tenantPath(tenantId),
+  );
+  return data ?? fail(response, error);
+}
+
+/** Stops the business now and queues the deletion of all its data. */
+export async function closeBusiness(tenantId: string, businessName: string): Promise<ClosureSummary> {
+  const { data, error, response } = await apiClient.POST("/admin/tenants/{tenant_id}/close", {
+    ...tenantPath(tenantId),
+    body: { business_name: businessName },
+  });
+  return data ?? fail(response, error);
 }

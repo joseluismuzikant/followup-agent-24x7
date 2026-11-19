@@ -42,6 +42,9 @@ class AuditAction(StrEnum):
     INVITATION_RESENT = "invitation_resent"
     TEMPORARY_PASSWORD_RESET = "temporary_password_reset"
     INVITATION_ACCEPTED = "invitation_accepted"
+    # "BAJA": a contact asked not to be written to, or wrote again (details: source, lead).
+    CONTACT_OPTED_OUT = "contact_opted_out"
+    CONTACT_OPT_OUT_LIFTED = "contact_opt_out_lifted"
 
 
 # Ids, counts, codes, versions and enum-like values only.
@@ -79,6 +82,15 @@ ALLOWED_DETAIL_KEYS = frozenset(
         # inmo24x7 property conditions: the lead and property of a "Cumple igual".
         "lead_id",
         "property_id",
+        # Data deletion: how many rows of each kind went (never what they held).
+        "leads",
+        "threads",
+        "messages",
+        "visits",
+        "properties",
+        "users",
+        "users_kept",
+        "llm_calls_unlinked",
     }
 )
 

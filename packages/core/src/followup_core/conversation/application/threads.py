@@ -47,6 +47,8 @@ class HandledTurn:
     # True when a person from the team controls the thread: the inbound messages were
     # stored, the agent did not run and `state` is empty.
     agent_paused: bool = False
+    # The agent read the message as "don't write to me again" (AgentTurn.opt_out).
+    opt_out: bool = False
 
 
 class TurnObserver(Protocol):
@@ -199,6 +201,7 @@ class HandleIncomingMessage:
             started_thread=is_new,
             trace_run_id=turn.trace_run_id,
             inbound_messages=inbound_messages,
+            opt_out=turn.opt_out,
         )
         for observer in self._observers:
             observer.on_turn(handled)
@@ -295,9 +298,16 @@ class ReplyWithoutAgent:
         self._clock = clock
 
     def execute(
-        self, key: ThreadKey, parts: Sequence[InboundPart], reply: str | None
+        self,
+        key: ThreadKey,
+        parts: Sequence[InboundPart],
+        reply: str | None,
+        *,
+        even_if_taken_over: bool = False,
     ) -> FixedReply:
-        """`reply` None stores the messages only (a suspended business)."""
+        """`reply` None stores the messages only (a suspended business). The reply is not
+        sent while the team has the conversation, unless `even_if_taken_over` (the "BAJA"
+        confirmation, which the person gets once whoever is answering)."""
         self._lock.acquire(key)
         now = self._clock()
         thread = self._threads.get_by_key(key)
@@ -320,7 +330,7 @@ class ReplyWithoutAgent:
         for message in inbound:
             self._messages.append(message)
         self._threads.touch(thread.id, now)
-        if thread.is_taken_over or reply is None:
+        if reply is None or (thread.is_taken_over and not even_if_taken_over):
             # The team answers (or nobody does); no fixed reply.
             return FixedReply(thread, inbound, None)
         outbound = Message(uuid4(), thread.id, Direction.OUTBOUND, Author.AGENT, reply, now)

@@ -413,6 +413,52 @@ traffic. Details, disk math and LogQL in `deploy/observability.md`.
   (step 12), or on the VM `./deploy.sh <previous sha>` (`state/previous_tag` holds its tag).
   Migrations stay applied, which is why they must be backward compatible.
 
+## Pedidos de baja y de eliminación
+
+The landing (www.inmo24x7.com/eliminacion-de-datos) promises: no more messages within 2
+business days of a "BAJA", and a person's or an agency's data deleted within 5 business days.
+Requests arrive at **contacto@inmo24x7.com**; answer each one when it is done.
+
+**"BAJA" (a person who does not want to be written to)**
+- On WhatsApp it is automatic: "BAJA", "STOP", "no me escriban más" and the like get one
+  confirmation and then nothing more from that agency (agent replies, team replies,
+  templates). The agency's inbox shows "Pidió no ser contactado" and the team gets an email.
+  If the person writes again with a new inquiry, it lifts by itself.
+- By email or phone: Backoffice → the agency → Datos y privacidad → **No contactar un
+  número** (works for a number that never wrote), or the agency marks the lead in Consultas
+  ("Marcar como no contactar"). Another agency can still talk to the same number: if the
+  person asks for every agency, mark it in each one.
+
+**Delete a person's data (one contact, one agency)**
+1. Backoffice → the agency → Datos y privacidad → **Eliminar datos de un contacto**.
+2. Search by phone or name, check what will be deleted, type the phone, **Eliminar datos**.
+3. Gone at once: their leads with history, conditions and visits, the conversation and its
+   agent state (LangGraph checkpoints), WhatsApp messages and events, and pending jobs about
+   them. Kept: the "no contactar" flag if they asked for it (so it is still honored) and the
+   model usage rows, without the link to the conversation. The audit log says "Se
+   eliminaron los datos de un contacto" with the date, the admin and counts, never the phone.
+
+**Delete an agency (close the account)**
+1. Backoffice → the agency → Datos y privacidad → **Cerrar cuenta y eliminar datos**: check
+   the summary, type the business name.
+2. The agency stops at once (like a suspension) and a job deletes everything within minutes:
+   properties, leads and conversations, agent and settings, invitations, the WhatsApp
+   connection with its tokens, and the users (their logins too, unless the person also uses
+   Cuentas Claras). Our app is unsubscribed from the agency's WABA; nothing else at Meta
+   changes (the number and its templates stay the customer's).
+3. What stays: the `tenants` row as a tombstone ("Cuenta eliminada", status `deleted`, no
+   personal data) because the model usage history references it, those usage rows (unlinked
+   from conversations) and one audit event with counts.
+
+**Copies outside the database**
+- Backups: the daily copies of deleted data disappear after 14 days and the weekly ones after
+  **8 weeks** (`BACKUP_KEEP_DAILY` / `BACKUP_KEEP_WEEKLY`, step 10). To match "about 30 days",
+  set `BACKUP_KEEP_WEEKLY=4`. Do not restore a backup over deleted data; if you ever restore
+  one, repeat the deletions made since.
+- LangSmith traces (redacted of PII) are deleted after 14 days.
+- Raw WhatsApp webhook payloads are dropped after 30 days anyway; a deletion removes them at
+  once.
+
 ---
 
 ## 3-minute demo script

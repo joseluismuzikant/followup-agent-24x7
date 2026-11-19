@@ -40,6 +40,7 @@ _TENANTS = text(
     LEFT JOIN tenant_onboarding o ON o.tenant_id = t.id
     LEFT JOIN whatsapp_connections w ON w.tenant_id = t.id
     WHERE t.product = :product
+      AND t.status <> 'deleted'
       AND NOT EXISTS (
       SELECT 1 FROM profiles a WHERE a.tenant_id = t.id AND a.is_platform_admin
     )

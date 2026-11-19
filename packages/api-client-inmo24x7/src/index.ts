@@ -67,6 +67,11 @@ export type SignupAbandonedInput = components["schemas"]["SignupAbandonedWrite"]
 export type BusinessList = components["schemas"]["BusinessListRead"];
 export type BusinessRow = components["schemas"]["BusinessRowRead"];
 export type BusinessDetail = components["schemas"]["BusinessDetailRead"];
+// Backoffice → "Datos y privacidad".
+export type PrivacyContact = components["schemas"]["ContactRead"];
+export type ContactDeleted = components["schemas"]["ContactDeletedRead"];
+export type ClosureSummary = components["schemas"]["ClosureRead"];
+export type DoNotContactPhone = components["schemas"]["DoNotContactPhoneRead"];
 export type BusinessCreateInput = components["schemas"]["BusinessCreate"];
 export type BusinessCreated = components["schemas"]["BusinessCreatedRead"];
 export type BusinessActivity = components["schemas"]["ActivityRead"];

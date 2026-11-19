@@ -14,7 +14,9 @@ the registry in `tools.py`. Rules enforced here, not in prompts:
   mention it; options are ordered what-fits-first but never hidden; when the lead chooses a
   property, Sofía asks only the one question that property needs, and before offering visit
   times she says plainly which requirement they do not meet (when the agency wants it);
-  when every option fails on the same requirement she asks about it once.
+  when every option fails on the same requirement she asks about it once;
+- "BAJA" ("no me escriban más", or the model's `wants_opt_out`): one fixed confirmation,
+  nothing else, and `opt_out` tells the channel to stop writing to that contact.
 """
 
 from collections.abc import Sequence
@@ -31,6 +33,7 @@ from followup_core.conversation.domain.llm import (
     ReplyRequest,
 )
 from followup_core.conversation.infrastructure.langgraph_runtime import GraphContext
+from followup_core.messaging.domain.opt_out import OPT_OUT_CONFIRMATION, is_opt_out
 from followup_core.tenancy.domain.agent_config import QualificationQuestion
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
@@ -85,6 +88,11 @@ MAX_NAME_LENGTH = 80
 class LeadState(TypedDict):
     inbound: str
     outbox: list[dict[str, Any]]
+    # Set by `respond` for the channel (transient, like inbound and outbox): the message
+    # asked not to be written to again.
+    opt_out: NotRequired[bool]
+    # The lead said "BAJA" this turn (`extract`); `respond` confirms and clears it.
+    turn_opt_out: NotRequired[bool]
     answers: NotRequired[dict[str, Any]]
     visitor_name: NotRequired[str | None]
     contact: NotRequired[str | None]
@@ -389,6 +397,9 @@ def _clean(value: str | None, limit: int) -> str | None:
 def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     context = runtime.context
     turn = context.turn
+    if is_opt_out(state["inbound"]):
+        # A clear "BAJA": no model call, nothing else is read from this message.
+        return {"turn_opt_out": True}
     if state.get("hand_off_reason") == HandOffReason.HUMAN:
         return {}
     answers = dict(state.get("answers") or {})
@@ -422,6 +433,8 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             choices=offered,
         )
     )
+    if result.wants_opt_out:
+        return {"turn_opt_out": True}
     update["turn_choice"] = selected_choice(turn.choice_id, result.choice_id, offered)
     update["turn_wants_human"] = result.wants_human
     if handed_off:
@@ -514,6 +527,15 @@ def _event(kind: str, card_id: str | None) -> dict[str, Any]:
 
 
 def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
+    if state.get("turn_opt_out"):
+        # Fixed text (never the model's wording), and nothing else this turn.
+        return {
+            "outbox": [{"text": OPT_OUT_CONFIRMATION, "payload": None}],
+            "opt_out": True,
+            "turn_opt_out": False,
+            "asked_key": None,
+            "turns": state.get("turns", 0) + 1,
+        }
     context = runtime.context
     turn = context.turn
     config = turn.agent_config

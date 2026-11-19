@@ -107,3 +107,18 @@ class WhatsAppOutboundModel(Base):
     # When Meta accepted it (statuses later overwrite `updated_at`).
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DoNotContactModel(Base):
+    """ "BAJA": the business never writes to this contact again until they write first
+    (messaging/domain/opt_out.py). It outlives a contact's data deletion on purpose."""
+
+    __tablename__ = "do_not_contact"
+
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), primary_key=True)
+    wa_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(10), nullable=False)
+    source_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    set_by_profile_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    confirmation_message_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)

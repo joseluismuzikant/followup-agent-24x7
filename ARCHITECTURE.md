@@ -737,6 +737,25 @@ worker: whatsapp.send ─▶ Cloud API, in order ─▶ wamid ─▶ statuses fr
   replies always to the `wa_id` as Meta sent it.
 - **Logs** carry ids, codes and timings, never message text, phone numbers or emails.
 
+### "BAJA" (do-not-contact) and data deletion
+
+- **Detection.** `is_opt_out` (core, deterministic: "BAJA", "STOP", "no me escriban más", …)
+  runs in `ProcessInbound` before the agent, so it works while the team has the conversation
+  or the model is down; the extractor's `wants_opt_out` catches the rest ("no me molesten
+  más"). "baja" with another meaning ("planta baja") is never matched.
+- **The flag** is `do_not_contact (tenant_id, wa_id)`, set and lifted only through
+  `ContactOptOut` (audited: source message / team / admin, never the number). One fixed
+  confirmation goes out; a new inquiry from the person lifts it.
+- **Enforcement** is in `SendQueued`, the only code that sends WhatsApp messages: any part
+  for a flagged contact fails with `do_not_contact` except that confirmation. The panel's
+  reply, visit confirmation and cancel-with-message refuse up front (`409
+  contact_opted_out`), and so does the admin's test template.
+- **Deletion** (`inmo24x7_api/privacy`): one contact in one agency, or a whole agency (a job,
+  with a tombstone `tenants` row). Plain SQL in foreign-key order in `erasure.py`; the
+  `test_privacy.py` scans read every table as text, so a new table that keeps a deleted
+  contact's phone, thread or lead fails there. Kept on purpose: the do-not-contact flag,
+  `llm_usage` rows (unlinked), counts-only audit events.
+
 ### New-lead email
 
 `RecordLeadTurn` enqueues, in the turn's transaction and only for real leads (never simulator

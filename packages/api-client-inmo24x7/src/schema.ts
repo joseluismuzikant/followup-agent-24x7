@@ -668,6 +668,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/{lead_id}/do-not-contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Do Not Contact
+         * @description "Marcar como no contactar" / "Quitar": for a "BAJA" that arrived by email or
+         *     phone, or a mistake. Audited.
+         */
+        post: operations["set_do_not_contact_leads__lead_id__do_not_contact_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboard": {
         parameters: {
             query?: never;
@@ -679,6 +700,97 @@ export interface paths {
         get: operations["get_dashboard_dashboard_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find Contacts
+         * @description By phone (any format or part of it) or name; what each one's deletion removes.
+         */
+        get: operations["find_contacts_admin_tenants__tenant_id__contacts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/contacts/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete Contact */
+        post: operations["delete_contact_admin_tenants__tenant_id__contacts_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/do-not-contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Do Not Contact */
+        post: operations["set_do_not_contact_admin_tenants__tenant_id__do_not_contact_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/closure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Closure Summary */
+        get: operations["closure_summary_admin_tenants__tenant_id__closure_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tenants/{tenant_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close Account
+         * @description Stops the business now; a job deletes its data in the next minutes.
+         */
+        post: operations["close_account_admin_tenants__tenant_id__close_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1300,6 +1412,11 @@ export interface components {
             suspended_reason: string | null;
             /** Suspended At */
             suspended_at: string | null;
+            /**
+             * Closing
+             * @default false
+             */
+            closing: boolean;
             /** Onboarding */
             onboarding: components["schemas"]["OnboardingItemRead"][];
             whatsapp_connection: components["schemas"]["BusinessWhatsAppRead"];
@@ -1352,6 +1469,11 @@ export interface components {
             suspended_reason: string | null;
             /** Suspended At */
             suspended_at: string | null;
+            /**
+             * Closing
+             * @default false
+             */
+            closing: boolean;
             /** Onboarding */
             onboarding: components["schemas"]["OnboardingItemRead"][];
             whatsapp_connection: components["schemas"]["BusinessWhatsAppRead"];
@@ -1500,6 +1622,32 @@ export interface components {
             total: number;
             facts: components["schemas"]["SetupFactsRead"];
         };
+        /** CloseWrite */
+        CloseWrite: {
+            /** Business Name */
+            business_name: string;
+        };
+        /** ClosureRead */
+        ClosureRead: {
+            /** Name */
+            name: string;
+            /** Properties */
+            properties: number;
+            /** Leads */
+            leads: number;
+            /** Conversations */
+            conversations: number;
+            /** Messages */
+            messages: number;
+            /** Users */
+            users: number;
+            /** Users Kept */
+            users_kept: number;
+            /** Whatsapp Connected */
+            whatsapp_connected: boolean;
+            /** Closing */
+            closing: boolean;
+        };
         /** CompletedStepRead */
         CompletedStepRead: {
             /** Step */
@@ -1587,6 +1735,43 @@ export interface components {
             /** Starts At */
             starts_at?: string | null;
         };
+        /** ContactDeleteWrite */
+        ContactDeleteWrite: {
+            /** Wa Id */
+            wa_id: string;
+            /** Confirmation */
+            confirmation: string;
+        };
+        /** ContactDeletedRead */
+        ContactDeletedRead: {
+            /** Leads */
+            leads: number;
+            /** Conversations */
+            conversations: number;
+            /** Messages */
+            messages: number;
+            /** Visits */
+            visits: number;
+        };
+        /** ContactRead */
+        ContactRead: {
+            /** Wa Id */
+            wa_id: string;
+            /** Phone */
+            phone: string;
+            /** Names */
+            names: string[];
+            /** Leads */
+            leads: number;
+            /** Messages */
+            messages: number;
+            /** Visits */
+            visits: number;
+            /** Last Activity At */
+            last_activity_at: string | null;
+            /** Do Not Contact */
+            do_not_contact: boolean;
+        };
         /** ControlRead */
         ControlRead: {
             /**
@@ -1640,6 +1825,27 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** DoNotContactPhoneRead */
+        DoNotContactPhoneRead: {
+            /** Wa Id */
+            wa_id: string;
+            /** Phone */
+            phone: string;
+            /** Do Not Contact */
+            do_not_contact: boolean;
+        };
+        /** DoNotContactPhoneWrite */
+        DoNotContactPhoneWrite: {
+            /** Phone */
+            phone: string;
+            /** Blocked */
+            blocked: boolean;
+        };
+        /** DoNotContactWrite */
+        DoNotContactWrite: {
+            /** Blocked */
+            blocked: boolean;
         };
         /**
          * EmbeddedSignupWrite
@@ -1851,6 +2057,11 @@ export interface components {
             next_visit_at?: string | null;
             /** Conditions Status */
             conditions_status?: ("cumple" | "no_cumple" | "sin_datos") | null;
+            /**
+             * Do Not Contact
+             * @default false
+             */
+            do_not_contact: boolean;
             /** Answers */
             answers: components["schemas"]["KnownFactRead"][];
             /** Status History */
@@ -1920,6 +2131,11 @@ export interface components {
             next_visit_at?: string | null;
             /** Conditions Status */
             conditions_status?: ("cumple" | "no_cumple" | "sin_datos") | null;
+            /**
+             * Do Not Contact
+             * @default false
+             */
+            do_not_contact: boolean;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -4165,6 +4381,41 @@ export interface operations {
             };
         };
     };
+    set_do_not_contact_leads__lead_id__do_not_contact_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DoNotContactWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDetailRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_dashboard_dashboard_get: {
         parameters: {
             query?: never;
@@ -4181,6 +4432,175 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardRead"];
+                };
+            };
+        };
+    };
+    find_contacts_admin_tenants__tenant_id__contacts_get: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_contact_admin_tenants__tenant_id__contacts_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactDeleteWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactDeletedRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_do_not_contact_admin_tenants__tenant_id__do_not_contact_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DoNotContactPhoneWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoNotContactPhoneRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    closure_summary_admin_tenants__tenant_id__closure_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClosureRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_account_admin_tenants__tenant_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClosureRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

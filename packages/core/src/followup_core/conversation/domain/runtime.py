@@ -43,6 +43,9 @@ class AgentTurn:
     state: Mapping[str, Any]
     metrics: TurnMetrics
     trace_run_id: UUID | None = None
+    # The graph read this turn's message as "don't write to me again" ("BAJA"): the
+    # channel sets the contact's do-not-contact flag.
+    opt_out: bool = False
 
 
 @dataclass(frozen=True, slots=True)

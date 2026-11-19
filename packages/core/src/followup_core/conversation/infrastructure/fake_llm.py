@@ -38,6 +38,11 @@ _HUMAN = re.compile(
     r"(?:alguien|una persona|un humano|un asesor|una asesora|un vendedor|el equipo)\b"
     r"|\bpersona real\b|\bun humano\b"
 )
+# Opt-outs the deterministic "BAJA" matcher leaves to the model (the fake's stand-in).
+_OPT_OUT = re.compile(
+    r"\bno (?:me )?molesten\b|\bborren mi (?:numero|telefono|contacto)\b"
+    r"|\bsaquenme de (?:la|su) lista\b"
+)
 _ORDINALS = (
     re.compile(r"\b(?:primer[ao]?|(?:la|el|opcion|numero)\s*1)\b"),
     re.compile(r"\b(?:segund[ao]|(?:la|el|opcion|numero)\s*2)\b"),
@@ -373,6 +378,7 @@ class FakeLanguageModel:
             contact=contact,
             choice_id=_choice_id(request.choices, text),
             wants_human=bool(_HUMAN.search(normalize(text))),
+            wants_opt_out=bool(_OPT_OUT.search(normalize(text))),
         )
 
     @staticmethod

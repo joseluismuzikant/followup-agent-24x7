@@ -5,6 +5,8 @@ const messages: Record<string, string> = {
   agent_setup_conflict: "Alguien más guardó cambios. Recargá para ver la última versión.",
   agent_name_invalid: "El nombre del agente debe tener entre 1 y 40 caracteres.",
   business_type_invalid: "Elegí un tipo de negocio válido.",
+  contact_opted_out:
+    "Esta persona pidió no ser contactada: no le podemos mandar mensajes ni plantillas.",
   conversation_not_taken: "Tomá la conversación para poder responder.",
   database_unavailable: "El servicio no está disponible. Probá en unos minutos.",
   internal_error: "Ocurrió un error inesperado. Probá de nuevo.",
@@ -15,6 +17,7 @@ const messages: Record<string, string> = {
   invalid_lead_status: "Esta consulta ya cambió de estado. Recargá para ver cómo está.",
   import_too_large: "El archivo es muy grande: hasta 5 MB y 2.000 propiedades por vez.",
   lead_not_found: "No encontramos esa consulta.",
+  lead_not_whatsapp: "Solo las consultas de WhatsApp se pueden marcar como no contactar.",
   not_found: "No encontramos lo que buscabas.",
   notification_email_invalid: "Revisá los emails de aviso: ingresá entre 1 y 5 direcciones válidas.",
   onboarding_step_invalid: "Ese paso todavía no está disponible.",

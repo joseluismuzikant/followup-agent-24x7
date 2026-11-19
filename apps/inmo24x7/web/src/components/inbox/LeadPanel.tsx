@@ -21,6 +21,7 @@ import {
   fetchLead,
   releaseLead,
   sendTeamMessage,
+  setDoNotContact,
   takeOverLead,
 } from "../../api/leads";
 import { fetchMe } from "../../api/me";
@@ -73,7 +74,9 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
   // bottom.
   const wide = useMediaQuery(LG_UP);
   const [error, setError] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<"confirm" | "cancel" | "takeover" | null>(null);
+  const [dialog, setDialog] = useState<
+    "confirm" | "cancel" | "takeover" | "do_not_contact" | null
+  >(null);
 
   function settled(detail?: LeadDetail) {
     if (detail) {
@@ -110,6 +113,11 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
     onSuccess: settled,
     onError: failed,
   });
+  const doNotContact = useMutation({
+    mutationFn: (blocked: boolean) => setDoNotContact(leadId, blocked),
+    onSuccess: settled,
+    onError: failed,
+  });
 
   if (leadQuery.isPending) {
     return <p className="text-sm text-muted-foreground">Cargando la consulta…</p>;
@@ -126,7 +134,13 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
   const control = lead.control;
   const mine = control.mode === "human" && control.by?.id === myId;
   const visit = currentVisit(lead.visits);
-  const busy = takeOver.isPending || release.isPending || confirm.isPending || cancel.isPending;
+  const busy =
+    takeOver.isPending ||
+    release.isPending ||
+    confirm.isPending ||
+    cancel.isPending ||
+    doNotContact.isPending;
+  const optedOut = lead.do_not_contact ?? false;
 
   function askTakeOver() {
     if (control.mode === "human" && !mine) {
@@ -143,6 +157,7 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
           <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
             {leadName(lead)}
             <LeadStatusBadge status={lead.status} />
+            {optedOut ? <Badge tone="danger">Pidió no ser contactado</Badge> : null}
             {lead.is_test ? <Badge>Prueba</Badge> : null}
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -167,13 +182,40 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
               </Button>
             )}
             {visit?.status === "proposed" ? (
-              <Button disabled={busy} onClick={() => setDialog("confirm")}>
+              <Button disabled={busy || optedOut} onClick={() => setDialog("confirm")}>
                 Confirmar visita
+              </Button>
+            ) : null}
+            {lead.channel === "whatsapp" && !optedOut ? (
+              <Button variant="ghost" disabled={busy} onClick={() => setDialog("do_not_contact")}>
+                Marcar como no contactar
               </Button>
             ) : null}
           </div>
         ) : null}
       </header>
+
+      {optedOut ? (
+        <section
+          aria-label="No contactar"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm"
+        >
+          <p className="min-w-0 flex-1">
+            Pidió no ser contactado. inmo24x7 no le manda mensajes ni plantillas, tampoco las
+            del equipo. Si vuelve a escribir por una consulta nueva, se reactiva solo.
+          </p>
+          {canAct ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => doNotContact.mutate(false)}
+            >
+              Quitar
+            </Button>
+          ) : null}
+        </section>
+      ) : null}
 
       {error ? (
         <p className="text-sm text-destructive" role="alert">
@@ -226,6 +268,28 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
           onCancel={(message) => cancel.mutate({ visit: visit.id, message })}
         />
       ) : null}
+      <Dialog
+        open={dialog === "do_not_contact"}
+        title="Marcar como no contactar"
+        onClose={() => setDialog(null)}
+      >
+        <p className="text-sm">
+          Para cuando lo pide por email o por teléfono. Desde ahora no le llega ningún mensaje
+          ni plantilla de tu inmobiliaria, hasta que vuelva a escribir.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setDialog(null)}>
+            Volver
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={busy}
+            onClick={() => doNotContact.mutate(true)}
+          >
+            Marcar como no contactar
+          </Button>
+        </div>
+      </Dialog>
       <Dialog open={dialog === "takeover"} title="Tomar la conversación" onClose={() => setDialog(null)}>
         <p className="text-sm">
           {control.by?.name ?? "Alguien del equipo"} está atendiendo esta consulta. ¿Querés
@@ -431,10 +495,13 @@ function Composer({
   });
   const window = lead.service_window;
   const closed = window !== null && window !== undefined && !window.open;
-  const enabled = mine && !closed;
+  const optedOut = lead.do_not_contact ?? false;
+  const enabled = mine && !closed && !optedOut;
 
   let hint: string;
-  if (!mine) {
+  if (optedOut) {
+    hint = "Pidió no ser contactado: no le podemos escribir.";
+  } else if (!mine) {
     hint = "Tomá la conversación para responder";
   } else if (closed) {
     hint =
@@ -443,6 +510,20 @@ function Composer({
     hint = `Podés responder hasta las ${formatTime(window.expires_at)}`;
   } else {
     hint = `Respondés ${channelLabel(lead.channel)}`;
+  }
+
+  if (optedOut && !mine) {
+    // "Responder yo" would lead nowhere: say why instead.
+    return (
+      <p
+        className={cn(
+          "border-t pt-3 text-sm text-muted-foreground",
+          sticky && "sticky bottom-0 -mx-4 -mb-4 rounded-b-lg bg-card px-4 pb-3",
+        )}
+      >
+        {hint}
+      </p>
+    );
   }
 
   if (sticky && !mine) {

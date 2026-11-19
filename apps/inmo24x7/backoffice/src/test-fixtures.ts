@@ -44,6 +44,7 @@ export function businessDetail(overrides: Partial<BusinessDetail> = {}): Busines
     ...businessRow({ whatsapp: "action_required", needs_help: true }),
     suspended_reason: null,
     suspended_at: null,
+    closing: false,
     onboarding: [
       { key: "account", done: true },
       { key: "agent_configured", done: true },

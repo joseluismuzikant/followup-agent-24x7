@@ -27,6 +27,7 @@ from followup_core.messaging.application.signup import (
     SignupRestartError,
 )
 from followup_core.messaging.domain.connection import SenderKind, WhatsAppConnection
+from followup_core.messaging.domain.opt_out import ContactOptedOutError
 from followup_core.messaging.domain.signup import Signup
 from followup_core.tenancy.application.get_tenant import GetTenant
 from followup_core.tenancy.domain.audit import ActorKind, AuditAction, AuditEvent, AuditLog
@@ -440,6 +441,8 @@ def build_whatsapp_router(
             raise ApiError(404, "whatsapp_not_connected") from error
         except ConnectionInvalidError as error:
             raise ApiError(422, "whatsapp_connection_invalid") from error
+        except ContactOptedOutError as error:
+            raise ApiError(409, "contact_opted_out") from error
         except WhatsAppApiError as error:
             return meta_error(error)
 
