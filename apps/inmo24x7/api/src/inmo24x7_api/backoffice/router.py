@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from ..auth import require_platform_admin
 from ..http_errors import ApiError
+from ..privacy.domain import CLOSING_REASON
 from ..whatsapp import WhatsAppConnectionRead, connection_read
 from .application.overview import PAGE_SIZE, GetBusiness, ListBusinesses, TenantDetail
 from .domain.rules import TenantFilter, TenantRow, mask, needs_help, whatsapp_badge
@@ -119,6 +120,9 @@ class BusinessWhatsAppRead(WhatsAppConnectionRead):
 class BusinessDetailRead(BusinessRowRead):
     suspended_reason: str | None
     suspended_at: datetime | None
+    # "Cerrar cuenta y eliminar datos" was requested: the business is stopped and a job is
+    # deleting its data.
+    closing: bool = False
     onboarding: list[OnboardingItemRead]
     whatsapp_connection: BusinessWhatsAppRead
     usage: PlanUsageRead
@@ -237,6 +241,7 @@ def _detail_read(detail: TenantDetail, now: datetime) -> BusinessDetailRead:
         **_row_read(detail.row, now).model_dump(),
         suspended_reason=tenant.suspended_reason,
         suspended_at=tenant.suspended_at,
+        closing=tenant.is_suspended and tenant.suspended_reason == CLOSING_REASON,
         onboarding=[
             OnboardingItemRead(key=key, done=done)  # type: ignore[arg-type]
             for key, done in detail.row.onboarding.items
@@ -367,6 +372,9 @@ def build_backoffice_router(
         use_case: Annotated[SetTenantSuspension, Depends(suspension_factory)],
         get: Annotated[GetBusiness, Depends(detail_factory)],
     ) -> BusinessDetailRead:
+        if detail(get, tenant_id).closing:
+            # The closing job deletes it anyway: never a business that looks active again.
+            raise ApiError(409, "account_closing")
         try:
             use_case.reactivate(admin.id, tenant_id)
         except TenantNotFoundError as error:

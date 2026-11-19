@@ -34,6 +34,11 @@ vi.mock("../api/backoffice", () => ({
   reactivateBusiness: vi.fn(),
   sendReconnectLink: vi.fn(),
   retrySignup: vi.fn(),
+  findContacts: vi.fn(),
+  deleteContactData: vi.fn(),
+  setContactDoNotContact: vi.fn(),
+  fetchClosureSummary: vi.fn(),
+  closeBusiness: vi.fn(),
 }));
 vi.mock("../components/RequireAdmin", () => ({
   RequireAdmin: ({ children }: { children: ReactNode }) => children,
@@ -102,6 +107,21 @@ describe("Detalle del negocio (S9)", () => {
     expect(screen.getByRole("link", { name: "Ver el detalle" }).getAttribute("href")).toMatch(
       new RegExp(`^/consumo\\?negocio=${id}&mes=\\d{4}-\\d{2}$`),
     );
+  });
+
+  it("shows a closing business as stopped, without Suspender or Reactivar", async () => {
+    vi.mocked(fetchBusiness).mockResolvedValue(
+      businessDetail({ status: "suspended", closing: true, suspended_reason: "Cierre" }),
+    );
+    renderPage();
+
+    expect(await screen.findByText("Cierre en curso", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText(/sus datos se están borrando/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reactivar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Suspender" })).toBeNull();
+    expect(
+      (screen.getByRole("button", { name: "Cierre en curso" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("hides the logs link without Grafana and explains an unconfigured Sentry", async () => {

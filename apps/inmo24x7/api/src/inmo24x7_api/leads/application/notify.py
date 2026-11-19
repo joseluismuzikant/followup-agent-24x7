@@ -3,13 +3,14 @@
 Only real leads (never simulator tests), at most one email of each kind per lead (dedupe
 keys), to the tenant's notification emails:
 - on the hand-off: "Nueva consulta" with the answers and the visit or the request;
-- 15 minutes after the first message, if there is still no hand-off: "Consulta en curso".
+- 15 minutes after the first message, if there is still no hand-off: "Consulta en curso";
+- when the lead says "BAJA": "Pidió no ser contactado" (once per opt-out).
 """
 
 import html
 import logging
 from collections.abc import Callable, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -28,6 +29,7 @@ logger = logging.getLogger("inmo24x7.lead_email")
 
 HANDOFF_EMAIL_JOB = "lead.email_handoff"
 IN_PROGRESS_EMAIL_JOB = "lead.email_in_progress"
+OPT_OUT_EMAIL_JOB = "lead.email_opt_out"
 IN_PROGRESS_DELAY = timedelta(minutes=15)
 
 
@@ -45,6 +47,15 @@ def in_progress_email_job(lead: Lead) -> NewJob:
         {"tenant_id": str(lead.tenant_id), "lead_id": str(lead.id)},
         run_at=lead.created_at + IN_PROGRESS_DELAY,
         dedupe_key=f"lead-email:{lead.id}:in_progress",
+    )
+
+
+def opt_out_email_job(lead: Lead, at: datetime) -> NewJob:
+    """One per opt-out: a lead who wrote again and said "BAJA" again is a new one."""
+    return NewJob(
+        OPT_OUT_EMAIL_JOB,
+        {"tenant_id": str(lead.tenant_id), "lead_id": str(lead.id)},
+        dedupe_key=f"lead-email:{lead.id}:opt_out:{at:%Y%m%dT%H%M%S}",
     )
 
 
@@ -99,6 +110,8 @@ class SendLeadEmail:
         )
         visit = next((v for v in detail.visits if v.status is VisitStatus.PROPOSED), None)
         handoff = job.kind == HANDOFF_EMAIL_JOB
+        if job.kind == OPT_OUT_EMAIL_JOB and not lead.do_not_contact:
+            return  # wrote again before the email went out: nothing to warn about
         chosen = [item for item in detail.matches if item.chosen]
         if (
             handoff
@@ -113,7 +126,14 @@ class SendLeadEmail:
         line = conditions_line(detail.matches)
         if line:
             rows = [*rows, KnownRow("conditions", "Condiciones", line)]
-        if handoff:
+        if job.kind == OPT_OUT_EMAIL_JOB:
+            subject = f"Pidió no ser contactado: {_who(lead)}"
+            headline = (
+                "Pidió que no le escribamos más («BAJA»). No le mandes mensajes ni plantillas: "
+                "inmo24x7 ya los bloquea. Si vuelve a escribir por una consulta nueva, se "
+                "reactiva solo."
+            )
+        elif handoff:
             subject = f"Nueva consulta: {_who(lead)}"
             if visit is not None:
                 headline = (

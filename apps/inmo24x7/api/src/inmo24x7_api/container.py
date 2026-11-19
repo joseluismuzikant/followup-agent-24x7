@@ -63,6 +63,7 @@ from followup_core.messaging.application.connections import (
 from followup_core.messaging.application.health import (
     ConnectionHealth,
 )
+from followup_core.messaging.application.opt_out import ContactOptOut
 from followup_core.messaging.application.pipeline import (
     PROCESS_JOB,
     PURGE_JOB,
@@ -81,6 +82,7 @@ from followup_core.messaging.domain.connection import (
 from followup_core.messaging.domain.signup import Signup
 from followup_core.messaging.infrastructure.repositories import (
     SqlAlchemyConnectionRepository,
+    SqlAlchemyDoNotContactRepository,
     SqlAlchemyInboundEventRepository,
     SqlAlchemyOutboundRepository,
     SqlAlchemySignupRepository,
@@ -155,8 +157,10 @@ from .leads.application.inbox import (
 from .leads.application.notify import (
     HANDOFF_EMAIL_JOB,
     IN_PROGRESS_EMAIL_JOB,
+    OPT_OUT_EMAIL_JOB,
     SendLeadEmail,
 )
+from .leads.application.opt_out import NotifyOptOut, SetLeadDoNotContact
 from .leads.application.queries import ExportLeads, GetLead, ListLeads, ProfileNames
 from .leads.application.record_turn import RecordLeadTurn
 from .leads.graph import build_lead_graph
@@ -164,6 +168,18 @@ from .leads.infrastructure.repositories import SqlAlchemyLeadRepository
 from .leads.llm import build_language_model
 from .leads.tools import lead_tools
 from .leads.whatsapp import LeadMessageRenderer
+from .privacy.application import (
+    CLOSE_ACCOUNT_JOB,
+    CLOSE_CLEANUP_JOB,
+    CloseAccount,
+    DeleteContactData,
+    FindContacts,
+    ForgetClosingJob,
+    GetClosureSummary,
+    RequestAccountClosure,
+    SetContactDoNotContact,
+)
+from .privacy.erasure import SqlAlchemyErasure
 from .product import DEFINITION, PRODUCT
 from .properties.application.properties import (
     CreateProperty,
@@ -707,6 +723,8 @@ def job_handlers(
             debounce,
             clock,
             is_active,
+            opt_out=contact_opt_out(session, clock),
+            on_opt_out=NotifyOptOut(SqlAlchemyLeadRepository(session), queue, clock),
         )(job)
 
     conditions = SqlAlchemyConditionSettingsRepository(session)
@@ -750,6 +768,20 @@ def job_handlers(
             ),
             (HANDOFF_EMAIL_JOB, lead_email),
             (IN_PROGRESS_EMAIL_JOB, lead_email),
+            (OPT_OUT_EMAIL_JOB, lead_email),
+            (
+                CLOSE_ACCOUNT_JOB,
+                CloseAccount(
+                    SqlAlchemyErasure(session),
+                    connections,
+                    graph_for(services),
+                    build_account_directory(settings, session),
+                    SqlAlchemyAuditLog(session),
+                    queue,
+                    clock,
+                ),
+            ),
+            (CLOSE_CLEANUP_JOB, ForgetClosingJob(SqlAlchemyErasure(session), clock)),
         ]
     )
 
@@ -809,6 +841,56 @@ def build_lead_actions(
             clock,
         ),
         cancel=CancelVisit(leads, threads, messages, add_message, add_event, deliver, clock),
+        opted_out=_opted_out(session),
+    )
+
+
+def _opted_out(session: Session) -> Callable[[Thread], bool]:
+    contacts = SqlAlchemyDoNotContactRepository(session)
+
+    def opted_out(thread: Thread) -> bool:
+        if thread.channel is not Channel.WHATSAPP:
+            return False
+        return contacts.get(thread.tenant_id, thread.visitor_id) is not None
+
+    return opted_out
+
+
+def contact_opt_out(session: Session, clock: Callable[[], datetime] = utc_now) -> ContactOptOut:
+    return ContactOptOut(
+        SqlAlchemyDoNotContactRepository(session), SqlAlchemyAuditLog(session), clock
+    )
+
+
+def set_lead_do_not_contact_use_case(session: SessionDep) -> SetLeadDoNotContact:
+    return SetLeadDoNotContact(SqlAlchemyLeadRepository(session), contact_opt_out(session))
+
+
+# --- Privacy requests (backoffice) ----------------------------------------------------------
+
+
+def find_contacts_use_case(session: SessionDep) -> FindContacts:
+    return FindContacts(SqlAlchemyErasure(session))
+
+
+def delete_contact_use_case(session: SessionDep) -> DeleteContactData:
+    return DeleteContactData(SqlAlchemyErasure(session), SqlAlchemyAuditLog(session), utc_now)
+
+
+def admin_do_not_contact_use_case(session: SessionDep) -> SetContactDoNotContact:
+    return SetContactDoNotContact(SqlAlchemyErasure(session), contact_opt_out(session))
+
+
+def closure_summary_use_case(session: SessionDep) -> GetClosureSummary:
+    return GetClosureSummary(SqlAlchemyErasure(session))
+
+
+def request_closure_use_case(session: SessionDep) -> RequestAccountClosure:
+    return RequestAccountClosure(
+        SqlAlchemyErasure(session),
+        SqlAlchemyJobQueue(session, utc_now, PRODUCT),
+        SqlAlchemyAuditLog(session),
+        utc_now,
     )
 
 

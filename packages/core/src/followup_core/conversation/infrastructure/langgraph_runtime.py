@@ -1,10 +1,11 @@
 """Runs a product-supplied LangGraph graph behind the AgentRuntime port.
 
 Graph contract:
-- Input is {"inbound": <text>, "outbox": []}.
+- Input is {"inbound": <text>, "outbox": [], "opt_out": False}.
 - Nodes read `GraphContext` through `runtime.context` (agent config, business, transcript,
   the language model and the product's tools) and write this turn's messages to `outbox` as
   {"text": str, "payload": dict | None, "author": "agent" | "system" (optional)}.
+- A node may set `opt_out` to True: the message asked not to be written to again ("BAJA").
 - Every other state key is the conversation state, persisted by the checkpointer and
   exposed as the state snapshot.
 
@@ -39,7 +40,7 @@ from ..domain.thread import Author, Channel, Thread, ThreadKey
 from ..domain.tools import Tool, ToolRegistry
 from ..domain.usage import LlmCall, LlmOperation, LlmUsageRecorder
 
-TRANSIENT_KEYS = frozenset({"inbound", "outbox"})
+TRANSIENT_KEYS = frozenset({"inbound", "outbox", "opt_out"})
 
 _Result = TypeVar("_Result", Extraction, Reply)
 
@@ -210,7 +211,7 @@ class LangGraphRuntime:
             # durability="exit": the checkpoint is written once, when the turn completes,
             # so a failure in a later node never leaves a half-done state behind.
             result = self._graph.invoke(
-                {"inbound": turn.text, "outbox": []},
+                {"inbound": turn.text, "outbox": [], "opt_out": False},
                 config,
                 context=context,
                 durability="exit",
@@ -224,7 +225,11 @@ class LangGraphRuntime:
             for item in result.get("outbox", [])
         ]
         return AgentTurn(
-            outbound=outbound, state=_snapshot(result), metrics=metrics, trace_run_id=run_id
+            outbound=outbound,
+            state=_snapshot(result),
+            metrics=metrics,
+            trace_run_id=run_id,
+            opt_out=bool(result.get("opt_out")),
         )
 
     def state(self, key: ThreadKey) -> Mapping[str, Any]:

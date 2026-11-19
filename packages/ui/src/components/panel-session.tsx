@@ -7,8 +7,8 @@ export interface PanelSession {
 
 const PanelSessionContext = createContext<PanelSession | null>(null);
 
-/** Who is signed in, for PanelLayout's sidebar ("Cerrar sesión"). The backoffices' admin gate
- * provides it; without it the sidebar shows no session block. */
+/** Who is signed in, for PanelLayout's sidebar ("Cerrar sesión"). The panels' AppShell and the
+ * backoffices' admin gate provide it; without it the sidebar shows no session block. */
 export const PanelSessionProvider = PanelSessionContext.Provider;
 
 export function usePanelSession(): PanelSession | null {

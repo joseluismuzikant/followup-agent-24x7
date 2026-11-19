@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from followup_core.messaging.infrastructure.models import DoNotContactModel
 from sqlalchemy import ColumnElement, and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -48,6 +49,12 @@ class SqlAlchemyLeadRepository:
         )
         return tuple(StatusChange(LeadStatus(row.status), row.changed_at) for row in rows)
 
+    def _opted_out(self, model: LeadModel) -> bool:
+        if model.channel != "whatsapp":
+            return False
+        wa_id = model.thread_key.rsplit(":", 1)[-1]
+        return self._session.get(DoNotContactModel, (model.tenant_id, wa_id)) is not None
+
     def _to_domain(self, model: LeadModel) -> Lead:
         return Lead(
             id=model.id,
@@ -67,6 +74,7 @@ class SqlAlchemyLeadRepository:
             last_activity_at=model.last_activity_at,
             last_human_reply_at=model.last_human_reply_at,
             conditions_status=model.conditions_status,
+            do_not_contact=self._opted_out(model),
         )
 
     def get(self, tenant_id: UUID, lead_id: UUID) -> Lead | None:
@@ -77,6 +85,10 @@ class SqlAlchemyLeadRepository:
 
     def get_by_thread(self, thread_id: UUID) -> Lead | None:
         model = self._session.scalar(select(LeadModel).where(LeadModel.thread_id == thread_id))
+        return self._to_domain(model) if model is not None else None
+
+    def get_by_thread_key(self, thread_key: str) -> Lead | None:
+        model = self._session.scalar(select(LeadModel).where(LeadModel.thread_key == thread_key))
         return self._to_domain(model) if model is not None else None
 
     def save(self, lead: Lead) -> None:

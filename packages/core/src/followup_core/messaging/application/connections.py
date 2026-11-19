@@ -21,6 +21,7 @@ from ..domain.connection import (
     SenderKind,
     WhatsAppConnection,
 )
+from ..domain.opt_out import ContactOptedOutError, DoNotContactRepository
 from ..domain.outbound import SendError, WhatsAppSender
 from ..domain.phones import to_e164
 from ..domain.repositories import ConnectionRepository
@@ -62,6 +63,8 @@ class GraphPort(Protocol):
     def phone_number(self, connection: WhatsAppConnection) -> PhoneInfo: ...
 
     def subscribe_app(self, connection: WhatsAppConnection) -> None: ...
+
+    def unsubscribe_app(self, connection: WhatsAppConnection) -> None: ...
 
     def business_verification(self, connection: WhatsAppConnection) -> BusinessVerification:
         """UNKNOWN when Meta does not tell (never raises)."""
@@ -212,6 +215,7 @@ class ManageConnection:
         clock: Clock = utc_now,
         audit: AuditLog | None = None,
         resume: Resume | None = None,
+        contacts: DoNotContactRepository | None = None,
     ) -> None:
         self._connections = connections
         self._graph_for = graph_for
@@ -219,6 +223,7 @@ class ManageConnection:
         self._clock = clock
         self._audit = audit or NoAuditLog()
         self._resume = resume
+        self._contacts = contacts
 
     def get(self, tenant_id: UUID) -> WhatsAppConnection | None:
         return self._connections.get_by_tenant(tenant_id)
@@ -271,6 +276,8 @@ class ManageConnection:
         e164 = to_e164(to)
         if e164 is None:
             raise ConnectionInvalidError("Invalid phone number.")
+        if self._contacts is not None and self._contacts.get(tenant_id, e164.lstrip("+")):
+            raise ContactOptedOutError(str(tenant_id))
         sender = self._sender_for(connection)
         try:
             return sender.send_template(

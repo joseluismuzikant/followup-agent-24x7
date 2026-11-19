@@ -25,6 +25,12 @@ const messages: Record<string, string> = {
     "No hay una conexión con Meta a medio terminar para reintentar: el cliente tiene que volver a conectar.",
   whatsapp_signup_failed: "Meta rechazó un paso de la configuración.",
   tenant_has_no_owner: "Este negocio todavía no tiene dueño a quien mandarle el link.",
+  account_closing: "Este negocio se está cerrando: sus datos se están borrando.",
+  confirmation_mismatch: "Lo que escribiste no coincide. Revisalo y probá de nuevo.",
+  contact_not_found: "Ese contacto ya no tiene datos en este negocio.",
+  contact_opted_out: "Ese número pidió no ser contactado por este negocio.",
+  phone_invalid: "Ese número no es válido. Escribilo con código de área.",
+  platform_business: "El negocio de la plataforma no se puede cerrar desde acá.",
 };
 
 export function apiErrorMessage(error: unknown, fallback: string): string {

@@ -77,6 +77,9 @@ class Directory:
     def set_password(self, user_id: UUID, email: str, password: str) -> None:
         self.passwords[email] = password
 
+    def delete_user(self, user_id: UUID, email: str) -> None:
+        self.passwords.pop(email, None)
+
 
 class Invitations:
     def __init__(self) -> None:

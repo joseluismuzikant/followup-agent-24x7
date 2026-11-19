@@ -14,6 +14,7 @@ import {
   overrideConditions,
   releaseLead,
   sendTeamMessage,
+  setDoNotContact,
   takeOverLead,
 } from "../api/leads";
 import { fetchMe } from "../api/me";
@@ -30,6 +31,7 @@ vi.mock("../api/leads", () => ({
   cancelVisit: vi.fn(),
   downloadLeadsCsv: vi.fn(),
   overrideConditions: vi.fn(),
+  setDoNotContact: vi.fn(),
 }));
 vi.mock("../api/me", () => ({ fetchMe: vi.fn() }));
 
@@ -51,6 +53,7 @@ function lead(overrides: Partial<Lead> = {}): Lead {
     needs_attention: true,
     next_visit_at: "2026-11-07T13:30:00Z",
     conditions_status: null,
+    do_not_contact: false,
     ...overrides,
   };
 }
@@ -474,6 +477,50 @@ describe("ConsultasPage", () => {
     expect(await block.findByRole("button", { name: "Volver a lo que vio el agente" })).toBeTruthy();
   });
 
+  it("badges a lead who asked not to be contacted and blocks writing to them", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchLeads).mockResolvedValue(list([lead({ do_not_contact: true })]));
+    vi.mocked(fetchLead).mockResolvedValue(
+      detail({
+        do_not_contact: true,
+        control: { mode: "human", by: { id: ME, name: "Luis" }, changed_at: null },
+      }),
+    );
+    vi.mocked(setDoNotContact).mockResolvedValue(detail({ do_not_contact: false }));
+    renderPage("/consultas?lead=l1");
+
+    const items = within(await screen.findByRole("list", { name: "Lista de consultas" }));
+    expect(items.getByText("Pidió no ser contactado")).toBeTruthy();
+    const panel = within(await screen.findByRole("complementary", { name: "Detalle de la consulta" }));
+    const notice = within(panel.getByRole("region", { name: "No contactar" }));
+    expect(notice.getByText(/no le manda mensajes ni plantillas/)).toBeTruthy();
+    expect((panel.getByLabelText("Respuesta") as HTMLTextAreaElement).disabled).toBe(true);
+    expect(panel.getByText("Pidió no ser contactado: no le podemos escribir.")).toBeTruthy();
+    expect((panel.getByRole("button", { name: "Confirmar visita" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    await user.click(notice.getByRole("button", { name: "Quitar" }));
+
+    expect(vi.mocked(setDoNotContact)).toHaveBeenCalledWith("l1", false);
+    expect(await panel.findByRole("button", { name: "Marcar como no contactar" })).toBeTruthy();
+  });
+
+  it("marks a lead as do-not-contact after confirming", async () => {
+    const user = userEvent.setup();
+    vi.mocked(setDoNotContact).mockResolvedValue(detail({ do_not_contact: true }));
+    renderPage("/consultas?lead=l1");
+    const panel = within(await screen.findByRole("complementary", { name: "Detalle de la consulta" }));
+
+    await user.click(panel.getByRole("button", { name: "Marcar como no contactar" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Marcar como no contactar" }));
+    expect(dialog.getByText(/por email o por teléfono/)).toBeTruthy();
+    await user.click(dialog.getByRole("button", { name: "Marcar como no contactar" }));
+
+    expect(vi.mocked(setDoNotContact)).toHaveBeenCalledWith("l1", true);
+    expect(await panel.findByRole("region", { name: "No contactar" })).toBeTruthy();
+  });
+
   it("is read-only for viewers", async () => {
     vi.mocked(fetchMe).mockResolvedValue(me("viewer"));
     renderPage("/consultas?lead=l1");
@@ -530,5 +577,13 @@ describe("ConsultasPage on a phone", () => {
 
     expect(vi.mocked(takeOverLead)).toHaveBeenCalledWith("l1");
     expect(await screen.findByRole("textbox", { name: "Respuesta" })).toBeTruthy();
+  });
+
+  it("says why instead of offering Responder yo when the lead opted out", async () => {
+    vi.mocked(fetchLead).mockResolvedValue(detail({ do_not_contact: true }));
+    renderPage("/consultas?lead=l1");
+
+    expect(await screen.findByText("Pidió no ser contactado: no le podemos escribir.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Responder yo" })).toBeNull();
   });
 });

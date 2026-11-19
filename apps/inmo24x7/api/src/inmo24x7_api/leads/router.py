@@ -17,6 +17,7 @@ from followup_core.conversation.domain.errors import (
 )
 from followup_core.conversation.domain.thread import Channel
 from followup_core.identity.domain.profile import Profile, Role
+from followup_core.messaging.domain.opt_out import ContactOptedOutError
 from followup_core.messaging.domain.outbound import overall_status
 from followup_core.messaging.domain.repositories import OutboundRepository
 from pydantic import BaseModel, Field
@@ -27,12 +28,14 @@ from ..properties.domain.conditions import Match
 from ..simulator import KnownFactRead, MessageRead, message_read
 from .application.conditions import OverrideMatch
 from .application.inbox import LeadActions, service_window
+from .application.opt_out import SetLeadDoNotContact
 from .application.queries import ExportLeads, GetLead, LeadDetail, ListLeads
 from .conditions import FACTS, fact_value
 from .display import known_rows, lead_csv, looking_for
 from .domain.errors import (
     InvalidLeadTransitionError,
     LeadNotFoundError,
+    LeadNotOnWhatsAppError,
     MatchNotFoundError,
     OutsideServiceWindowError,
     TemplateNotConfiguredError,
@@ -76,6 +79,8 @@ class LeadRead(BaseModel):
     next_visit_at: datetime | None = None
     # How the lead compares with the conditions of what they chose (or saw).
     conditions_status: ConditionStatusName | None = None
+    # "Pidió no ser contactado": nothing can be sent to them (replies, templates).
+    do_not_contact: bool = False
 
 
 class ConditionFactRead(BaseModel):
@@ -105,6 +110,11 @@ class LeadConditionsRead(BaseModel):
     status: ConditionStatusName | None
     facts: list[ConditionFactRead]
     properties: list[PropertyConditionRead]
+
+
+class DoNotContactWrite(BaseModel):
+    # True: "Marcar como no contactar"; False: "Quitar".
+    blocked: bool
 
 
 class OverrideWrite(BaseModel):
@@ -199,6 +209,7 @@ def lead_read(lead: Lead, next_visit_at: datetime | None = None) -> LeadRead:
         needs_attention=lead.needs_attention,
         next_visit_at=next_visit_at,
         conditions_status=lead.conditions_status,  # type: ignore[arg-type]
+        do_not_contact=lead.do_not_contact,
     )
 
 
@@ -320,6 +331,7 @@ def build_leads_router(
     export_factory: Callable[..., ExportLeads],
     actions_factory: Callable[..., LeadActions],
     override_factory: Callable[..., OverrideMatch],
+    do_not_contact_factory: Callable[..., SetLeadDoNotContact],
 ) -> APIRouter:
     router = APIRouter(tags=["leads"])
 
@@ -486,6 +498,21 @@ def build_leads_router(
             )
         return refreshed(lead_id, profile, get, delivery)
 
+    @router.post("/leads/{lead_id}/do-not-contact", response_model=LeadDetailRead)
+    def set_do_not_contact(
+        lead_id: UUID,
+        payload: DoNotContactWrite,
+        profile: Annotated[Profile, Depends(can_act)],
+        use_case: Annotated[SetLeadDoNotContact, Depends(do_not_contact_factory)],
+        get: Annotated[GetLead, Depends(get_factory)],
+        delivery: Annotated[OutboundRepository, Depends(delivery_factory)],
+    ) -> LeadDetailRead:
+        """ "Marcar como no contactar" / "Quitar": for a "BAJA" that arrived by email or
+        phone, or a mistake. Audited."""
+        with _errors():
+            use_case.execute(profile.tenant_id, lead_id, profile.id, payload.blocked)
+        return refreshed(lead_id, profile, get, delivery)
+
     return router
 
 
@@ -498,6 +525,8 @@ class _errors:
         ConversationNotTakenError: (409, "conversation_not_taken"),
         OutsideServiceWindowError: (409, "outside_service_window"),
         TemplateNotConfiguredError: (409, "template_not_configured"),
+        ContactOptedOutError: (409, "contact_opted_out"),
+        LeadNotOnWhatsAppError: (409, "lead_not_whatsapp"),
         VisitCancelledError: (409, "visit_cancelled"),
         InvalidLeadTransitionError: (409, "invalid_lead_status"),
         VisitTimeInPastError: (422, "visit_time_in_past"),

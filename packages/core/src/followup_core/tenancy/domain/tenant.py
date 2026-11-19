@@ -16,6 +16,9 @@ MAX_SUSPENSION_REASON = 500
 class TenantStatus(StrEnum):
     ACTIVE = "active"
     SUSPENDED = "suspended"
+    # Closed account: a tombstone without personal data (inmo24x7's "Cerrar cuenta y
+    # eliminar datos"), kept for the usage totals and the closing audit event.
+    DELETED = "deleted"
 
 
 class Plan(StrEnum):

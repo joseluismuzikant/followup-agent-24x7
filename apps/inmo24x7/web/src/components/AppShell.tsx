@@ -1,4 +1,4 @@
-import { Button, PanelLayout } from "@followup/ui";
+import { PanelLayout, PanelSessionProvider } from "@followup/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useLocation } from "react-router";
 
@@ -15,7 +15,7 @@ const navItems = [
 
 export function AppShell() {
   const location = useLocation();
-  const { signOut } = useAuth();
+  const { session, signOut } = useAuth();
   const meQuery = useQuery({
     queryKey: ["me"],
     queryFn: fetchMe,
@@ -33,20 +33,22 @@ export function AppShell() {
       : (items.find((item) => item.active)?.label ?? "Inicio");
 
   return (
-    <PanelLayout
-      productName="inmo24x7"
-      areaName="Panel"
-      title={title}
-      description="Tu espacio de trabajo."
-      navItems={items}
-      subtitle={meQuery.data?.tenant.name}
-      action={
-        <Button variant="outline" onClick={() => void signOut()}>
-          Cerrar sesión
-        </Button>
-      }
+    <PanelSessionProvider
+      value={{
+        email: session?.email || meQuery.data?.profile.email || "",
+        onSignOut: () => void signOut(),
+      }}
     >
-      <Outlet />
-    </PanelLayout>
+      <PanelLayout
+        productName="inmo24x7"
+        areaName="Panel"
+        title={title}
+        description="Tu espacio de trabajo."
+        navItems={items}
+        subtitle={meQuery.data?.tenant.name}
+      >
+        <Outlet />
+      </PanelLayout>
+    </PanelSessionProvider>
   );
 }

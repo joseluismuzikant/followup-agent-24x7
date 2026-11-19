@@ -179,6 +179,7 @@ class LangChainLanguageModel:
             # Only an id the agent actually offered; anything else is ignored.
             choice_id=choice_id if isinstance(choice_id, str) and choice_id in offered else None,
             wants_human=parsed.get("wants_human") is True,
+            wants_opt_out=parsed.get("wants_opt_out") is True,
             usage=_usage(result),
         )
 

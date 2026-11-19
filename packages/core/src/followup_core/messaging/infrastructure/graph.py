@@ -134,6 +134,11 @@ class GraphClient:
     def subscribe_app(self, waba_id: str, token: str) -> None:
         self._request("POST", f"/{waba_id}/subscribed_apps", token)
 
+    def unsubscribe_app(self, waba_id: str, token: str) -> None:
+        """Our app stops receiving the WABA's webhooks (closing an account). Nothing else
+        at Meta changes: the number, the WABA and its templates stay the customer's."""
+        self._request("DELETE", f"/{waba_id}/subscribed_apps", token)
+
     def exchange_code(self, app_id: str, app_secret: str, code: str) -> str:
         """Embedded Signup: the 30-second code for the customer's business token."""
         result = self._request(
@@ -237,6 +242,10 @@ class CloudGraphPort:
         token = self._cipher.decrypt(connection.access_token_encrypted)
         self._client.subscribe_app(connection.waba_id, token)
 
+    def unsubscribe_app(self, connection: WhatsAppConnection) -> None:
+        token = self._cipher.decrypt(connection.access_token_encrypted)
+        self._client.unsubscribe_app(connection.waba_id, token)
+
     def business_verification(self, connection: WhatsAppConnection) -> BusinessVerification:
         if not connection.business_id:
             return BusinessVerification.UNKNOWN
@@ -254,6 +263,9 @@ class LogGraphPort:
         )
 
     def subscribe_app(self, connection: WhatsAppConnection) -> None:
+        return None
+
+    def unsubscribe_app(self, connection: WhatsAppConnection) -> None:
         return None
 
     def business_verification(self, connection: WhatsAppConnection) -> BusinessVerification:

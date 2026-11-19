@@ -67,8 +67,8 @@ class LlmUsageModel(Base):
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
     # No foreign key: the thread of a turn that rolled back never exists, and its calls
-    # are still billed.
-    thread_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    # are still billed. NULL once the conversation's data was deleted (the cost stays).
+    thread_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     channel: Mapped[str] = mapped_column(String(20), nullable=False)
     is_test: Mapped[bool] = mapped_column(Boolean, nullable=False)
     operation: Mapped[str] = mapped_column(String(20), nullable=False)

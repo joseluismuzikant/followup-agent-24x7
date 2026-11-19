@@ -60,6 +60,17 @@ const actionLabels: Record<string, string> = {
   tenant_reactivated: "Cuenta reactivada",
   reconnect_link_sent: "Se envió el link para reconectar",
   llm_cost_alert: "El consumo de LLM del mes pasó el aviso",
+  contact_opted_out: "Un contacto pidió no ser contactado",
+  contact_opt_out_lifted: "Se quitó el «no contactar» de un contacto",
+  contact_data_deleted: "Se eliminaron los datos de un contacto",
+  account_closure_requested: "Se pidió cerrar la cuenta y eliminar los datos",
+  account_closed: "Cuenta cerrada y datos eliminados",
+};
+
+const sourceLabels: Record<string, string> = {
+  message: "lo pidió por WhatsApp",
+  team: "desde el panel",
+  admin: "desde el backoffice",
 };
 
 export function activityText(event: BusinessActivity): string {
@@ -74,6 +85,12 @@ export function activityText(event: BusinessActivity): string {
   if (details.step) extra.push(`paso ${details.step}`);
   if (details.event) extra.push(String(details.event));
   if (details.source === "manual") extra.push("a mano");
+  if (typeof details.source === "string" && details.source in sourceLabels) {
+    extra.push(sourceLabels[details.source]);
+  }
+  if (event.action === "contact_data_deleted" || event.action === "account_closed") {
+    extra.push(`${details.leads ?? 0} consultas, ${details.messages ?? 0} mensajes`);
+  }
   if (details.cost_usd) extra.push(`USD ${details.cost_usd} en ${details.month}`);
   return extra.length ? `${label} · ${extra.join(" · ")}` : label;
 }

@@ -54,6 +54,7 @@ from followup_core.messaging.infrastructure.graph import (
 from followup_core.messaging.infrastructure.log_sender import LOG_STATUS_JOB, LogSender
 from followup_core.messaging.infrastructure.repositories import (
     SqlAlchemyConnectionRepository,
+    SqlAlchemyDoNotContactRepository,
     SqlAlchemyInboundEventRepository,
     SqlAlchemyOutboundRepository,
     SqlAlchemySignupRepository,
@@ -197,6 +198,7 @@ def manage_connection(
         sender_for(services, SqlAlchemyJobQueue(session, queue=product)),
         audit=SqlAlchemyAuditLog(session),
         resume=connection_health(session, product),
+        contacts=SqlAlchemyDoNotContactRepository(session),
     )
 
 
@@ -220,11 +222,12 @@ def signup_state(session: Session) -> Callable[[UUID], Signup | None]:
 
 
 def tenant_is_active(session: Session) -> Callable[[UUID], bool]:
-    """False for a suspended business: no replies, emails or scheduled checks."""
+    """False for a suspended business (and a closed one): no replies, emails or scheduled
+    checks."""
 
     def active(tenant_id: UUID) -> bool:
         model = session.get(TenantModel, tenant_id)
-        return model is None or model.status != TenantStatus.SUSPENDED.value
+        return model is None or model.status == TenantStatus.ACTIVE.value
 
     return active
 
@@ -285,7 +288,19 @@ def whatsapp_job_handlers(
         statuses.execute(job.payload["wamid"], job.payload["status"], clock())
 
     return [
-        (SEND_JOB, SendQueued(outbound, repository, choose_sender, clock, health, is_active)),
+        (
+            SEND_JOB,
+            # The one place WhatsApp messages leave: it also enforces every "BAJA".
+            SendQueued(
+                outbound,
+                repository,
+                choose_sender,
+                clock,
+                health,
+                is_active,
+                SqlAlchemyDoNotContactRepository(session),
+            ),
+        ),
         (MARK_READ_JOB, MarkRead(repository, choose_sender, health)),
         (HEALTH_SWEEP_JOB, HealthSweep(repository, queue, is_active, clock)),
         (HEALTH_CHECK_JOB, HealthCheck(repository, graph_for(services), health, is_active, clock)),

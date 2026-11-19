@@ -133,6 +133,9 @@ function SidebarFooter() {
   const session = usePanelSession();
   return (
     <div className="mt-auto flex flex-col gap-4">
+      <p className="text-xs leading-relaxed text-sidebar-muted">
+        Un agente que sigue cada conversación hasta el resultado.
+      </p>
       {session ? (
         <div className="flex flex-col items-stretch gap-3 border-t border-white/10 pt-4">
           <p className="min-w-0 truncate text-xs text-sidebar-muted" title={session.email}>
@@ -147,9 +150,6 @@ function SidebarFooter() {
           </button>
         </div>
       ) : null}
-      <p className="text-xs leading-relaxed text-sidebar-muted">
-        Un agente que sigue cada conversación hasta el resultado.
-      </p>
     </div>
   );
 }

@@ -108,6 +108,9 @@ class Extraction:
     choice_id: str | None = None
     # The lead asked to talk to a person.
     wants_human: bool = False
+    # The lead asked not to be written to again ("no me molesten más"): a second signal next
+    # to the deterministic "BAJA" matcher, never for "baja" with another meaning.
+    wants_opt_out: bool = False
     usage: TokenUsage = TokenUsage()
 
 

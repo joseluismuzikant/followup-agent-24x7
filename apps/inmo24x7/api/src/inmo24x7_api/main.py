@@ -18,16 +18,20 @@ from .backoffice.router import MonitoringLinks, build_backoffice_router
 from .billing.router import build_usage_router
 from .config import get_settings
 from .container import (
+    admin_do_not_contact_use_case,
     advance_onboarding_use_case,
     audit_log,
     backoffice_queries,
+    closure_summary_use_case,
     condition_settings,
     create_business_use_case,
     create_property_use_case,
     create_tenant_use_case,
+    delete_contact_use_case,
     delivery_statuses,
     embedded_signup_use_case,
     export_leads_use_case,
+    find_contacts_use_case,
     get_account_directory,
     get_agent_setup_use_case,
     get_business_use_case,
@@ -57,6 +61,7 @@ from .container import (
     manage_connection_use_case,
     override_match_use_case,
     reconnect_link_use_case,
+    request_closure_use_case,
     resend_invitation_use_case,
     reset_simulator_use_case,
     reset_temporary_password_use_case,
@@ -64,6 +69,7 @@ from .container import (
     save_condition_settings_use_case,
     save_connection_use_case,
     send_simulator_message_use_case,
+    set_lead_do_not_contact_use_case,
     set_property_status_use_case,
     sign_up_use_case,
     signup_state,
@@ -83,6 +89,7 @@ from .leads.router import build_leads_router
 from .logging import configure_logging
 from .middleware import RequestContextMiddleware
 from .observability import init_sentry
+from .privacy.router import build_privacy_router
 from .product import DEFINITION, FACTS
 from .properties.router import build_properties_router
 from .simulator import build_simulator_router
@@ -188,9 +195,19 @@ def create_app() -> FastAPI:
             export_leads_use_case,
             lead_actions,
             override_match_use_case,
+            set_lead_do_not_contact_use_case,
         )
     )
     application.include_router(build_dashboard_router(get_dashboard_use_case))
+    application.include_router(
+        build_privacy_router(
+            find_contacts_use_case,
+            delete_contact_use_case,
+            admin_do_not_contact_use_case,
+            closure_summary_use_case,
+            request_closure_use_case,
+        )
+    )
     application.include_router(
         build_webhook_router(ingest_webhook_use_case, get_webhook_secrets, webhook_counters)
     )

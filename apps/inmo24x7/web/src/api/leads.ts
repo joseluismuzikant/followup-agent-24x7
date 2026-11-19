@@ -52,6 +52,18 @@ export async function fetchLead(id: string): Promise<LeadDetail> {
   throw apiError(response, error);
 }
 
+/** "Marcar como no contactar" (blocked) / "Quitar": WhatsApp leads only. */
+export async function setDoNotContact(id: string, blocked: boolean): Promise<LeadDetail> {
+  const { data, error, response } = await apiClient.POST("/leads/{lead_id}/do-not-contact", {
+    params: { path: { lead_id: id } },
+    body: { blocked },
+  });
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
+}
+
 export async function takeOverLead(id: string): Promise<LeadDetail> {
   const { data, error, response } = await apiClient.POST("/leads/{lead_id}/takeover", {
     params: { path: { lead_id: id } },

@@ -66,6 +66,9 @@ class Lead:
     # cumple / no_cumple / sin_datos for what the lead chose (or else was shown), with the
     # team's overrides; None until a property with data was evaluated.
     conditions_status: str | None = None
+    # "Pidió no ser contactado": the contact's do-not-contact flag (read from its own
+    # table, never saved with the lead).
+    do_not_contact: bool = False
 
     @classmethod
     def start(
@@ -95,6 +98,13 @@ class Lead:
             created_at=now,
             last_activity_at=now,
         )
+
+    @property
+    def wa_id(self) -> str | None:
+        """The WhatsApp contact of the lead's thread; None for the simulator."""
+        if self.channel != "whatsapp":
+            return None
+        return self.thread_key.rsplit(":", 1)[-1]
 
     @property
     def is_handed_off(self) -> bool:

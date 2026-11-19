@@ -31,6 +31,13 @@ from followup_core.scheduling.domain.jobs import Job, JobQueue, NewJob, Reschedu
 
 from ..domain.connection import ConnectionStatus, WhatsAppConnection
 from ..domain.events import EventStatus, InboundEvent
+from ..domain.opt_out import (
+    DO_NOT_CONTACT,
+    OPT_OUT_CONFIRMATION,
+    DoNotContactRepository,
+    OptOutSource,
+    is_opt_out,
+)
 from ..domain.outbound import (
     OUTSIDE_SERVICE_WINDOW,
     UNREADABLE_REPLY,
@@ -57,6 +64,7 @@ from .health import (
     always_active,
     stops_sending,
 )
+from .opt_out import ContactOptOut
 
 logger = logging.getLogger("followup.whatsapp")
 
@@ -79,6 +87,10 @@ class IngestResult:
 
 # A product's handler for template reviews (True when the template is one of its own).
 TemplateUpdates = Callable[[TemplateStatusUpdate], bool]
+
+# Called when a contact has just opted out: (tenant, the contact's wa_id). The product shows
+# it on its lead and tells the team.
+OptOutObserver = Callable[[UUID, str], None]
 
 
 class ApplyDeliveryStatus:
@@ -239,10 +251,14 @@ class ProcessInbound:
         debounce: timedelta = DEFAULT_DEBOUNCE,
         clock: Clock = utc_now,
         is_active: TenantIsActive = always_active,
+        opt_out: ContactOptOut | None = None,
+        on_opt_out: OptOutObserver | None = None,
     ) -> None:
         self._events = events
         self._connections = connections
         self._is_active = is_active
+        self._opt_out = opt_out
+        self._on_opt_out = on_opt_out
         self._lock = lock
         self._handle = handle
         self._reply_without_agent = reply_without_agent
@@ -275,40 +291,90 @@ class ProcessInbound:
             )
             for item in pending
         ]
-        if not self._is_active(event.tenant_id):
+        tenant_id, wa_id = event.tenant_id, event.wa_id
+        last = pending[-1]
+        active = self._is_active(tenant_id)
+        blocked = self._opt_out is not None and self._opt_out.is_blocked(tenant_id, wa_id)
+        if self._opt_out is not None and any(
+            item.is_text and is_opt_out(item.text or "") for item in pending
+        ):
+            # "BAJA", before the agent and whoever has the conversation: one confirmation
+            # (none if already opted out, or nothing can be sent), then silence.
+            reply = OPT_OUT_CONFIRMATION if active and not blocked else None
+            fixed = self._reply_without_agent.execute(
+                key, parts, reply, even_if_taken_over=True
+            ).outbound
+            self._events.mark([item.id for item in pending], EventStatus.PROCESSED)
+            if not blocked:
+                self._opted_out(tenant_id, wa_id, last.wamid, fixed.id if fixed else None)
+            self._queue_outbound([fixed] if fixed else [], wa_id)
+            self._after_burst(tenant_id, last)
+            return None
+        if not active:
             # A suspended business: stored for when it comes back, never answered.
             self._reply_without_agent.execute(key, parts, None)
             self._events.mark([item.id for item in pending], EventStatus.PROCESSED)
             return None
+        opted_out = False
         if any(item.is_text for item in pending):
             taps = [item.choice_id for item in pending if item.choice_id]
             turn = self._handle.execute(
                 key,
                 parts,
                 choice_id=taps[-1] if taps else None,
-                visitor_contact=channel_contact(event.wa_id),
+                visitor_contact=channel_contact(wa_id),
             )
             replies = list(turn.outbound)
+            opted_out = turn.opt_out
         else:
             fixed = self._reply_without_agent.execute(key, parts, UNREADABLE_REPLY).outbound
             replies = [fixed] if fixed else []
         self._events.mark([item.id for item in pending], EventStatus.PROCESSED)
 
+        if self._opt_out is not None:
+            if opted_out and blocked:
+                # Said it again in other words: still opted out, and no second confirmation.
+                replies = []
+            elif opted_out:
+                # The agent read it ("no me molesten más"): its reply is the confirmation.
+                confirmation = next((m.id for m in replies if m.author is Author.AGENT), None)
+                self._opted_out(tenant_id, wa_id, last.wamid, confirmation)
+            elif blocked:
+                # A new inquiry after a "BAJA" counts as contacting the business again.
+                self._opt_out.lift(tenant_id, wa_id, OptOutSource.MESSAGE)
+
         # Nothing to send while the team has the conversation (the turn stored only).
-        self._queue_outbound(replies, event.wa_id)
-        last = pending[-1]
+        self._queue_outbound(replies, wa_id)
+        self._after_burst(tenant_id, last)
+        return None
+
+    def _opted_out(
+        self, tenant_id: UUID, wa_id: str, wamid: str, confirmation_id: UUID | None
+    ) -> None:
+        if self._opt_out is None:
+            return
+        self._opt_out.block(
+            tenant_id,
+            wa_id,
+            OptOutSource.MESSAGE,
+            source_message_id=wamid,
+            confirmation_message_id=confirmation_id,
+        )
+        if self._on_opt_out is not None:
+            self._on_opt_out(tenant_id, wa_id)
+
+    def _after_burst(self, tenant_id: UUID, last: InboundEvent) -> None:
         self._queue.enqueue(
             NewJob(
                 MARK_READ_JOB,
-                {"tenant_id": str(event.tenant_id), "wamid": last.wamid},
+                {"tenant_id": str(tenant_id), "wamid": last.wamid},
                 dedupe_key=f"wa-read:{last.wamid}",
                 max_attempts=3,
             )
         )
-        connection = self._connections.get_by_tenant(event.tenant_id)
+        connection = self._connections.get_by_tenant(tenant_id)
         if connection is not None:
             self._connections.mark_inbound(connection.id, last.sent_at)
-        return None
 
 
 # Called once a burst is stored: (tenant, the sender's wa_id, the stored messages).
@@ -396,6 +462,7 @@ class SendQueued:
         clock: Clock = utc_now,
         health: ConnectionHealth | None = None,
         is_active: TenantIsActive = always_active,
+        contacts: DoNotContactRepository | None = None,
     ) -> None:
         self._outbound = outbound
         self._connections = connections
@@ -403,6 +470,15 @@ class SendQueued:
         self._clock = clock
         self._health = health
         self._is_active = is_active
+        self._contacts = contacts
+
+    def _opted_out(self, tenant_id: UUID, part: OutboundPart) -> bool:
+        """The contact asked not to be written to: nothing goes out (templates, team
+        replies, resumed parts) except the one confirmation of their "BAJA"."""
+        if self._contacts is None:
+            return False
+        entry = self._contacts.get(tenant_id, part.wa_id)
+        return entry is not None and part.message_id != entry.confirmation_message_id
 
     def __call__(self, job: Job) -> RetryLater | None:
         message_ids = [UUID(item) for item in job.payload["message_ids"]]
@@ -428,6 +504,9 @@ class SendQueued:
         sender = self._sender_for(connection)
         for index, part in enumerate(parts):
             if part.status is not DeliveryStatus.QUEUED:
+                continue
+            if self._opted_out(connection.tenant_id, part):
+                self._outbound.mark_failed(part.id, DO_NOT_CONTACT, now)
                 continue
             # Templates are the one kind of message allowed outside the 24-hour window.
             is_template = part.body.get("type") == "template"

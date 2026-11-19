@@ -29,6 +29,7 @@ import {
   sendReconnectLink,
   suspendBusiness,
 } from "../api/backoffice";
+import { PrivacyCard } from "../components/PrivacyCard";
 import { RequireAdmin } from "../components/RequireAdmin";
 import { IssueList, errorsUnavailableText } from "../components/monitoring/IssueList";
 import { WhatsAppConnectionPanel } from "../components/WhatsAppConnection";
@@ -97,6 +98,7 @@ function Detail({ business, queryKey }: DetailProps) {
     onSuccess: (updated) => queryClient.setQueryData(queryKey, updated),
   });
   const suspended = business.status === "suspended";
+  const closing = business.closing;
 
   return (
     <div className="flex flex-col gap-6">
@@ -104,14 +106,22 @@ function Detail({ business, queryKey }: DetailProps) {
         <div className="flex flex-col gap-1 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <Badge>{planLabel(business.plan)}</Badge>
-            {suspended ? <Badge tone="danger">Suspendido</Badge> : null}
+            {closing ? (
+              <Badge tone="danger">Cierre en curso</Badge>
+            ) : suspended ? (
+              <Badge tone="danger">Suspendido</Badge>
+            ) : null}
             <span className="text-muted-foreground">Alta {formatDate(business.created_at)}</span>
           </div>
           <span>
             Dueño: {business.owner_email ?? "sin dueño"}
             {business.owner_pending ? " (todavía no entró)" : ""}
           </span>
-          {suspended && business.suspended_reason ? (
+          {closing ? (
+            <span className="text-destructive">
+              Se pidió cerrar la cuenta: el negocio está detenido y sus datos se están borrando.
+            </span>
+          ) : suspended && business.suspended_reason ? (
             <span className="text-destructive">Motivo: {business.suspended_reason}</span>
           ) : null}
         </div>
@@ -119,7 +129,7 @@ function Detail({ business, queryKey }: DetailProps) {
           <Button asChild variant="outline">
             <Link to={`/simulador?negocio=${business.id}`}>Probar su agente</Link>
           </Button>
-          {suspended ? (
+          {closing ? null : suspended ? (
             <Button disabled={reactivate.isPending} onClick={() => reactivate.mutate()}>
               Reactivar
             </Button>
@@ -143,6 +153,7 @@ function Detail({ business, queryKey }: DetailProps) {
           <WhatsAppCard business={business} queryKey={queryKey} />
           <BusinessErrorsCard tenantId={business.id} />
           <ActivityCard business={business} />
+          <PrivacyCard business={business} queryKey={queryKey} />
         </div>
         <div className="flex flex-col gap-6">
           <Card>

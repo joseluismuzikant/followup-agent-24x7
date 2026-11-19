@@ -1,6 +1,10 @@
 """The team's side of a lead (S6): take the conversation over, reply, give it back, and
 confirm or cancel the visit. Each runs in one transaction; WhatsApp sending is a job
-(`whatsapp.send`), so a Meta outage never rolls an action back."""
+(`whatsapp.send`), so a Meta outage never rolls an action back.
+
+A contact who said "BAJA" gets nothing: replying, confirming a visit (text or template) and
+cancelling with a message are refused before anything is written, with a clear reason (the
+send job would block them anyway)."""
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -19,6 +23,7 @@ from followup_core.conversation.application.ports import BusinessContextSource
 from followup_core.conversation.application.threads import Clock, utc_now
 from followup_core.conversation.domain.repositories import MessageRepository, ThreadRepository
 from followup_core.conversation.domain.thread import Author, Channel, Message, Thread
+from followup_core.messaging.domain.opt_out import ContactOptedOutError
 from followup_core.messaging.domain.outbound import SERVICE_WINDOW, template_body
 from followup_core.messaging.domain.repositories import ConnectionRepository
 
@@ -36,6 +41,14 @@ from ..domain.repositories import LeadRepository
 # Sends the team's messages on the lead's channel: WhatsApp queues them for the send job;
 # the simulator shows them in its transcript, so there is nothing to send.
 Deliver = Callable[[Thread, Sequence[Message]], None]
+# True when the thread's contact asked not to be written to ("BAJA").
+OptedOut = Callable[[Thread], bool]
+
+
+def never_opted_out(_thread: Thread) -> bool:
+    return False
+
+
 # The address of an own property, for the confirmation message.
 PropertyAddress = Callable[[UUID, UUID], str | None]
 
@@ -71,6 +84,11 @@ class _LeadAction:
         self._threads = threads
         self._messages = messages
         self._clock = clock
+        self.opted_out: OptedOut = never_opted_out
+
+    def _ensure_reachable(self, lead_id: UUID, thread: Thread) -> None:
+        if self.opted_out(thread):
+            raise ContactOptedOutError(str(lead_id))
 
     def _lead(self, tenant_id: UUID, lead_id: UUID) -> tuple[Lead, Thread]:
         lead = self._leads.get(tenant_id, lead_id)
@@ -139,6 +157,7 @@ class ReplyToLead(_LeadAction):
 
     def execute(self, tenant_id: UUID, lead_id: UUID, actor: Actor, text: str) -> Message:
         lead, thread = self._lead(tenant_id, lead_id)
+        self._ensure_reachable(lead_id, thread)
         if not self._window_open(thread):
             raise OutsideServiceWindowError(str(lead_id))
         message = self._add_message.execute(thread.id, actor, text)
@@ -207,6 +226,7 @@ class ConfirmVisit(_VisitAction):
             raise VisitTimeInPastError(str(visit_id))
         if visit.status is VisitStatus.CONFIRMED and starts_at in (None, visit.starts_at):
             return
+        self._ensure_reachable(lead_id, thread)
         confirmed = visit.confirm(starts_at)
 
         # Decide how to tell the lead before writing anything: a missing template must
@@ -262,6 +282,9 @@ class CancelVisit(_VisitAction):
         if visit.status is VisitStatus.CANCELLED:
             return
         text = (message or "").strip()
+        if text:
+            # Cancelling without a message stays possible: nothing is sent.
+            self._ensure_reachable(lead_id, thread)
         if text and not self._window_open(thread):
             raise OutsideServiceWindowError(str(lead_id))
         now = self._clock()
@@ -284,3 +307,9 @@ class LeadActions:
     reply: ReplyToLead
     confirm: ConfirmVisit
     cancel: CancelVisit
+    # The contact's "BAJA", checked by every action that writes to the lead.
+    opted_out: OptedOut = never_opted_out
+
+    def __post_init__(self) -> None:
+        for action in (self.take_over, self.release, self.reply, self.confirm, self.cancel):
+            action.opted_out = self.opted_out

@@ -32,3 +32,7 @@ class TemplateNotConfiguredError(LeadsError):
 
 class MatchNotFoundError(LookupError):
     """The property was never shown to the lead."""
+
+
+class LeadNotOnWhatsAppError(LeadsError):
+    """A simulator lead: there is no WhatsApp contact to mark as do-not-contact."""
