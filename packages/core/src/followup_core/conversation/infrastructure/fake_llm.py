@@ -199,6 +199,14 @@ _LOOKING_FOR = {
         "Buen día. Mi nombre es {agent}, de {business}. Le busco opciones de {looking_for}."
     ),
 }
+# The greeting when the lead wrote from the website button about one property.
+_INTERESTED_IN = {
+    Tone.WARM: "¡Hola! Soy {agent}, de {business}. ¡Qué bueno que te interese {interested_in}!",
+    Tone.PROFESSIONAL: "Hola, soy {agent}, de {business}. Te cuento sobre {interested_in}.",
+    Tone.FORMAL: (
+        "Buen día. Mi nombre es {agent}, de {business}. Le cuento sobre {interested_in}."
+    ),
+}
 _QUESTION_PREFIX = {
     Tone.WARM: "Contame: ¿{label}?",
     Tone.PROFESSIONAL: "¿{label}?",
@@ -401,8 +409,15 @@ class FakeLanguageModel:
                 asked += f" ({' / '.join(question.options)})"
         if request.intent is ReplyIntent.GREET:
             looking_for = request.facts.get("looking_for")
-            greeting = (_LOOKING_FOR if looking_for else _GREETINGS)[tone].format(
-                agent=request.agent_name, business=request.business_name, looking_for=looking_for
+            interested_in = request.facts.get("interested_in")
+            templates = (
+                _INTERESTED_IN if interested_in else _LOOKING_FOR if looking_for else _GREETINGS
+            )
+            greeting = templates[tone].format(
+                agent=request.agent_name,
+                business=request.business_name,
+                looking_for=looking_for,
+                interested_in=interested_in,
             )
             # Without a question the greeting asks nothing: the next message does.
             return Reply(f"{greeting} {asked}".strip())

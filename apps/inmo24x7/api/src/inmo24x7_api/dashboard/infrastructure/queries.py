@@ -21,13 +21,13 @@ class SqlAlchemyDashboardQueries:
 
     def leads_created_since(self, tenant_id: UUID, since: datetime) -> Sequence[WeekLead]:
         rows = self._session.execute(
-            select(LeadModel.created_at, LeadModel.answers).where(
+            select(LeadModel.created_at, LeadModel.answers, LeadModel.source).where(
                 LeadModel.tenant_id == tenant_id,
                 ~LeadModel.is_test,
                 LeadModel.created_at >= since,
             )
         )
-        return [WeekLead(row.created_at, dict(row.answers)) for row in rows]
+        return [WeekLead(row.created_at, dict(row.answers), row.source) for row in rows]
 
     def visits_since(self, tenant_id: UUID, since: datetime) -> tuple[int, int]:
         confirmed = VisitModel.status == VisitStatus.CONFIRMED.value

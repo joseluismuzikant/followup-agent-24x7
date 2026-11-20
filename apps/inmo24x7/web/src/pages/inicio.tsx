@@ -105,7 +105,11 @@ function WeekSummary({ dashboard }: { dashboard: Dashboard }) {
         <KpiCard
           label="Consultas recibidas"
           value={dashboard.received.total}
-          hint={`${outOfHours} fuera de horario`}
+          hint={
+            dashboard.received.from_web
+              ? `${outOfHours} fuera de horario · ${dashboard.received.from_web} desde tu web`
+              : `${outOfHours} fuera de horario`
+          }
         />
         <KpiCard label="Calificadas" value={dashboard.qualified} hint="Con zona y presupuesto" />
         <KpiCard

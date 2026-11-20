@@ -40,6 +40,14 @@ export default defineConfig(({ command, mode }) => {
     server: {
       port: 5173,
       strictPort: true,
+      // widget.js (public/) reads its settings from /widget/v1/<id> on its own host; in
+      // production Caddy sends that path to the API (deploy/Caddyfile).
+      proxy: {
+        "/widget/v1": {
+          target: env.VITE_API_URL || "http://localhost:8001",
+          changeOrigin: true,
+        },
+      },
     },
   };
 });

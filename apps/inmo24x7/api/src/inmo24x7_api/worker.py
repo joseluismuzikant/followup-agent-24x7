@@ -21,6 +21,7 @@ from .container import (
     warn_if_model_unpriced,
 )
 from .database import SessionLocal
+from .integrations.application import sync_sweep_job
 from .logging import configure_logging
 from .observability import init_sentry
 from .product import PRODUCT
@@ -42,7 +43,8 @@ def build_runner() -> JobRunner:
 
 
 def schedule_housekeeping() -> None:
-    """Recurring jobs (daily purge and LLM cost alert, 6-hourly WhatsApp health); the dedupe
+    """Recurring jobs (daily purge and LLM cost alert, 6-hourly WhatsApp health and Tokko
+    syncs); the dedupe
     keys make every worker start agree on one per period. Each run schedules the next one."""
     now = datetime.now(UTC)
     with SessionLocal() as session:
@@ -50,6 +52,7 @@ def schedule_housekeeping() -> None:
         queue.enqueue(purge_job(now))
         queue.enqueue(health_sweep_job(now))
         queue.enqueue(cost_alert_job(now))
+        queue.enqueue(sync_sweep_job(now))
         session.commit()
 
 

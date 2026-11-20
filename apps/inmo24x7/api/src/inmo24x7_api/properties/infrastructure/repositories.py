@@ -3,13 +3,21 @@ from datetime import datetime
 from uuid import UUID
 
 from followup_core.conversation.domain.answers import normalize
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from ...leads.infrastructure.models import LeadModel, LeadPropertyMatchModel
 from ..domain.conditions import ConditionSettings, PropertyConditions
 from ..domain.imports import FailedRow, PropertyImport
-from ..domain.property import Currency, Operation, Property, PropertyFields, PropertyStatus
+from ..domain.property import (
+    Currency,
+    Operation,
+    Property,
+    PropertyFields,
+    PropertyOrigin,
+    PropertyStatus,
+)
+from ..domain.reference import PropertyReference
 from ..domain.repositories import PropertyFilters, PropertyPage, PropertyRow
 from ..domain.search import Listing, PropertyMatch, PropertyQuery, rank
 from .models import ConditionSettingsModel, PropertyImportModel, PropertyModel
@@ -38,6 +46,9 @@ def _to_domain(model: PropertyModel) -> Property:
         ),
         created_at=model.created_at,
         updated_at=model.updated_at,
+        source=PropertyOrigin(model.source),
+        external_id=model.external_id,
+        external_ref=model.external_ref,
     )
 
 
@@ -55,6 +66,9 @@ def _copy(item: Property, model: PropertyModel) -> None:
     model.search_text = search_text(fields)
     model.conditions = fields.conditions.to_json()
     model.updated_at = item.updated_at
+    model.source = item.source.value
+    model.external_id = item.external_id
+    model.external_ref = item.external_ref
 
 
 def _inquiries():
@@ -76,12 +90,55 @@ class SqlAlchemyPropertyRepository:
         return _to_domain(model) if model is not None and model.tenant_id == tenant_id else None
 
     def get_by_link(self, tenant_id: UUID, link: str) -> Property | None:
+        """The agency's own listing with this link (Tokko listings are matched by their id)."""
         model = self._session.scalar(
             select(PropertyModel).where(
-                PropertyModel.tenant_id == tenant_id, PropertyModel.link == link
+                PropertyModel.tenant_id == tenant_id,
+                PropertyModel.link == link,
+                PropertyModel.source == PropertyOrigin.MANUAL.value,
             )
         )
         return _to_domain(model) if model is not None else None
+
+    def external(self, tenant_id: UUID, source: PropertyOrigin) -> Sequence[Property]:
+        models = self._session.scalars(
+            select(PropertyModel).where(
+                PropertyModel.tenant_id == tenant_id, PropertyModel.source == source.value
+            )
+        )
+        return [_to_domain(model) for model in models]
+
+    def find_reference(self, tenant_id: UUID, reference: PropertyReference) -> Property | None:
+        """A published listing the website button named: our id, the external id or code,
+        or its link. With a sale and a rent of the same Tokko property, the operation the
+        lead already said wins, else the first one."""
+        candidates = []
+        if reference.property_id is not None:
+            candidates.append(PropertyModel.id == reference.property_id)
+        if reference.code:
+            code = reference.code.lower()
+            candidates.append(func.lower(PropertyModel.external_ref) == code)
+            candidates.append(func.lower(PropertyModel.external_id) == code)
+        for link in reference.links:
+            candidates.append(func.rtrim(PropertyModel.link, "/") == link.rstrip("/"))
+        if not candidates:
+            return None
+        models = self._session.scalars(
+            select(PropertyModel)
+            .where(
+                PropertyModel.tenant_id == tenant_id,
+                PropertyModel.status == PropertyStatus.PUBLISHED.value,
+                or_(*candidates),
+            )
+            .order_by(PropertyModel.operation.desc(), PropertyModel.created_at)
+        ).all()
+        if not models:
+            return None
+        if reference.operation is not None:
+            for model in models:
+                if model.operation == reference.operation.value:
+                    return _to_domain(model)
+        return _to_domain(models[0])
 
     def add(self, item: Property) -> None:
         model = PropertyModel(id=item.id, tenant_id=item.tenant_id, created_at=item.created_at)
@@ -261,6 +318,16 @@ class TenantPropertySearch:
 
     def policy(self, tenant_id: UUID) -> ConditionSettings:
         return self._settings.get(tenant_id) if self._settings else ConditionSettings()
+
+    def referenced(self, tenant_id: UUID, reference: PropertyReference) -> Listing | None:
+        """The published listing a website button named, with its effective conditions."""
+        if reference.is_empty:
+            return None
+        item = self._properties.find_reference(tenant_id, reference)
+        if item is None:
+            return None
+        settings = self.policy(tenant_id)
+        return Listing.of(item, settings.effective(item.fields.operation, item.fields.conditions))
 
     def uses_samples(self, tenant_id: UUID) -> bool:
         return not self._properties.has_published(tenant_id)

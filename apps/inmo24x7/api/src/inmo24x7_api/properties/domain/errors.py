@@ -19,6 +19,10 @@ class PropertyLinkTakenError(PropertiesError):
     """Another property of the same tenant already uses this link."""
 
 
+class PropertyManagedExternallyError(PropertiesError):
+    """A Tokko listing: only its conditions are edited here ("Se edita en Tokko")."""
+
+
 class ImportFileInvalidError(PropertiesError):
     """Not a readable CSV/XLSX, or the required columns are missing."""
 

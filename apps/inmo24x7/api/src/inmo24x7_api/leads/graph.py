@@ -16,7 +16,11 @@ the registry in `tools.py`. Rules enforced here, not in prompts:
   times she says plainly which requirement they do not meet (when the agency wants it);
   when every option fails on the same requirement she asks about it once;
 - "BAJA" ("no me escriban más", or the model's `wants_opt_out`): one fixed confirmation,
-  nothing else, and `opt_out` tells the channel to stop writing to that contact.
+  nothing else, and `opt_out` tells the channel to stop writing to that contact;
+- the website button ("Consultar por WhatsApp", properties/domain/reference.py): a first
+  message that names one of the agency's published properties makes it the chosen one.
+  Sofía greets naming it, asks only what that property still needs and goes on to its
+  visit times; the lead's source is "web_button".
 """
 
 from collections.abc import Sequence
@@ -46,7 +50,8 @@ from ..properties.domain.conditions import (
     evaluate,
 )
 from ..properties.domain.property import Currency, Operation
-from ..properties.domain.search import PropertyMatch, PropertyQuery
+from ..properties.domain.reference import read_web_reference
+from ..properties.domain.search import Listing, PropertyMatch, PropertyQuery
 from .conditions import (
     ACCEPTED,
     CONDITION_KEYS,
@@ -61,12 +66,14 @@ from .display import money, price_label
 from .domain.lead import HandOffReason
 from .tools import (
     CONDITION_POLICY,
+    FIND_REFERENCED_PROPERTY,
     HAND_OFF,
     PROPOSE_VISIT,
     SAVE_CONTACT,
     SEARCH_PROPERTIES,
     ConditionPolicy,
     ConditionPolicyInput,
+    FindReferencedPropertyInput,
     HandOffInput,
     HandOffResult,
     ProposeVisitInput,
@@ -131,6 +138,10 @@ class LeadState(TypedDict):
     chosen_property_ids: NotRequired[list[str]]
     # "mismatch" / "visit_avoided" / "no_fit" with their property id, for Inicio's counts.
     condition_events: NotRequired[list[dict[str, Any]]]
+    # Where the lead came from: "web_button" (the website's "Consultar por WhatsApp").
+    lead_source: NotRequired[str | None]
+    # The card the first message named (the website button); Sofía greets naming it.
+    referenced_card: NotRequired[str | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,8 +304,10 @@ def plan_turn(
         visit = True
     elif card is not None and card["id"] != offer.get("property_id"):
         # A (different) property: what it still needs, its requirements, then its slots;
-        # picking one later replaces the visit.
-        return [gate_step(state, card, questions, policy)]
+        # picking one later replaces the visit. Named in the first message (the website
+        # button): greeted first, in a message of its own.
+        gate = gate_step(state, card, questions, policy)
+        return [Step(ReplyIntent.GREET), gate] if first_turn else [gate]
     else:
         check = state.get("requirement_check")
         can_meet = state.get("turn_can_meet")
@@ -421,6 +434,7 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     wants_name = not handed_off and not state.get("visitor_name")
     wants_contact = not handed_off and not state.get("contact") and "contact" not in update
     offered = offered_choices(state)
+    referenced = _referenced_listing(state, runtime.context, update)
 
     result = context.llm.extract(
         ExtractionRequest(
@@ -448,6 +462,8 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         said = parse_answer(confirmation, result.values.get(confirmation.key))
         key = "turn_can_meet" if confirmation.key == PUEDE_CUMPLIR else "turn_wants_alternatives"
         update[key] = said if isinstance(said, bool) else None
+    if referenced is not None:
+        _choose_referenced(update, answers, referenced, state)
     update["answers"] = answers
     # A message that picks a card or a slot is that pick, never a name or a contact.
     picked = update["turn_choice"] is not None
@@ -460,6 +476,49 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         else:
             update["turn_contact_invalid"] = True
     return update
+
+
+def _referenced_listing(
+    state: LeadState, context: GraphContext, update: dict[str, Any]
+) -> Listing | None:
+    """The first message: the website button's text (or a pasted listing link) and the
+    published property it names, if any."""
+    if state.get("turns", 0) or state.get("offered_cards"):
+        return None
+    web = read_web_reference(state["inbound"])
+    if web is None:
+        return None
+    if web.from_button:
+        update["lead_source"] = "web_button"
+    if web.reference.is_empty:
+        return None
+    listing: Listing | None = context.tools.call(
+        FIND_REFERENCED_PROPERTY,
+        FindReferencedPropertyInput(context.turn.business.tenant_id, web.reference),
+    )
+    return listing
+
+
+def _choose_referenced(
+    update: dict[str, Any], answers: dict[str, Any], listing: Listing, state: LeadState
+) -> None:
+    """The named property is already chosen: offered as the only card, its operation and
+    zone answered (they are the property's), and picked this turn."""
+    card = _card_payload(PropertyMatch(listing, False))
+    update["offered_cards"] = [
+        {
+            "id": card["id"],
+            "label": card_label(card),
+            "operation": card["operation"],
+            "conditions": listing.conditions.to_json(),
+        }
+    ]
+    update["shown_property_ids"] = [*(state.get("shown_property_ids") or []), card["id"]]
+    update["properties_presented"] = True
+    update["referenced_card"] = card["id"]
+    update["turn_choice"] = card["id"]
+    answers.setdefault("operation", "alquiler" if listing.operation is Operation.RENT else "compra")
+    answers.setdefault("zone", listing.zone)
 
 
 def _operation(answer: Any) -> Operation | None:
@@ -588,7 +647,12 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         relax: dict[str, Any] | None = None
 
         if intent is ReplyIntent.GREET:
-            facts["looking_for"] = looking_for_fact(answers)
+            named = card_of(state.get("referenced_card"))
+            if named is not None:
+                # The website button: the property they asked about, already chosen.
+                facts["interested_in"] = named["label"]
+            else:
+                facts["looking_for"] = looking_for_fact(answers)
 
         elif intent is ReplyIntent.ASK and step.card_id is not None:
             # The decisive question of the chosen property: its slots come after the answer.

@@ -51,6 +51,7 @@ from .container import (
     import_errors_use_case,
     import_properties_use_case,
     ingest_webhook_use_case,
+    integration_use_cases,
     invite_owner_use_case,
     lead_actions,
     list_agent_versions_use_case,
@@ -60,6 +61,7 @@ from .container import (
     list_tenants_use_case,
     manage_connection_use_case,
     override_match_use_case,
+    public_widget_use_case,
     reconnect_link_use_case,
     request_closure_use_case,
     resend_invitation_use_case,
@@ -85,6 +87,7 @@ from .dashboard.router import build_dashboard_router
 from .database import get_session
 from .health import build_health_router
 from .http_errors import register_error_handlers
+from .integrations.router import build_integrations_router
 from .leads.router import build_leads_router
 from .logging import configure_logging
 from .middleware import RequestContextMiddleware
@@ -197,6 +200,9 @@ def create_app() -> FastAPI:
             override_match_use_case,
             set_lead_do_not_contact_use_case,
         )
+    )
+    application.include_router(
+        build_integrations_router(integration_use_cases, public_widget_use_case)
     )
     application.include_router(build_dashboard_router(get_dashboard_use_case))
     application.include_router(

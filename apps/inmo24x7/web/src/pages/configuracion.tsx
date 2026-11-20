@@ -11,7 +11,7 @@ import {
 } from "@followup/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { fetchMe } from "../api/me";
 import { fetchTenantSettings, saveTenantSettings } from "../api/tenant-settings";
@@ -49,6 +49,22 @@ export function ConfiguracionPage() {
         readOnly={!canEditSetup(profile.role)}
       />
       <ConditionSettingsCard readOnly={!canEditSetup(profile.role)} />
+      <Card id="integraciones">
+        <CardHeader>
+          <CardTitle>Integraciones</CardTitle>
+          <CardDescription>
+            Tokko Broker, un webhook para tu CRM y el botón «Consultar por WhatsApp» para tu web.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link
+            to="/configuracion/integraciones"
+            className="inline-flex h-10 items-center rounded-lg border border-input bg-card px-4 text-sm font-semibold text-brand hover:bg-accent"
+          >
+            Ver integraciones
+          </Link>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Cuenta</CardTitle>

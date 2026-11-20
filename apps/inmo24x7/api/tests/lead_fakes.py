@@ -19,6 +19,7 @@ from followup_core.tenancy.domain.business_settings import ScheduleBlock
 from inmo24x7_api.defaults import build_setup_defaults
 from inmo24x7_api.leads.graph import build_lead_graph
 from inmo24x7_api.leads.tools import lead_handlers, lead_tools
+from inmo24x7_api.properties.domain.reference import PropertyReference
 from inmo24x7_api.properties.domain.search import Listing, PropertyMatch, PropertyQuery, rank
 from inmo24x7_api.properties.infrastructure.sample import SAMPLE_LISTINGS
 from langgraph.checkpoint.memory import InMemorySaver
@@ -38,6 +39,18 @@ class ListingSearch:
 
     def search(self, tenant_id: UUID, query: PropertyQuery) -> Sequence[PropertyMatch]:
         return rank(self.listings, query)
+
+    def referenced(self, tenant_id: UUID, reference: PropertyReference) -> Listing | None:
+        """As the repository: our id, the code, or the link (trailing slash ignored)."""
+        links = {link.rstrip("/") for link in reference.links}
+        for item in self.listings:
+            if (
+                (reference.property_id is not None and item.id == str(reference.property_id))
+                or (reference.code and item.id == reference.code)
+                or item.link.rstrip("/") in links
+            ):
+                return item
+        return None
 
 
 class RecordingLlm(FakeLanguageModel):

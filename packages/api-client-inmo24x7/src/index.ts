@@ -105,3 +105,12 @@ export function createApiClient(baseUrl: string, options: ApiClientOptions = {})
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
+// Integrations (Configuración → Integraciones).
+export type Integrations = components["schemas"]["IntegrationsRead"];
+export type TokkoIntegration = components["schemas"]["TokkoRead"];
+export type WebhookIntegration = components["schemas"]["WebhookRead"];
+export type WebhookSaved = components["schemas"]["WebhookSavedRead"];
+export type WidgetIntegration = components["schemas"]["WidgetRead"];
+export type WidgetInput = components["schemas"]["WidgetWrite"];
+export type IntegrationDelivery = components["schemas"]["DeliveryRead"];
+export type SyncReport = components["schemas"]["SyncReportRead"];

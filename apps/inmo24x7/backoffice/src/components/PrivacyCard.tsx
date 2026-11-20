@@ -223,11 +223,15 @@ function DeleteContactDialog({
             </li>
             <li>la conversación ({contact.messages} mensajes) y lo que el agente sabía</li>
             <li>los mensajes de WhatsApp y los avisos pendientes de esa persona</li>
+            <li>el registro de envíos a Tokko y al webhook</li>
           </ul>
           <p className="text-muted-foreground">
             Se conserva el «no contactar» si lo pidió, para no volver a escribirle, y el
             consumo del agente sin vínculo con la conversación. Las copias de seguridad lo
             pierden en su próxima rotación.
+          </p>
+          <p className="text-muted-foreground">
+            Lo que ya se envió a Tokko o al webhook queda en esos sistemas.
           </p>
         </div>
         <FormField
@@ -365,11 +369,18 @@ function CloseAccountDialog({
                   ? " la conexión de WhatsApp: nuestra app deja de recibir sus mensajes en Meta"
                   : " los datos de WhatsApp"}
               </li>
+              <li>
+                las integraciones y sus claves (Tokko, webhook, botón de la web), las
+                sincronizaciones y el registro de envíos
+              </li>
             </ul>
             <p className="text-muted-foreground">
               El negocio se detiene en el momento y los datos se borran en los próximos
               minutos. Queda solo el consumo del agente para la facturación, sin datos
               personales.
+            </p>
+            <p className="text-muted-foreground">
+              Lo que ya se envió a Tokko o al webhook queda en esos sistemas.
             </p>
           </div>
         ) : (

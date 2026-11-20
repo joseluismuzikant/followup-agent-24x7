@@ -26,6 +26,15 @@ const messages: Record<string, string> = {
   profile_not_found: "Tu cuenta todavía no tiene un negocio. Completá el alta.",
   property_invalid: "Revisá los datos de la propiedad.",
   property_link_taken: "Ya tenés otra propiedad con ese link.",
+  property_managed_by_tokko:
+    "Esta propiedad viene de Tokko: editala en Tokko. Acá solo podés cambiar sus condiciones.",
+  tokko_key_invalid: "Tokko no aceptó esa clave. Copiala de nuevo desde Mi empresa → Permisos.",
+  tokko_unavailable: "Tokko no responde ahora. Probá de nuevo en unos minutos.",
+  tokko_bad_response: "Tokko respondió algo que no entendimos. Probá de nuevo en unos minutos.",
+  tokko_not_connected: "Primero conectá Tokko con tu clave.",
+  webhook_url_invalid: "Ingresá una dirección que empiece con https://.",
+  webhook_not_configured: "Primero guardá la dirección del webhook.",
+  widget_invalid: "Revisá los colores (formato #RRGGBB) y el texto del botón.",
   property_not_found: "No encontramos esa propiedad.",
   questions_invalid:
     "Revisá las preguntas: cada una necesita un texto, y podés tener hasta 10.",

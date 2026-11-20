@@ -221,6 +221,7 @@ function LeadItem({
         <span className="flex flex-wrap gap-1">
           <LeadStatusBadge status={lead.status} />
           {lead.do_not_contact ? <Badge tone="danger">Pidió no ser contactado</Badge> : null}
+          {lead.source === "web_button" ? <Badge tone="info">Web — botón</Badge> : null}
           {lead.conditions_status && lead.conditions_status !== "sin_datos" ? (
             <Badge tone={STATUS_TONES[lead.conditions_status]}>
               {STATUS_LABELS[lead.conditions_status]}

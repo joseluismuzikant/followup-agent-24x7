@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from followup_core.conversation.application.ports import AgentConfigSource, BusinessContextSource
 from followup_core.conversation.application.threads import Clock, utc_now
 
-from ...leads.domain.lead import Lead
+from ...leads.domain.lead import WEB_BUTTON, Lead
 from ...leads.domain.repositories import InboxTab, LeadFilters, LeadRepository
 from ..domain.kpis import (
     TranscriptRow,
@@ -27,6 +27,8 @@ TODAY_ROWS = 5
 class WeekLead:
     created_at: datetime
     answers: dict[str, Any]
+    # "web_button" when it came from the website's WhatsApp button.
+    source: str | None = None
 
 
 class DashboardQueries(Protocol):
@@ -56,6 +58,8 @@ class Dashboard:
     visits_confirmed: int
     response_seconds: float | None
     attention_today: Sequence[Lead]
+    # Of `received`, how many came from the website's button ("Web — botón").
+    from_web: int = 0
     # This month, in the business's timezone, from stored events (never estimated).
     month_start: datetime | None = None
     mismatches: int = 0
@@ -100,6 +104,7 @@ class GetDashboard:
                 for lead in week
             ),
             qualified=sum(is_qualified(lead.answers, keys) for lead in week),
+            from_web=sum(lead.source == WEB_BUTTON for lead in week),
             visits=visits,
             visits_confirmed=confirmed,
             response_seconds=average(

@@ -30,7 +30,9 @@ export function AppShell() {
   const title =
     location.pathname === "/probar"
       ? "Probar el agente"
-      : (items.find((item) => item.active)?.label ?? "Inicio");
+      : location.pathname === "/configuracion/integraciones"
+        ? "Integraciones"
+        : (items.find((item) => item.active)?.label ?? "Inicio");
 
   return (
     <PanelSessionProvider

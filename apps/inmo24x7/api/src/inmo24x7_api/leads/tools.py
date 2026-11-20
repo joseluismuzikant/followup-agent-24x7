@@ -16,12 +16,14 @@ from followup_core.conversation.domain.tools import Tool, ToolRegistry
 from followup_core.tenancy.domain.business_settings import ScheduleBlock, is_within_hours
 
 from ..properties.domain.conditions import ConditionSettings
-from ..properties.domain.search import PropertyMatch, PropertyQuery, PropertySearch
+from ..properties.domain.reference import PropertyReference
+from ..properties.domain.search import Listing, PropertyMatch, PropertyQuery, PropertySearch
 from .domain.contact import normalize_contact
 from .domain.lead import HandOffReason
 from .domain.slots import propose_slots, short_slot_label, slot_label
 
 SEARCH_PROPERTIES = "search_properties"
+FIND_REFERENCED_PROPERTY = "find_referenced_property"
 CONDITION_POLICY = "condition_policy"
 SAVE_CONTACT = "save_contact"
 PROPOSE_VISIT = "propose_visit"
@@ -34,6 +36,17 @@ HAND_OFF_EVENT = "El agente derivó la consulta a tu equipo"
 class SearchPropertiesInput:
     tenant_id: UUID
     query: PropertyQuery
+
+
+@dataclass(frozen=True, slots=True)
+class FindReferencedPropertyInput:
+    tenant_id: UUID
+    reference: PropertyReference
+
+
+@runtime_checkable
+class ReferenceSource(Protocol):
+    def referenced(self, tenant_id: UUID, reference: PropertyReference) -> Listing | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +114,11 @@ DECLARED: Mapping[str, tuple[str, type[Any]]] = {
         "Published properties of the tenant matching the lead's answers.",
         SearchPropertiesInput,
     ),
+    FIND_REFERENCED_PROPERTY: (
+        "The published property a first message names (the website button's reference: our "
+        "id, the external id or code, or its link).",
+        FindReferencedPropertyInput,
+    ),
     CONDITION_POLICY: (
         "Whether to state unmet requirements before a visit and to ask once when nothing "
         "fits (the agency's Condiciones generales).",
@@ -147,6 +165,11 @@ def lead_handlers(search: PropertySearch) -> Mapping[str, Callable[[Any], Any]]:
     def search_properties(arguments: SearchPropertiesInput) -> Sequence[PropertyMatch]:
         return search.search(arguments.tenant_id, arguments.query)
 
+    def find_referenced_property(arguments: FindReferencedPropertyInput) -> Listing | None:
+        if not isinstance(search, ReferenceSource):
+            return None
+        return search.referenced(arguments.tenant_id, arguments.reference)
+
     def save_contact(arguments: SaveContactInput) -> str | None:
         return normalize_contact(arguments.text)
 
@@ -159,6 +182,7 @@ def lead_handlers(search: PropertySearch) -> Mapping[str, Callable[[Any], Any]]:
 
     return {
         SEARCH_PROPERTIES: search_properties,
+        FIND_REFERENCED_PROPERTY: find_referenced_property,
         CONDITION_POLICY: condition_policy,
         SAVE_CONTACT: save_contact,
         PROPOSE_VISIT: _propose_visit,

@@ -11,3 +11,7 @@ class InmoAction(StrEnum):
     CONTACT_DATA_DELETED = "contact_data_deleted"
     ACCOUNT_CLOSURE_REQUESTED = "account_closure_requested"
     ACCOUNT_CLOSED = "account_closed"
+    # Integrations (integrations/): which one ("kind": tokko / webhook / widget), never a key.
+    INTEGRATION_CONNECTED = "integration_connected"
+    INTEGRATION_UPDATED = "integration_updated"
+    INTEGRATION_DISCONNECTED = "integration_disconnected"

@@ -5,6 +5,9 @@ keys), to the tenant's notification emails:
 - on the hand-off: "Nueva consulta" with the answers and the visit or the request;
 - 15 minutes after the first message, if there is still no hand-off: "Consulta en curso";
 - when the lead says "BAJA": "Pidió no ser contactado" (once per opt-out).
+
+The hand-off also queues `lead.handed_off` once per lead: the integrations (Tokko, the
+agency's webhook) deliver the lead from it, so this module never knows about them.
 """
 
 import html
@@ -30,6 +33,7 @@ logger = logging.getLogger("inmo24x7.lead_email")
 HANDOFF_EMAIL_JOB = "lead.email_handoff"
 IN_PROGRESS_EMAIL_JOB = "lead.email_in_progress"
 OPT_OUT_EMAIL_JOB = "lead.email_opt_out"
+HANDED_OFF_JOB = "lead.handed_off"
 IN_PROGRESS_DELAY = timedelta(minutes=15)
 
 
@@ -50,6 +54,15 @@ def in_progress_email_job(lead: Lead) -> NewJob:
     )
 
 
+def handed_off_job(lead: Lead) -> NewJob:
+    """For the integrations: one per lead, whatever the kind of hand-off."""
+    return NewJob(
+        HANDED_OFF_JOB,
+        {"tenant_id": str(lead.tenant_id), "lead_id": str(lead.id)},
+        dedupe_key=f"lead-handed-off:{lead.id}",
+    )
+
+
 def opt_out_email_job(lead: Lead, at: datetime) -> NewJob:
     """One per opt-out: a lead who wrote again and said "BAJA" again is a new one."""
     return NewJob(
@@ -67,6 +80,7 @@ def queue_lead_emails(queue: JobQueue, lead: Lead, *, started: bool, handed_off_
         queue.enqueue(in_progress_email_job(lead))
     if handed_off_now:
         queue.enqueue(handoff_email_job(lead))
+        queue.enqueue(handed_off_job(lead))
 
 
 def _who(lead: Lead) -> str:

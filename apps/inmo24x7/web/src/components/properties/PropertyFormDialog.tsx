@@ -1,4 +1,5 @@
 import type {
+  PropertyChanges,
   ConditionSettings,
   Property,
   PropertyConditions,
@@ -24,7 +25,7 @@ interface PropertyFormDialogProps {
   /** The agency's "Condiciones generales" (shown where the property says nothing). */
   settings?: ConditionSettings;
   onClose: () => void;
-  onSave: (input: PropertyInput) => void;
+  onSave: (input: PropertyInput | PropertyChanges) => void;
 }
 
 function toDraft(property: Property | null): PropertyDraft {
@@ -94,7 +95,7 @@ function PropertyForm({
   error: string | null;
   settings?: ConditionSettings;
   onCancel: () => void;
-  onSave: (input: PropertyInput) => void;
+  onSave: (input: PropertyInput | PropertyChanges) => void;
 }) {
   const ids = {
     title: useId(),
@@ -110,6 +111,7 @@ function PropertyForm({
     () => property?.conditions ?? EMPTY_CONDITIONS,
   );
   const [conditionsError, setConditionsError] = useState<string | undefined>();
+  const external = property?.source === "tokko";
 
   function update<K extends keyof PropertyDraft>(key: K, value: PropertyDraft[K]) {
     setDraft((current) => {
@@ -128,6 +130,17 @@ function PropertyForm({
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
+        if (external) {
+          // Tokko's fields are edited in Tokko: only the conditions are ours.
+          const months = conditions.contrato_minimo_meses;
+          const badMonths =
+            months !== null && months !== undefined && (months < 1 || months > 120);
+          setConditionsError(badMonths ? "Entre 1 y 120 meses." : undefined);
+          if (!badMonths) {
+            onSave({ conditions: forOperation(conditions, draft.operation) });
+          }
+          return;
+        }
         const result = validateProperty(draft);
         setErrors(result.errors);
         const months = conditions.contrato_minimo_meses;
@@ -138,6 +151,10 @@ function PropertyForm({
         }
       }}
     >
+      {external && property ? (
+        <TokkoSummary property={property} />
+      ) : (
+        <>
       <FormField label="Título" htmlFor={ids.title} error={errors.title}>
         <Input
           id={ids.title}
@@ -212,6 +229,8 @@ function PropertyForm({
           onChange={(event) => update("link", event.target.value)}
         />
       </FormField>
+        </>
+      )}
       <section aria-label="Condiciones" className="flex flex-col gap-3 border-t pt-4">
         <div>
           <h3 className="text-sm font-semibold">Condiciones</h3>
@@ -242,5 +261,47 @@ function PropertyForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+
+/** A Tokko listing: its data as Tokko has it, with where to change it. */
+function TokkoSummary({ property }: { property: Property }) {
+  const rows: [string, string][] = [
+    ["Título", property.title],
+    ["Dirección", property.address],
+    ["Operación", property.operation === "sale" ? "Venta" : "Alquiler"],
+    ["Zona", property.zone],
+    ["Precio", `${property.currency} ${property.price.toLocaleString("es-AR")}`],
+    ["Ambientes", String(property.rooms)],
+  ];
+  return (
+    <section aria-label="Datos de Tokko" className="flex flex-col gap-3 rounded-lg border bg-muted p-3">
+      <p className="text-sm font-medium">
+        Se edita en Tokko
+        {property.external_ref ? (
+          <span className="font-normal text-muted-foreground"> · código {property.external_ref}</span>
+        ) : null}
+      </p>
+      <p className="text-sm text-muted-foreground">
+        Estos datos vienen de Tokko y se actualizan solos. Acá podés cambiar sus condiciones.
+      </p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="min-w-0 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <a
+        className="text-sm text-brand underline-offset-4 hover:underline"
+        href={property.link}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Ver la publicación
+      </a>
+    </section>
   );
 }

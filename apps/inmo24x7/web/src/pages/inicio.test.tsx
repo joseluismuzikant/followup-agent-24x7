@@ -19,7 +19,7 @@ function dashboard(overrides: Partial<Dashboard> = {}): Dashboard {
   return {
     business_name: "Inmobiliaria Sur",
     week_start: "2026-11-02T03:00:00Z",
-    received: { total: 0, out_of_hours: 0 },
+    received: { total: 0, out_of_hours: 0, from_web: 0 },
     qualified: 0,
     visits: { total: 0, confirmed: 0 },
     response_time_seconds: null,
@@ -161,7 +161,7 @@ describe("Inicio KPIs", () => {
     const user = userEvent.setup();
     vi.mocked(fetchDashboard).mockResolvedValue(
       dashboard({
-        received: { total: 12, out_of_hours: 5 },
+        received: { total: 12, out_of_hours: 5, from_web: 0 },
         qualified: 8,
         visits: { total: 3, confirmed: 1 },
         response_time_seconds: 80,
@@ -202,7 +202,7 @@ describe("Inicio KPIs", () => {
 
   it("shows a dash when there is no response time yet", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue(
-      dashboard({ received: { total: 1, out_of_hours: 0 } }),
+      dashboard({ received: { total: 1, out_of_hours: 0, from_web: 0 } }),
     );
     renderInicio();
 

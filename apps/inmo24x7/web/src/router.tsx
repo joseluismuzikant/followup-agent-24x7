@@ -15,6 +15,7 @@ import { ConsultasPage } from "./pages/consultas";
 import { EjemploPage } from "./pages/ejemplo";
 import { IngresoPage } from "./pages/ingreso";
 import { InicioPage } from "./pages/inicio";
+import { IntegracionesPage } from "./pages/integraciones";
 import { OnboardingPage } from "./pages/onboarding";
 import { ProbarPage } from "./pages/probar";
 import { PropiedadesPage } from "./pages/propiedades";
@@ -62,6 +63,7 @@ export const router = createBrowserRouter([
       { path: "/agente", element: <AgentePage /> },
       { path: "/probar", element: <ProbarPage /> },
       { path: "/configuracion", element: <ConfiguracionPage /> },
+      { path: "/configuracion/integraciones", element: <IntegracionesPage /> },
     ],
   },
   { path: "*", element: <Navigate to="/" replace /> },

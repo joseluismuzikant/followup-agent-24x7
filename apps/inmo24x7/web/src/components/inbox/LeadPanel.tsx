@@ -13,6 +13,9 @@ import {
   useMediaQuery,
 } from "@followup/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { fetchLeadDeliveries } from "../../api/integrations";
+import { deliveryLine } from "../../lib/integrations";
 import { useId, useState } from "react";
 
 import {
@@ -158,6 +161,7 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
             {leadName(lead)}
             <LeadStatusBadge status={lead.status} />
             {optedOut ? <Badge tone="danger">Pidió no ser contactado</Badge> : null}
+            {lead.source === "web_button" ? <Badge tone="info">Web — botón</Badge> : null}
             {lead.is_test ? <Badge>Prueba</Badge> : null}
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -222,6 +226,8 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
           {error}
         </p>
       ) : null}
+
+      {lead.handed_off_at && !lead.is_test ? <Deliveries leadId={leadId} /> : null}
 
       {visit ? (
         <VisitCard
@@ -576,5 +582,35 @@ function Composer({
         </p>
       ) : null}
     </form>
+  );
+}
+
+
+/** "Enviado a Tokko ✓" / the webhook, or why it failed (only when an integration is on). */
+function Deliveries({ leadId }: { leadId: string }) {
+  const query = useQuery({
+    queryKey: ["lead-deliveries", leadId],
+    queryFn: () => fetchLeadDeliveries(leadId),
+    // Pending or retrying: look again in a bit.
+    refetchInterval: (current) =>
+      current.state.data?.some((item) => item.status === "pending" || item.status === "retrying")
+        ? 5000
+        : false,
+  });
+  const items = query.data ?? [];
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label="Envíos a otros sistemas" className="flex flex-col gap-1 rounded-lg border bg-card p-4 text-sm">
+      {items.map((item) => (
+        <p
+          key={item.id}
+          className={item.status === "failed" ? "text-destructive" : item.status === "delivered" ? "text-emerald-800" : "text-muted-foreground"}
+        >
+          {deliveryLine(item)}
+        </p>
+      ))}
+    </section>
   );
 }

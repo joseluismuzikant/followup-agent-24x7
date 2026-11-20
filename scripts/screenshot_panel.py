@@ -52,6 +52,7 @@ def pages() -> list[tuple[str, str, str | None]]:
         ("probar", f"{PANEL}/probar", OWNER),
         ("agente", f"{PANEL}/agente", OWNER),
         ("configuracion", f"{PANEL}/configuracion", OWNER),
+        ("integraciones", f"{PANEL}/configuracion/integraciones", OWNER),
         ("onboarding", f"{PANEL}/onboarding", ONBOARDING_OWNER),
         ("backoffice", f"{BACKOFFICE}/", ADMIN),
     ]

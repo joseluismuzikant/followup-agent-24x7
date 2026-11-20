@@ -689,6 +689,165 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Integrations */
+        get: operations["get_integrations_integrations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/tokko": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Connect Tokko */
+        put: operations["connect_tokko_integrations_tokko_put"];
+        post?: never;
+        /** Disconnect Tokko */
+        delete: operations["disconnect_tokko_integrations_tokko_delete"];
+        options?: never;
+        head?: never;
+        /** Update Tokko */
+        patch: operations["update_tokko_integrations_tokko_patch"];
+        trace?: never;
+    };
+    "/integrations/tokko/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sync Tokko */
+        post: operations["sync_tokko_integrations_tokko_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Configure Webhook */
+        put: operations["configure_webhook_integrations_webhook_put"];
+        post?: never;
+        /** Delete Webhook */
+        delete: operations["delete_webhook_integrations_webhook_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/webhook/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate Secret */
+        post: operations["rotate_secret_integrations_webhook_secret_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/webhook/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Webhook */
+        post: operations["test_webhook_integrations_webhook_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/widget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Widget */
+        put: operations["save_widget_integrations_widget_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{lead_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lead Deliveries */
+        get: operations["lead_deliveries_leads__lead_id__deliveries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/widget/v1/{public_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Public Widget
+         * @description Public and cacheable: any website may read it (GET only, no credentials).
+         */
+        get: operations["public_widget_widget_v1__public_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboard": {
         parameters: {
             query?: never;
@@ -1814,6 +1973,41 @@ export interface components {
             attention_today: components["schemas"]["TodayLeadRead"][];
             conditions: components["schemas"]["ConditionsKpiRead"];
         };
+        /** DeliveryRead */
+        DeliveryRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "tokko" | "webhook";
+            /** Event */
+            event: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "retrying" | "delivered" | "failed";
+            /** Attempts */
+            attempts: number;
+            /** Status Code */
+            status_code: number | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Lead Id */
+            lead_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Delivered At */
+            delivered_at: string | null;
+        };
         /** DevSession */
         DevSession: {
             /** Access Token */
@@ -1912,6 +2106,12 @@ export interface components {
             errors: string[];
             /** Warnings */
             warnings: string[];
+        };
+        /** IntegrationsRead */
+        IntegrationsRead: {
+            tokko: components["schemas"]["TokkoRead"];
+            webhook: components["schemas"]["WebhookRead"];
+            widget: components["schemas"]["WidgetRead"];
         };
         /** InvitationAccept */
         InvitationAccept: {
@@ -2062,6 +2262,8 @@ export interface components {
              * @default false
              */
             do_not_contact: boolean;
+            /** Source */
+            source?: "web_button" | null;
             /** Answers */
             answers: components["schemas"]["KnownFactRead"][];
             /** Status History */
@@ -2136,6 +2338,8 @@ export interface components {
              * @default false
              */
             do_not_contact: boolean;
+            /** Source */
+            source?: "web_button" | null;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -2443,6 +2647,16 @@ export interface components {
             effective_conditions: components["schemas"]["ConditionsModel"];
             /** From Defaults */
             from_defaults: string[];
+            /**
+             * Source
+             * @default manual
+             * @enum {string}
+             */
+            source: "manual" | "tokko";
+            /** External Id */
+            external_id?: string | null;
+            /** External Ref */
+            external_ref?: string | null;
         };
         /** PropertyUpdate */
         PropertyUpdate: {
@@ -2465,6 +2679,21 @@ export interface components {
             /** Status */
             status?: ("published" | "paused") | null;
             conditions?: components["schemas"]["ConditionsModel"] | null;
+        };
+        /** PublicWidgetRead */
+        PublicWidgetRead: {
+            /** Agency Name */
+            agency_name: string;
+            /** Phone */
+            phone: string | null;
+            /** Color */
+            color: string;
+            /** Text Color */
+            text_color: string;
+            /** Position */
+            position: string;
+            /** Label */
+            label: string;
         };
         /**
          * QuestionInputModel
@@ -2540,6 +2769,11 @@ export interface components {
             total: number;
             /** Out Of Hours */
             out_of_hours: number;
+            /**
+             * From Web
+             * @default 0
+             */
+            from_web: number;
         };
         /** ReconnectLinkRead */
         ReconnectLinkRead: {
@@ -2667,6 +2901,40 @@ export interface components {
         SuspendWrite: {
             /** Reason */
             reason: string;
+        };
+        /** SyncFailureRead */
+        SyncFailureRead: {
+            /** External Id */
+            external_id: string;
+            /** Title */
+            title: string;
+            /** Reason */
+            reason: string;
+        };
+        /** SyncReportRead */
+        SyncReportRead: {
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** Created */
+            created: number;
+            /** Updated */
+            updated: number;
+            /** Paused */
+            paused: number;
+            /** Unchanged */
+            unchanged: number;
+            /** Failed */
+            failed: components["schemas"]["SyncFailureRead"][];
+            /** Error Code */
+            error_code: string | null;
         };
         /** SystemRead */
         SystemRead: {
@@ -2870,6 +3138,36 @@ export interface components {
              */
             last_activity_at: string;
         };
+        /** TokkoConnect */
+        TokkoConnect: {
+            /** Api Key */
+            api_key: string;
+        };
+        /** TokkoOptions */
+        TokkoOptions: {
+            /** Import Properties */
+            import_properties: boolean;
+            /** Send Leads */
+            send_leads: boolean;
+        };
+        /** TokkoRead */
+        TokkoRead: {
+            /** Connected */
+            connected: boolean;
+            /** Import Properties */
+            import_properties: boolean;
+            /** Send Leads */
+            send_leads: boolean;
+            /** Last Sync At */
+            last_sync_at: string | null;
+            /** Last Sync Status */
+            last_sync_status: ("queued" | "ok" | "failed") | null;
+            /** Last Error Code */
+            last_error_code: string | null;
+            last_report: components["schemas"]["SyncReportRead"] | null;
+            /** Deliveries */
+            deliveries: components["schemas"]["DeliveryRead"][];
+        };
         /** UsageFiguresRead */
         UsageFiguresRead: {
             /** Llm Calls */
@@ -2971,6 +3269,39 @@ export interface components {
             total: number;
             /** Confirmed */
             confirmed: number;
+        };
+        /** WebhookRead */
+        WebhookRead: {
+            /** Configured */
+            configured: boolean;
+            /** Enabled */
+            enabled: boolean;
+            /** Url */
+            url: string | null;
+            /** Has Secret */
+            has_secret: boolean;
+            /** Last Delivery At */
+            last_delivery_at: string | null;
+            /** Last Delivery Status */
+            last_delivery_status: ("pending" | "retrying" | "delivered" | "failed") | null;
+            /** Deliveries */
+            deliveries: components["schemas"]["DeliveryRead"][];
+        };
+        /** WebhookSavedRead */
+        WebhookSavedRead: {
+            webhook: components["schemas"]["WebhookRead"];
+            /** Secret */
+            secret: string | null;
+        };
+        /** WebhookWrite */
+        WebhookWrite: {
+            /** Url */
+            url: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** WhatsAppAdminErrorRead */
         WhatsAppAdminErrorRead: {
@@ -3101,6 +3432,46 @@ export interface components {
             /** Signup Step */
             signup_step?: string | null;
             signup_error?: components["schemas"]["WhatsAppErrorRead"] | null;
+        };
+        /** WidgetRead */
+        WidgetRead: {
+            /** Public Id */
+            public_id: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Color */
+            color: string;
+            /** Text Color */
+            text_color: string;
+            /**
+             * Position
+             * @enum {string}
+             */
+            position: "right" | "left";
+            /** Label */
+            label: string;
+            /** Whatsapp Connected */
+            whatsapp_connected: boolean;
+        };
+        /** WidgetWrite */
+        WidgetWrite: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Color */
+            color: string;
+            /** Text Color */
+            text_color: string;
+            /**
+             * Position
+             * @default right
+             * @enum {string}
+             */
+            position: "right" | "left";
+            /** Label */
+            label: string;
         };
     };
     responses: never;
@@ -4403,6 +4774,320 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadDetailRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_integrations_integrations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationsRead"];
+                };
+            };
+        };
+    };
+    connect_tokko_integrations_tokko_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokkoConnect"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disconnect_tokko_integrations_tokko_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationsRead"];
+                };
+            };
+        };
+    };
+    update_tokko_integrations_tokko_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokkoOptions"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_tokko_integrations_tokko_sync_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationsRead"];
+                };
+            };
+        };
+    };
+    configure_webhook_integrations_webhook_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSavedRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_webhook_integrations_webhook_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationsRead"];
+                };
+            };
+        };
+    };
+    rotate_secret_integrations_webhook_secret_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSavedRead"];
+                };
+            };
+        };
+    };
+    test_webhook_integrations_webhook_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRead"];
+                };
+            };
+        };
+    };
+    save_widget_integrations_widget_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WidgetWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lead_deliveries_leads__lead_id__deliveries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    public_widget_widget_v1__public_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                public_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicWidgetRead"];
                 };
             };
             /** @description Validation Error */

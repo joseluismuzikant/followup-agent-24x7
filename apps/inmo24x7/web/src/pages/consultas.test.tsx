@@ -17,6 +17,7 @@ import {
   setDoNotContact,
   takeOverLead,
 } from "../api/leads";
+import { fetchLeadDeliveries } from "../api/integrations";
 import { fetchMe } from "../api/me";
 import { me, phoneViewport } from "../test-fixtures";
 import { ConsultasPage } from "./consultas";
@@ -34,6 +35,7 @@ vi.mock("../api/leads", () => ({
   setDoNotContact: vi.fn(),
 }));
 vi.mock("../api/me", () => ({ fetchMe: vi.fn() }));
+vi.mock("../api/integrations", () => ({ fetchLeadDeliveries: vi.fn() }));
 
 const ME = me().profile.id;
 
@@ -141,6 +143,7 @@ function renderPage(path = "/consultas") {
 describe("ConsultasPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fetchLeadDeliveries).mockResolvedValue([]);
     vi.mocked(fetchMe).mockResolvedValue(me("agent"));
     vi.mocked(fetchLeads).mockResolvedValue(
       list([
@@ -504,6 +507,46 @@ describe("ConsultasPage", () => {
 
     expect(vi.mocked(setDoNotContact)).toHaveBeenCalledWith("l1", false);
     expect(await panel.findByRole("button", { name: "Marcar como no contactar" })).toBeTruthy();
+  });
+
+  it("says where the lead was sent and that it came from the website button", async () => {
+    vi.mocked(fetchLead).mockResolvedValue(detail({ source: "web_button" }));
+    vi.mocked(fetchLeadDeliveries).mockResolvedValue([
+      {
+        id: "d1",
+        provider: "tokko",
+        event: "lead.handed_off",
+        status: "delivered",
+        attempts: 1,
+        status_code: 201,
+        error_code: null,
+        lead_id: "l1",
+        created_at: "2026-11-02T15:00:05Z",
+        delivered_at: "2026-11-02T15:00:05Z",
+      },
+      {
+        id: "d2",
+        provider: "webhook",
+        event: "lead.handed_off",
+        status: "failed",
+        attempts: 1,
+        status_code: 400,
+        error_code: "webhook_rejected",
+        lead_id: "l1",
+        created_at: "2026-11-02T15:00:05Z",
+        delivered_at: null,
+      },
+    ]);
+    renderPage("/consultas?lead=l1");
+    const panel = within(await screen.findByRole("complementary", { name: "Detalle de la consulta" }));
+
+    const sent = within(await panel.findByRole("region", { name: "Envíos a otros sistemas" }));
+    expect(sent.getByText("Enviado a Tokko ✓")).toBeTruthy();
+    expect(
+      sent.getByText("Error al enviar a tu webhook: El webhook respondió con error"),
+    ).toBeTruthy();
+    expect(panel.getByText("Web — botón")).toBeTruthy();
+    expect(fetchLeadDeliveries).toHaveBeenCalledWith("l1");
   });
 
   it("marks a lead as do-not-contact after confirming", async () => {

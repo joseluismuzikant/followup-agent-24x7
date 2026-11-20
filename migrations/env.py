@@ -12,6 +12,7 @@ from followup_core.messaging.infrastructure import models as messaging_models  #
 from followup_core.scheduling.infrastructure import models as scheduling_models  # noqa: F401
 from followup_core.tenancy.infrastructure import models as tenancy_models  # noqa: F401
 from followup_platform.settings import ProductSpec, load_settings
+from inmo24x7_api.integrations import models as integrations_models  # noqa: F401
 from inmo24x7_api.leads.infrastructure import models as leads_models  # noqa: F401
 from inmo24x7_api.properties.infrastructure import models as properties_models  # noqa: F401
 from sqlalchemy import engine_from_config, pool

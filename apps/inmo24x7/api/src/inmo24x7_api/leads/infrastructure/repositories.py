@@ -75,6 +75,7 @@ class SqlAlchemyLeadRepository:
             last_human_reply_at=model.last_human_reply_at,
             conditions_status=model.conditions_status,
             do_not_contact=self._opted_out(model),
+            source=model.source,
         )
 
     def get(self, tenant_id: UUID, lead_id: UUID) -> Lead | None:
@@ -116,6 +117,7 @@ class SqlAlchemyLeadRepository:
         model.last_activity_at = lead.last_activity_at
         model.last_human_reply_at = lead.last_human_reply_at
         model.search_text = lead.search_text
+        model.source = lead.source
         self._session.flush()
         for position, change in enumerate(lead.history[stored:], start=stored):
             self._session.add(
