@@ -163,7 +163,10 @@ jobs:
   images-inmo24x7:
     if: needs.release-gate.outputs.inmo24x7_ready == 'true'
     needs: release-gate
-    runs-on: ubuntu-latest
+    # The production VM is ARM64 (Oracle A1): build natively on GitHub's ARM runner. Under
+    # QEMU on x86, `pnpm install` crashed with "Illegal instruction" and the job hung.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -191,7 +194,6 @@ jobs:
       META_EMBEDDED_SIGNUP_CONFIG_ID: ${{ vars.META_EMBEDDED_SIGNUP_CONFIG_ID }}
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v4.4.0
       - uses: docker/setup-buildx-action@v4.4.1
       - uses: docker/login-action@v4.7.0
         with:
@@ -209,7 +211,8 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          # arm64 only: nothing runs these images on amd64 (the rehearsal builds its own).
+          platforms: linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest
@@ -232,13 +235,18 @@ jobs:
           # the image). A BuildKit secret never lands in a layer.
           secrets: |
             sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # One cache per image: with the default shared scope the three images of a matrix
+          # overwrote each other's cache.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   images-cuentas-claras:
     if: needs.release-gate.outputs.cuentas_claras_ready == 'true'
     needs: release-gate
-    runs-on: ubuntu-latest
+    # The production VM is ARM64 (Oracle A1): build natively on GitHub's ARM runner. Under
+    # QEMU on x86, `pnpm install` crashed with "Illegal instruction" and the job hung.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -265,7 +273,6 @@ jobs:
       SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v4.4.0
       - uses: docker/setup-buildx-action@v4.4.1
       - uses: docker/login-action@v4.7.0
         with:
@@ -283,7 +290,8 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          # arm64 only: nothing runs these images on amd64 (the rehearsal builds its own).
+          platforms: linux/arm64
           push: true
           tags: |
             ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest
@@ -306,8 +314,10 @@ jobs:
           # the image). A BuildKit secret never lands in a layer.
           secrets: |
             sentry_auth_token=${{ secrets.SENTRY_AUTH_TOKEN }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # One cache per image: with the default shared scope the three images of a matrix
+          # overwrote each other's cache.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   # After a push to the default branch built inmo24x7's images: the Deploy workflow with this
   # commit. It waits for an approval of the production environment (its required reviewers),

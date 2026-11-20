@@ -1,8 +1,9 @@
 # Bootstrapping the VM
 
 One Ubuntu 24.04 VM with Docker runs everything (api, worker, web, backoffice, Caddy). The
-target is an Oracle Cloud Ampere (ARM) instance in São Paulo; any Linux VM works the same,
-because CI builds amd64 and arm64 images.
+target is an Oracle Cloud Ampere (ARM) instance in São Paulo; any ARM64 Linux VM works the
+same. CI builds arm64 images only (natively, on GitHub's ARM runners): an x86 VM needs
+`linux/amd64` added back to the image jobs in `.github/workflows/ci.yml`.
 
 ## 1. Create the VM
 

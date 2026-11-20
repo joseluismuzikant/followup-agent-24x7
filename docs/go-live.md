@@ -116,8 +116,8 @@ Optional, for Sentry in the panels (section 12a): variables `SENTRY_ORG`, `SENTR
 Images are published only once these variables exist. Until then CI's `release-gate` job
 prints a notice listing what is missing and skips `images-inmo24x7`; tests and checks still
 run (and must pass) on every push. With all six set, push (or re-run CI on) `master`: it
-builds `ghcr.io/<owner>/<repo>/inmo24x7-{api,web,backoffice}:sha-<commit>` for amd64 and
-arm64. Note the full commit sha: that is what you deploy.
+builds `ghcr.io/<owner>/<repo>/inmo24x7-{api,web,backoffice}:sha-<commit>` for arm64, on
+GitHub's native ARM runners (no QEMU). Note the full commit sha: that is what you deploy.
 
 **Cuentas Claras** (its own go-live, later; off until then): the variables
 `CUENTAS_CLARAS_API_URL` (`https://cuentasclaras-api.<domain>`), `CUENTAS_CLARAS_PANEL_URL`
@@ -381,6 +381,11 @@ retried.
 
 The health wait (120 s) and the rollback are as before. The Deploy job has `timeout-minutes: 30`,
 above the script's worst case, and SSH keepalives, so a dead connection fails in about a minute.
+
+The image builds in CI run natively on GitHub's ARM runners (`ubuntu-24.04-arm`), not under
+QEMU, where `pnpm install` once crashed with "Illegal instruction" and hung the job. Each image
+job is limited to 30 minutes, so a stuck build fails, and the deploy, which needs it, doesn't
+start.
 
 **When it times out:**
 1. On the VM, check the registry from there: `docker pull <the image in the message>`.
