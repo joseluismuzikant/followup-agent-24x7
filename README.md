@@ -784,7 +784,7 @@ supabase                           local Supabase CLI configuration (auth only)
 ## Images
 
 On every push to `master`, after the tests, CI's `release-gate` job checks each product's
-repository variables, and for each product that has them builds amd64 + arm64 images for its
+repository variables, and for each product that has them builds arm64 images (on GitHub's native ARM runners) for its
 API, web and backoffice and pushes them to GitHub Container Registry as `sha-<commit>` (and
 `latest`). A product without them is skipped with a notice, never a failure. The panel
 builds embed only public values (the API URL, the Supabase URL and anon key, and for

@@ -973,7 +973,8 @@ internet ─▶ Caddy (80/443, Let's Encrypt) ─┬─ api.<domain>     ─▶ 
 ```
 
 - **One VM with Docker Compose** (`deploy/compose.prod.yml`): Oracle Cloud ARM in São Paulo,
-  or any Linux VM (the images are amd64 + arm64). Only Caddy publishes ports. Images are
+  or any ARM64 Linux VM (the images are arm64 only, built natively on GitHub's ARM runners;
+  an x86 VM needs `linux/amd64` added back in CI). Only Caddy publishes ports. Images are
   pinned by `IMAGE_TAG=sha-<commit>`; the worker and the one-off `migrate` use the API image.
 - **Cuentas Claras** runs on the same VM under the compose profile `cuentas-claras`
   (`cc-api`, `cc-worker`, `cc-web`, `cc-backoffice`), with its three hosts in
