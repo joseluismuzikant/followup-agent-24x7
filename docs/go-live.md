@@ -331,9 +331,11 @@ deploy**. The Deploy workflow then, over SSH:
    `install-files.sh`: the scripts (`deploy.sh`, `lib.sh`, `dc.sh`, `backup-now.sh`,
    `restore.sh`), `compose.prod.yml`, `Caddyfile`, `caddy/`, `observability/` and `backup/`.
    It never touches `.env.production` or `state/`, and keeps the last 5 release folders;
-2. runs `deploy.sh <sha>` (migrate, start, wait for `/health/ready`, roll back if the new
-   images never get ready). It also reloads Caddy and restarts the logs stack when their
-   configuration changed, and rebuilds the backup image when `backup/` changed;
+2. runs `deploy.sh <sha>`: pull our app images (third-party ones only when missing), migrate,
+   start, wait for `/health/ready`, roll back if the new images never get ready, then prune
+   old app images. Every step has a timeout (below). It also reloads Caddy and restarts the
+   logs stack when their configuration changed, and rebuilds the backup image when
+   `backup/` changed;
 3. checks `https://<api>/health/ready` from GitHub and fails unless it reports that commit;
 4. writes a summary on the run page: commit, previous version, result, health URL.
 
@@ -346,6 +348,55 @@ runs at a time, and a running one is never cancelled.
 built (`state/previous_tag` on the VM, or the previous run's summary, has the last one). It
 installs the deploy files of that commit too; a commit older than `install-files.sh` keeps
 the VM's current files. It waits for the same approval.
+
+### Troubleshooting: the deploy hangs pulling images
+
+It can't hang for good anymore. `deploy.sh` pulls only our app images (`inmo24x7-api`, `-web`,
+`-backoffice`, and `cuentas-claras-*` with its profile on), one at a time. Caddy, Loki, Alloy
+and Grafana have pinned tags: they are pulled only when the VM doesn't have them, so they come
+down once after a version bump in `compose.prod.yml`. Each pull has a timeout and one retry.
+If it fails twice, the deploy stops before migrating or restarting anything, and the run says
+so:
+
+```
+Pull of ghcr.io/<owner>/<repo>/inmo24x7-api:sha-… timed out after 300 s; nothing was changed, sha-… keeps running.
+```
+
+**Timeouts.** Each long step has a time limit per attempt and is retried once when it runs out
+of time. Set them in the VM's environment, for example `DEPLOY_PULL_TIMEOUT=600 ./deploy.sh <sha>`.
+All values are in seconds:
+
+| Variable | Default | What it limits | When both attempts time out |
+|---|---|---|---|
+| `DEPLOY_PULL_TIMEOUT` | 300 | Each image pull | The deploy stops; nothing changed. |
+| `DEPLOY_MIGRATE_TIMEOUT` | 300 | `alembic upgrade heads` | The deploy stops; nothing restarted. |
+| `DEPLOY_UP_TIMEOUT` | 120 | `compose up`, and the rollback's | It rolls back. |
+
+The migration retry is for an intermittent Docker hang: `compose run migrate` has waited 11+
+minutes for dockerd to answer `POST /containers/create`, while a manual `docker create` right
+after worked in under a second. On a timeout `deploy.sh` kills the compose process, removes
+any leftover `migrate-run` container, and runs the migration again, which is safe because
+`alembic upgrade heads` is idempotent. A migration that fails, rather than times out, is not
+retried.
+
+The health wait (120 s) and the rollback are as before. The Deploy job has `timeout-minutes: 30`,
+above the script's worst case, and SSH keepalives, so a dead connection fails in about a minute.
+
+**When it times out:**
+1. On the VM, check the registry from there: `docker pull <the image in the message>`.
+2. Check the login: `docker login ghcr.io` (step 5). An expired token shows up as a failed pull.
+3. Check the network to `ghcr.io`.
+4. Run the deploy again. Layers that already came down are not pulled again.
+
+If the migration timed out twice, run `./dc.sh --profile tools run --rm migrate alembic current`
+before deploying again. If that hangs too, the problem is in Docker, not the deploy:
+`sudo systemctl restart docker` fixes it, but it restarts every container.
+
+**Disk.** After a successful deploy, the VM keeps our app images for the last 3 deployed tags
+(`state/deployed_history`) plus the one running before. Older tags and dangling images are
+removed, and the reclaimed space is printed. Third-party images and images a container uses
+are never removed. Set `DEPLOY_SKIP_PRUNE=1` to skip it. Rolling back further than 3 deploys
+pulls that tag again, which is fine while it is in GHCR.
 
 ## 12a. Monitoring: Sentry (errors)
 

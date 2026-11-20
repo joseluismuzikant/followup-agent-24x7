@@ -27,6 +27,11 @@ jobs:
   deploy:
     if: vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
+    # A hang can't hold the job (and the production-deploy group) for hours. Above deploy.sh's
+    # own worst case (about 26 minutes with its default step timeouts, see its header), so the
+    # script finishes or rolls back before GitHub cuts the SSH session. The wait for approval
+    # does not count.
+    timeout-minutes: 30
     environment:
       name: production
       url: ${{ vars.INMO24X7_API_URL }}/health/ready
@@ -67,7 +72,10 @@ jobs:
             User $DEPLOY_USER
             IdentityFile ~/.ssh/deploy_key
             StrictHostKeyChecking yes
-            ServerAliveInterval 30
+            ConnectTimeout 20
+            # A dead connection fails in about a minute instead of hanging the step.
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
           CONFIG
 
       - name: Version running now

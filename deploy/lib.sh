@@ -51,15 +51,26 @@ fi
 export ENV_FILE IMAGE_TAG COMPOSE_PROJECT COMPOSE_PROFILES CADDY_GRAFANA_SITE GRAFANA_ROOT_URL \
 	GRAFANA_COOKIE_SECURE CADDY_CUENTAS_CLARAS_SITE
 
+compose_args=(--project-name "$COMPOSE_PROJECT" --project-directory "$DEPLOY_DIR"
+	--env-file "$DEPLOY_DIR/$ENV_FILE")
+for compose_file in $COMPOSE_FILES; do
+	compose_args+=(-f "$DEPLOY_DIR/$compose_file")
+done
+unset compose_file
+
 compose() {
-	local args=(--project-name "$COMPOSE_PROJECT" --project-directory "$DEPLOY_DIR"
-		--env-file "$DEPLOY_DIR/$ENV_FILE")
-	local file
-	for file in $COMPOSE_FILES; do
-		args+=(-f "$DEPLOY_DIR/$file")
-	done
-	docker compose "${args[@]}" "$@"
+	docker compose "${compose_args[@]}" "$@"
 }
+
+# Runs `docker compose ...` for at most $1 seconds (SIGTERM, then SIGKILL 15 s later).
+# Returns 124 when it ran out of time (137 when it also had to be killed).
+compose_within() {
+	local seconds="$1"
+	shift
+	timeout --kill-after=15 "$seconds" docker compose "${compose_args[@]}" "$@"
+}
+
+timed_out() { [[ "$1" == 124 || "$1" == 137 ]]; }
 
 say() { printf '==> %s\n' "$*"; }
 

@@ -1,425 +1,292 @@
-# followup-agent-24x7: 12-day MVP roadmap
+# followup-agent-24x7 roadmap: inmo24x7 first
 
-Goal: a demo-ready MVP of **inmo24x7** by day 7 and of **Cuentas Claras** by day 12,
-both running on the shared core and deployed on Oracle Cloud + Supabase.
+The focus is **inmo24x7**. It runs in production on the shared core (Oracle Cloud + Supabase).
+**Cuentas Claras is on standby.** Its plan, Days 9–12, its screens and its risks are in
+[`cuentas-claras-roadmap.md`](cuentas-claras-roadmap.md).
 
-Every screen element is specified in [`screens-spec.md`](screens-spec.md). Nothing in the
-spec is dropped: each screen maps to a day below or to the explicit Post-MVP list.
+Every screen element is specified in [`screens-spec.md`](screens-spec.md). The original
+12-day plan, day by day, is in this file's git history.
 
-## Assumptions
+Updated: 20/11/2026.
 
-- A "day" is one focused work block of about 6–8 hours with a coding agent (OpenCode).
-  Working part time, each day is one work session, so the plan takes 3–4 weeks.
-- Each day starts with one prompt to OpenCode scoped to that day, and ends with green CI,
-  a commit, and a short demo to yourself.
-- If a day overruns, cut scope from the "Stretch" items, never from tests or deploy.
+## 1. Status: done and in production
 
-## What "MVP" means here
+| What | PR |
+| --- | --- |
+| Days 1–3: identity and app shell, the onboarding wizard and agent configuration, conversation runtime and simulator | #1–#4 |
+| Day 4: properties (CSV/XLSX import), the lead agent, local development without external services | — (commit `75d4d94`, no PR) |
+| Day 5: WhatsApp messaging, the job queue and worker, new-lead emails | #5 |
+| Day 6: inbox with takeover and visit confirmation, dashboard KPIs | #6 |
+| Day 7: Embedded Signup, connection health, backoffice parity, production deploy, backups and rehearsal | #7 |
+| Day 7C: Sentry, Loki + Alloy + Grafana, backoffice Errores and Consumo (LLM cost per business) | #8 |
+| Day 8: the platform is multi-product (tenants, profiles and job queues per product, migration branches, `packages/platform`, `@followup/app-shell`); invite-only accounts with passwords; the inmo24x7.com look | #9–#11 |
+| WhatsApp in production with the Meta test number: webhook, system-user token, manual connection | #7, #10 |
+| WhatsApp fixes: Argentine mobiles without the 9 in the Cloud API `to`, longer `name_status` (`AVAILABLE_WITHOUT_REVIEW`) | #10 |
+| Automatic deploy after a merge, with approval, syncing the deploy files to the VM | #12 |
+| Daily encrypted backups (`pg_dump` → age → rclone) with a tested restore | #7 |
+| Grafana and Loki on the VM; LangSmith tracing (14-day retention and a spend limit, set in LangSmith) | #8 |
+| Panel responsive on phones | #13, #14 |
+| Property conditions: requirements and features, from the spreadsheet to the chat | #16 |
+| LLM: OpenAI GPT-5.4 nano in production, with `LLM_REASONING_EFFORT`; DeepSeek no longer used (the provider stays in the code) | #16 |
+| "BAJA" opt-out, contact data deletion and account closure | #17 |
+| Integrations: Tokko Broker (property import every 6 h, qualified leads as web contacts), signed lead webhook, website script "Consultar por WhatsApp" with the property already identified | #18 |
+| Landing www.inmo24x7.com with the legal pages (privacidad, términos, eliminación de datos, acuerdo de tratamiento de datos) and the demo video | outside this repo |
+| Meta: business verified (18/11/2026); Tech Provider app review submitted (19/11/2026, up to 20 days) | outside this repo |
 
-**inmo24x7 MVP**
+**Still pending from the items above:**
 
-- A real estate agency signs up alone, sets up its agent with defaults, imports its
-  properties, and tries the agent in a web simulator.
-- The agent answers on WhatsApp: qualifies the lead, suggests properties from the agency's
-  listings, saves contact details, and hands off to a human.
-- The agency sees its leads in the panel, confirms visits, and gets notified of each new lead.
+- The panel's sign-in screen shows "Términos" and "Política de privacidad" with `href="#"`.
+  Point them to the landing's pages.
+- The Tokko integration is beta. Five points need checking with a real agency's key
+  ([`integrations.md`](integrations.md), "To verify with a real key").
 
-**Cuentas Claras MVP**
+## 2. In progress
 
-- A service company signs up with the same onboarding, imports its clients and invoices
-  from a CSV, and connects WhatsApp and its own Mercado Pago account.
-- Automatic WhatsApp reminders with escalation and a Mercado Pago payment link.
-- Payments through Mercado Pago mark invoices as paid automatically.
-- The agent answers typical replies; payment promises and installment plans need the owner's
-  one-tap approval.
-- A dashboard with total owed, payment promises, and money recovered this month.
+### Deploy hardening
 
-## Post-MVP
+Two deploys hung forever pulling images.
 
-- ARCA integration (reading issued invoices); CSV import covers the MVP and C2 shows only
-  the "coming soon" notice.
-- Bank statement import and receipt verification with OCR; Day 10 uses the downloaded
-  receipt media with manual verification.
-- CRM integrations for real estate agencies.
-- Charging your own subscription to customers.
-- AI-visibility lead magnet.
-- Términos and Política de privacidad page content (S1 shows the links in Day 1).
-- Planes administration beyond a read-only plan display.
-- Conversaciones cross-tenant viewer if it does not fit Day 7 (inmo24x7) or Day 11
-  (Cuentas Claras).
+- Pull only our app images, one at a time, each with a timeout and one retry. Pull
+  third-party pinned images only when they are missing.
+- Time limits, with one retry on a timeout, for the migration and `compose up`.
+- Prune old app images after a successful deploy, keeping the last 3 tags.
+- A 30-minute limit on the GitHub deploy job, and SSH keepalives.
 
-## Start on day 1, in parallel: things with lead time
+**Status:** written and checked locally against a fake `docker`; not merged.
 
-These do not depend on code and some take days. Start them all on day 1.
+**Done when:** it is merged, the rehearsal passes with it, and two production deploys in a
+row finish without anyone touching the VM.
 
-| Task | Why | Typical lead time |
+## 3. Next objective: real agencies on their own number, with photos
+
+One milestone in three parts. 3b and 3c start now. 3a starts when Meta approves the app review
+(expected by 09/12/2026).
+
+### 3a. Full Meta integration
+
+**Already in the code:**
+
+- Embedded Signup v4.
+- Connection health: auth errors, `account_update`, a 6-hour check. `quality_rating` and
+  `name_status` are stored.
+- A visit-confirmation template per connection, used after 24 h. Its name is typed in the
+  backoffice, and the template is created by hand in WhatsApp Manager.
+- Cuentas Claras (#15) already creates templates in each business's WABA through the API and
+  follows `message_template_status_update`. Reuse that; don't copy it.
+
+**To build:**
+
+- **Go live.** Publish the app (Live mode). Test production Embedded Signup with a **real**
+  agency number, including **coexistence** with the WhatsApp Business app:
+  - the agent keeps using the app on the phone;
+  - Sofía answers through the API;
+  - human replies from the phone are seen and respected: Sofía pauses that conversation.
+    Today nothing handles message echoes from the app.
+- **Templates per agency**, created through the API in each agency's WABA:
+  - which ones: visit confirmation, visit reminder, follow-up;
+  - status sync: the `message_template_status_update` webhook plus a periodic sync;
+  - the template name typed in the backoffice goes away.
+- **Webhook fields** subscribed and handled: `messages`, `account_update`,
+  `message_template_status_update`.
+- **Health per agency** in the backoffice:
+  - quality rating and display-name status, both stored already;
+  - messaging limit tier, not read today;
+  - "payment method missing at Meta", not detected today.
+- **Onboarding guide** for a new agency, used as a video-call checklist:
+  1. invitation;
+  2. Términos (the panel has no acceptance step today: decide whether the call or a
+     checkbox covers it);
+  3. Embedded Signup;
+  4. card in WhatsApp Manager;
+  5. properties and conditions;
+  6. agent settings;
+  7. first test.
+
+**Done when:** a real agency connects its own number from the panel, a lead writes, Sofía
+answers, the agent replies from the phone, and the visit-confirmation template goes out after
+24 h.
+
+### 3b. Property images
+
+**Photos:** up to 5 per property, one marked as the cover. Sources:
+
+- upload in the property form, by drag and drop or the phone camera;
+- a new optional `imagenes` column in the CSV/XLSX, with URLs;
+- the import from a link (3c);
+- Tokko's photos. The integration reads none today.
+
+**Storage:**
+
+- Oracle Object Storage, at a public, unguessable path per agency. Listing photos are public
+  anyway.
+- Resized to about 1280 px and about 200 KB, JPEG or WebP.
+- **EXIF removed**, which drops the GPS position.
+- Deleted with the property and with account closure. Add them to the table-scan tests in
+  `privacy/`.
+
+**Sofía:**
+
+- sends the **cover photo** of each option as a WhatsApp image message, captioned with
+  title, price, address and link;
+- sends more photos when the lead asks ("¿tenés más fotos?") or chooses a property.
+
+**Panel:** thumbnails in the property list and on the inbox cards.
+
+**Done when:** an agent uploads photos from the phone, and a lead on WhatsApp gets the
+options with their cover photos and can ask for more.
+
+### 3c. The publication link and importing a property from it
+
+**Already in the code:**
+
+- Every property has a required `link` (a web address), unique per agency among manual
+  listings.
+- For Tokko listings the link is Tokko's `public_url`.
+- Sofía only sends real links.
+- The website button identifies the property by its link, its id or its code.
+
+**To build:** extend that `link` field; don't add a second one.
+
+- **The link as the public reference.** It is the property's page on Zonaprop, Argenprop,
+  RE/MAX, Tokko or the agency's site. It is what Sofía sends and what the website button
+  identifies. "Actualizar desde el link" re-reads it later to refresh price and status.
+- **Import from the link.** The agent pastes the link of **their own** listing (Zonaprop,
+  Argenprop, RE/MAX, their website):
+  - the server reads the page's structured data (schema.org JSON-LD, Open Graph);
+  - if that isn't enough, the LLM extracts the rest from the page text;
+  - the property form opens **pre-filled** for review, and nothing is saved without the
+    agent's confirmation;
+  - the cover photo comes from the page (3b).
+- **When the portal blocks the request,** the form opens with whatever was read and the agent
+  completes it.
+- **Limits:**
+  - only on demand, one page per request;
+  - an identified user agent;
+  - rate-limited per agency;
+  - never crawling or bulk scraping.
+
+**Done when:** pasting the link of an agency's own Zonaprop or RE/MAX listing fills the form
+with title, operation, price, currency, zone, address, rooms and cover photo.
+
+## 4. After that
+
+Ordered by value for the first clients. Revisit the order with their feedback.
+
+1. **Follow-up of leads that stop answering.** A template at 24 and 48 h. A lead who wrote
+   "BAJA" is never written to again.
+   **Done when:** a lead who stops answering gets one follow-up, a BAJA lead gets none, and
+   the inbox shows both.
+2. **Visit reminder the day before, with confirmation.** It uses the reminder template
+   from 3a.
+   **Done when:** the lead gets the reminder, answers, and the visit shows as confirmed or
+   cancelled in the panel.
+3. **Google Calendar.** Propose slots from the agent's real calendar, and add confirmed
+   visits to it.
+   **Done when:** Sofía never offers a busy slot, and a confirmed visit appears in the
+   calendar.
+4. **Weekly summary email for the agent:** leads, qualified leads, visits requested and
+   visits avoided.
+   **Done when:** every agency owner gets it on Monday morning with the previous week's
+   numbers, and the numbers match Inicio.
+5. **Plans and automatic billing** (a 14-day trial, a Mercado Pago subscription), once there
+   are about 10 clients.
+   **Done when:** a trial ends, the agency pays from the panel, and an unpaid agency is
+   suspended without manual work.
+6. **Later, if clients ask:**
+   - several agents per agency, with lead assignment;
+   - an LLM model per agency, set in the backoffice only, from an allowlist of tested models;
+   - cost limits per agency.
+
+## 5. Operations
+
+### 5a. Blue/green deploys (A/B slots)
+
+**How it works:**
+
+- Two app slots on the same VM, **A** and **B**: two Compose projects for `api`, `web` and
+  `backoffice`. The database, Caddy and Loki/Alloy/Grafana are shared.
+- A deploy starts the new version in the **idle** slot. It checks `/health/ready` and a
+  smoke test there through an internal port, before any real traffic.
+- It then **switches Caddy's upstream** to that slot with a graceful reload.
+- The old slot keeps running untouched, for an instant rollback (switch back), until the
+  next deploy reuses it.
+
+**Rules it needs:**
+
+- Database migrations must be **backward compatible**: expand, deploy, then contract in a
+  later release. Both versions share the database during the switch. This is already the rule
+  (ARCHITECTURE.md, "Migrations").
+- The **worker** runs only in the active slot, so there is one job consumer.
+- Webhooks keep working through the switch, because Caddy's reload is graceful.
+
+**The Deploy workflow** shows which slot is live and offers "Volver a la versión anterior"
+(switch back) without rebuilding.
+
+**Done when:** a deploy has zero failed requests during the switch (measured with a load
+loop), and a rollback takes seconds.
+
+### 5b. Before or with the first paying clients
+
+| Task | Done when |
+| --- | --- |
+| LangSmith sampling at 0.25 in production (`LANGSMITH_TRACING_SAMPLING_RATE`; `.env.production.example` already says 0.25) | The VM's `.env.production` has 0.25 and LangSmith shows about a quarter of the turns |
+| Let the Grafana silence on "Sin webhooks de Meta" expire, and make the alert smarter: 24 h of silence on numbers that had traffic | A quiet night with no leads doesn't fire it; a broken webhook on an active number does |
+| Supabase Pro when the database nears 400 MB | The project is on Pro before it reaches 500 MB |
+| A Vercel plan for a commercial site, or move the landing | The landing runs on a plan that allows commercial use |
+
+## Things with lead time
+
+These don't depend on code, and some take days. Start them before the item that needs them.
+
+| Task | Needed by | Typical lead time |
 | --- | --- | --- |
-| Meta business verification and Tech Provider setup | Required for Embedded Signup with real customers | Days to weeks |
-| Meta test app with a test WhatsApp number | Lets you develop and demo before verification | Minutes |
-| WhatsApp utility templates for reminders (Cuentas Claras) | Business-initiated messages need approved templates | Minutes to 1–2 days |
-| WhatsApp template for visit confirmation / follow-up outside the 24-hour window (inmo24x7) | Confirming a visit later is outside the customer-service window | Minutes to 1–2 days |
-| Mercado Pago OAuth application with the redirect URL on the production domain | Each business connects its own account | Minutes to days |
-| Supabase project (São Paulo) with Auth: Google + magic link | Auth and production database | Minutes |
-| Oracle Cloud ARM VM (São Paulo if capacity allows) | Production hosting | Minutes to days if capacity is short |
-| Domain and DNS for API, panels and landings | Webhooks need a public HTTPS URL | Hours |
-| Mercado Pago developer account, test users and credentials | Payment links and payment webhooks | Minutes |
-| Source for Argentine holidays (`holidays` package, AR), verified for 2026–2027 | "No enviar en feriados" must be correct | Minutes to verify |
-| LLM API key with enough rate limit | Agents and tests | Minutes; higher tiers may need prepaid balance |
-
----
-
-## Days 1–7: inmo24x7
-
-### Day 1: identity, app shell and sign-up (done)
-
-- **Identity** context in core: verify Supabase JWTs behind a port, profiles with roles
-  (owner, manager, agent, viewer) and the global admin flag.
-- Tenant scoping on every endpoint; admin endpoints require the admin flag.
-- Sign-up creates tenant + owner profile + trial plan in one use case.
-- Web app shell: router, auth guard, and the S5 sidebar layout.
-- S1 Ingreso: Google and magic link sign-in, with the Términos and Política links.
-- Admin-only backoffice shell.
-
-**Screens:** S1, S5 (shell), S8 (admin shell).
-
-**Done when:** you can sign up with Google, land on your own empty panel, and the backoffice
-is only reachable with an admin user.
-
-**Follow-up fixes (done with Day 2):** Supabase secrets are no longer baked into the API
-image; JWT verification accepts ES256/RS256 with one cached JWKS client and checks the
-issuer; production config accepts a JWT secret or a JWKS URL; the web no longer loops when
-`/me` fails; self-serve sign-up picks the next free slug.
-
-### Day 2: the onboarding wizard and agent configuration (done)
-
-- Full five-step S2 wizard with progress and "Terminar después" resume.
-- Agent configuration stored in Tenancy and versioned.
-- Qualification questions are data the graph reads, not hard-coded.
-- Setup checklist on S5 reflects onboarding progress.
-- Agente screen edits the same configuration after onboarding.
-- Configuración screen holds the business profile, hours, and notification destinations.
-
-**Screens:** S2, S5 (checklist), inmo24x7 Agente, inmo24x7 Configuración.
-
-**Done when:** a new account reaches the "try your agent" step in under 3 minutes without
-help, and resumes at the same step after leaving.
-
-**Moved or placeholder:** step 3 (Probalo) is a placeholder until the Day 3 simulator, step
-4 (WhatsApp) is static until Day 7, and the checklist facts for tested agent, properties,
-WhatsApp and Meta verification are providers that return false until their days plug in.
-The lead notification email is stored but sent on Day 5.
-
-### Day 3: conversation runtime and the simulator
-
-- **Conversation** context: `AgentRuntime` port, LangGraph implementation, Postgres
-  checkpointer with `thread_id = tenant_id:channel:visitor_id`.
-- Channel-agnostic flow: incoming message → graph → outgoing messages.
-- Fake LLM for deterministic tests.
-- S3 simulator with "Lo que el agente ya sabe" exposed from graph state, Reiniciar, and
-  seeded sample properties per tenant.
-- The same simulator component in the wizard and the S8 backoffice.
-
-**Screens:** S3, S8 (simulator).
-
-**Done when:** you chat with a basic agent in the simulator, restart the API, and the
-conversation continues where it was, including the structured state panel.
-
-**Status: done** (together with the Day 2 follow-ups: server-owned question keys, the 409 on
-concurrent agent saves, and the S4 step copy).
-
-**Moved or changed:** sample properties are a static fixture behind a `PropertySearch` port
-instead of rows seeded per tenant, so Day 4 replaces the adapter rather than migrating seed
-data. The basic qualification graph, prompts and the LLM port with its five providers landed
-here; Day 4 adds real property search, visit proposals and hand-off on top of them. The
-backoffice simulator (S8) shipped with this day, and so did LangSmith tracing of every turn
-(PII redacted, "Ver traza" from backoffice messages).
-
-### Day 4: properties and the lead agent
-
-- S7 properties: CSV and XLSX import with per-item validation, downloadable row-level error
-  report, manual create/edit, publish/pause, and inquiries per property.
-- **Leads** agent driven by the configured qualification questions, with tools to search
-  properties, save contact, and propose a visit inside team hours.
-- Lead statuses from S5; the graph shows options before asking for personal data, asks one
-  question per message, and only uses real property links.
-- Prompts as versioned files; test that every declared tool has a handler.
-
-**Screens:** S7, S3 (real search), S5 (statuses).
-
-**Done when:** in the simulator a lead gets matching properties, leaves contact details,
-and is handed off, and the lead appears in the panel with its status.
-
-**Status: done**, together with a Part 0 for local development without external services:
-dev sign-in (`AUTH_MODE=dev`, refused in production), `scripts/seed_dev.py` with three dev
-accounts, sample files in `docs/samples/`, a local Supabase CLI configuration and the README
-"Local development" section.
-
-**Moved or changed:** visit slots and the hand-off landed here: the agent offers two slots
-inside team hours for the property the lead picks, and the hand-off writes the system event
-"El agente derivó la consulta a tu equipo" to the transcript (listed under Day 6). Consultas
-got a minimal list with S5 status badges, a "Prueba" badge for simulator leads and a read-only
-detail; tabs, search, takeover, visit confirmation and export stay on Day 6. Inquiries per
-property count real leads only, not simulator tests.
-
-### Day 5: WhatsApp messaging and notifications
-
-- **Messaging** context: webhook verification, HMAC signature check, fast 200 with background
-  processing, tenant resolution by `phone_number_id`, deduplication by message id, Argentine
-  number normalization, encrypted tokens.
-- Sending through Cloud API, with a fake adapter for tests.
-- Connect the Meta test number to a test tenant (manual for now).
-- New-lead email notification.
-- A Meta template for messages outside the 24-hour window (visit confirmation/follow-up).
-
-**Screens:** S2 (email), S5 (active badge and number), S6 (message delivery).
-
-**Done when:** you message the test number from your phone and the agent qualifies you end to
-end; the agency receives the new-lead notification.
-
-**Status: done**, together with the Day 4 follow-ups (backoffice access screen, two real visit
-alternatives, replacing a proposed visit). Path A works without a Meta account:
-`scripts/simulate_whatsapp.py` posts signed webhooks, the log sender answers and Mailpit receives
-the email.
-
-**Moved or changed:** the Postgres job queue and the worker (the first piece of Day 9's
-Scheduling context) moved forward to this day, because the webhook must answer Meta at once and
-processing, sending and emails must survive restarts. The number is connected by hand in the
-backoffice (Day 7 adds Embedded Signup). The connection's template is used by the backoffice test
-message; Day 6 added a separate visit-confirmation template per connection. WhatsApp
-notifications to the agency remain a stretch goal.
-
-### Day 6: the inbox and dashboard KPIs (done)
-
-- S6 inbox: full transcript, human takeover (pause the agent per thread and reply through
-  WhatsApp), confirm visit, tabs, search, and CSV export.
-- System events such as "El agente derivó la consulta a tu equipo".
-- S5 KPIs: out-of-hours inquiries, average first-response time, and booked visits.
-
-**Screens:** S6, S5 (KPIs and "Para atender hoy").
-
-**Done when:** a lead handed off on Day 4 is visible in the inbox, a human takes over the
-conversation, and confirming a visit updates the status and notifies the lead.
-
-Done, plus a migrations guard: a test asserts a single Alembic head, and every core revision
-gets a product merge revision (`inmo_0004` merges core `0009`). Takeover is a control flag on
-the thread checked under the per-thread lock; team replies, confirmations and cancellations
-go through the same send job as the agent, with a visit-confirmation template per connection
-for messages after 24 hours. The seed creates the week's WhatsApp leads through the real
-pipeline. Lead assignment, websockets and transcript export stay out of the MVP.
-
-### Day 7: WhatsApp connection, backoffice parity, deploy and demo
-
-- S4 Embedded Signup: token exchange, phone registration, webhook subscription, test message,
-  status card, "Pendiente en Meta", and translated Meta errors.
-- Connection health: store Meta error codes, detect revoked tokens and failing webhooks.
-- S8/S9 backoffice parity: KPIs, filters, detail, audit log from Tenancy, plan usage, users,
-  suspend, reconnect link, and manual connection fallback.
-- Deploy to Oracle and Supabase; run migrations on deploy; daily `pg_dump` backup.
-- Record a 3-minute demo.
-
-**Screens:** S4, S8, S9.
-
-**Done when:** a brand-new account goes from sign-up to a working agent on WhatsApp in
-production in under 10 minutes. **inmo24x7 MVP is demo-ready.**
-
-**Stretch:** test link / QR at the end of the wizard; cross-tenant Conversaciones viewer.
-
-**Status: 7A done; 7B ready to deploy** (the deploy files, backups, the local production
-rehearsal and `docs/go-live.md`; the rehearsal passes locally). Day 7 is done once the
-Done-when passes in production.
-
-**7A:** 7A shipped Embedded Signup v4 with
-resumable steps, Meta errors in Spanish, connection health (auth errors stop sending, replies
-wait and resume on reconnect, a 6-hour check, `account_update` events), the Tenancy audit
-log, suspension, read-only plans, and the S8/S9 backoffice with Salud del sistema and
-Planes.
-
-**Moved or changed:** "Dar de alta un negocio" creates the business for an owner email that
-claims it at sign-up (no invitation email). Business verification comes from Meta's business
-node when the token can read it and from the certification webhook; otherwise S4 shows both
-links with neutral copy. The S4 test message is the customer writing to their own number (the
-agent's reply is the test), not a message we send. The wa.me link / QR stretch and the
-Conversaciones viewer stay out.
-
-### Day 7C: error monitoring, log search and LLM cost per business
-
-Moved forward from Day 12 so production does not start blind.
-
-- **Sentry** for the API, the worker and both panels: scrubbed of bodies, query strings and
-  personal data. Errors are tagged with the request, business and job. The panels show a
-  "Código de referencia" on unexpected errors.
-- **Loki + Alloy + Grafana** on the VM (compose profile `observability`): JSON logs with
-  `request_id` and `tenant_id`, a provisioned dashboard, and email alerts for errors, dead
-  jobs, signature spikes and webhook silence.
-- **Backoffice Errores:** issues from Sentry's API, search by reference code, and per-business
-  errors and "Ver logs" on S9.
-- **LLM usage per call** (`llm_usage`, written outside the turn), versioned prices with a
-  recompute script, backoffice **Consumo** (per business and UTC month, daily chart, CSV,
-  WhatsApp template counts), and a monthly cost alert.
-
-**Status: done locally.** All checks pass; the stack ran locally and in the rehearsal setup.
-It goes live with 7B. You still need to:
-
-- create the Sentry projects;
-- fill in the real prices in `packages/platform/src/followup_platform/billing/llm_prices.toml`.
-
-**Out of scope:** charging for usage, ARS conversion, Meta template prices, self-hosted
-Sentry, Grafana Cloud, metrics and traces backends, session replay.
-
----
-
-## Days 8–12: Cuentas Claras
-
-### Day 8: product skeleton, clients and invoices
-
-- `apps/cuentas-claras/{api,web,backoffice}` and `@followup/api-client-cuentas-claras`,
-  reusing core, `@followup/ui`, the onboarding wizard, and the simulator.
-- **Clientes** screen: the companies that owe money.
-- C2 Facturas: CSV template download, CSV import with a report, tabs with counts, search,
-  columns, statuses, "Lo próximo", and pagination. ARCA notice only.
-
-**Screens:** C2, Cuentas Claras Clientes.
-
-**Done when:** a service company signs up with the same onboarding and sees its imported
-invoices in the panel.
-
-**Status: done locally**, together with a Part 0 that makes the platform multi-product:
-
-- tenants per product, profiles per (user, product), job queues per product;
-- onboarding steps, business types and the checklist defined by each product;
-- named migration branches (`alembic upgrade heads`) instead of merge revisions;
-- `packages/platform` (shared API plumbing) and `@followup/app-shell` (shared panel pieces);
-- CI's `release-gate`, which publishes each product's images only once its variables exist.
-
-inmo24x7 behaves as before. Cuentas Claras runs locally on ports 8002, 5175 and 5176, and in
-production behind the compose profile `cuentas-claras`, off until its go-live (Day 12).
-
-**Added with Day 8: invitation-only accounts and the new look.**
-
-- Nobody signs up. "Dar de alta un negocio" (both backoffices) creates the business, the
-  owner's account with a temporary password (shown once to the admin) and an emailed
-  invitation link. Either way in, the owner chooses their own password first, then the wizard.
-- Sign-in is email and password only (Google and the magic link are gone), with "¿Olvidaste tu
-  clave?"; Supabase's self sign-up is off and the APIs need `SUPABASE_SERVICE_ROLE_KEY`.
-- inmo24x7's panel and backoffice take inmo24x7.com's palette (navy, blue and green);
-  Cuentas Claras's take naranjax.com's (orange and purple). Inter is bundled.
-
-### Day 9: scheduling, reminders and payments
-
-- **Scheduling** context in core: jobs in Postgres and a small worker process.
-- C4: editable reminder sequence, send window, Argentine holidays, pause on promise, and
-  escalation to the owner.
-- Templates per tenant with Meta status sync.
-- Mercado Pago OAuth per tenant; payment link per invoice; payment webhook marks the invoice
-  paid and cancels pending reminders.
-
-**Screens:** C4.
-
-**Done when:** an invoice due in the test data triggers a reminder on your phone, you pay it
-with a Mercado Pago test user, and the invoice turns paid.
-
-**Status: 9A done locally** (WhatsApp, the policy, templates and the scheduler; Mercado Pago
-is 9B):
-
-- WhatsApp shared with inmo24x7, not copied (`followup_platform.whatsapp`,
-  `@followup/app-shell/whatsapp`), with Cuentas Claras's own Meta app; inmo24x7 unchanged.
-- C4 with the editable sequence, send window presets, "No enviar en feriados" (the `holidays`
-  package plus `holidays_ar.toml`, 2026–2027 verified in tests) and "Pausar si el cliente
-  prometió pagar"; the escalation step emails the owner and stops the invoice's reminders.
-- Templates per business created in its WABA on connect, with Meta's status (webhook and a
-  6-hourly sync) and edits as new versions.
-- The daily planner and the send job (at most one reminder per client per day, several
-  invoices in one message), `reminder_events`, "Lo próximo", promises, "No enviar
-  recordatorios", replies stored and emailed, the payment link page with transfer details.
-
-### Day 10: the collections agent and approvals
-
-- **Collections** graph that handles replies: "Ya pagué", "Mandame la factura",
-  "¿Puedo pagar el 15?".
-- C3: promise, installment plan, and payment verification cards.
-- Receipt media downloaded from WhatsApp and stored; verify payment against Mercado Pago.
-- Counter-offers and "Responder yo", reusing the takeover from Day 6.
-- After a decision, the agent continues the conversation.
-
-**Screens:** C3.
-
-**Done when:** you reply "puedo pagar el viernes" to a reminder, approve the promise from the
-panel, and the client receives the confirmation.
-
-### Day 11: dashboard, backoffice and deploy
-
-- C1 dashboard: aging buckets, attention list, today's activity, next send time, and the
-  Aprobaciones count badge.
-- C5 backoffice: failed sends with retry, template health, Mercado Pago webhook health, and
-  the tenants table.
-- Deploy Cuentas Claras to Oracle; both products share the Supabase database.
-
-**Screens:** C1, C5.
-
-**Done when:** the dashboard reflects imported invoices and reminders, and the backoffice
-shows failed sends with a working retry.
-
-### Day 12: hardening, monitoring and launch kit
-
-- Alerts on failed reminders (Cuentas Claras); error monitoring and the webhook alerts moved
-  to Day 7C.
-- Full fresh-account test of both products from sign-up, with a stopwatch.
-- Landing page per product with the pitch and a sign-up button.
-- Pilot kit: demo video for Cuentas Claras, outreach message, list of the first 10 prospects
-  per product.
-
-**Done when:** both products run in production, each has a landing page, and you have pilot
-conversations scheduled. **Cuentas Claras MVP is demo-ready.**
-
-**Stretch:** ARCA homologation proof of concept (read issued invoices by number).
-
----
+| Meta Tech Provider app review (submitted 19/11/2026) | 3a | Up to 20 days |
+| A real agency willing to connect its number, with the WhatsApp Business app on its phone | 3a | Days |
+| A card at Meta for that agency's WABA (WhatsApp Manager) | 3a | Minutes, done by the agency |
+| Oracle Object Storage bucket and an API key for the VM | 3b | Minutes |
+| Own listing links from the pilot agency on Zonaprop, Argenprop and RE/MAX, to test 3c | 3c | Minutes |
+| A real Tokko key from an agency, to close the "to verify" list | Tokko out of beta | Days |
+| Google Cloud OAuth app with the Calendar scope (verification for sensitive scopes) | 4.3 | Days to weeks |
+| Mercado Pago subscription account | 4.5 | Days |
 
 ## Checkpoints
 
-| Day | Checkpoint |
+| Checkpoint | Proves |
 | --- | --- |
-| 3 | Agent conversation survives an API restart |
-| 7 | inmo24x7 demo in production on real WhatsApp |
-| 9 | A reminder is sent and a test payment marks the invoice as paid |
-| 11 | Cuentas Claras dashboard and backoffice reflect live data |
-| 12 | Both products live with landing pages and pilots scheduled |
+| Two production deploys in a row without touching the VM | Deploy hardening (2) |
+| An agent uploads photos from the phone, and a lead gets cover photos on WhatsApp | 3b |
+| A pasted own-listing link fills the property form | 3c |
+| A real agency's own number answers a lead, with the agent replying from the phone | 3a |
+| The first paying client | 4.5 and 5b |
 
 ## Main risks and fallbacks
 
 | Risk | Fallback |
 | --- | --- |
-| Tech Provider verification not approved in time | Manual number connection from the backoffice; same customer flow later |
-| WhatsApp templates rejected | Rewrite as neutral utility text and resubmit early (day 1, not day 9) |
-| Mercado Pago OAuth redirect not approved | Manual per-tenant credentials through the backoffice during the pilot |
-| Argentine holidays source incomplete for 2026–2027 | Ship a manual holiday list and swap in the package when verified |
-| Oracle ARM capacity unavailable | Google Cloud Run for the API, same Supabase database |
-| LLM rate limits during tests | Fake LLM in tests; real model only in manual demos |
-| A day overruns | Move its stretch items to the backlog; keep tests and deploy |
+| The app review is rejected or takes longer than 20 days | Fix what Meta asks and resubmit; meanwhile, keep connecting numbers by hand in the backoffice (it works today) |
+| Coexistence doesn't deliver the phone's replies as expected | The agent takes over from the panel's inbox (takeover works today) and Sofía pauses that conversation |
+| Templates rejected | Rewrite them as neutral utility text and resubmit early |
+| A portal blocks reading the page (3c) | The form opens with what was read and the agent completes it; never work around the block |
+| Image storage costs or upload sizes grow | Resize and compress on upload; keep the 5-photo limit |
+| Tokko's real API differs from the docs | The differences stay in `integrations/tokko.py`; the integration stays beta until checked |
+| Oracle ARM capacity unavailable | Google Cloud Run for the API, with the same Supabase database |
+| LLM costs grow with real traffic | Backoffice Consumo and the monthly cost alert; GPT-5.4 nano by default |
 
-## Screen coverage
+## Screens
 
-| Day | Screens covered |
+All inmo24x7 screens in [`screens-spec.md`](screens-spec.md) (S1–S9) are built. Changes still
+to come:
+
+| Item | Screens it changes |
 | --- | --- |
-| 1 | S1, S5 (shell), S8 (admin shell) |
-| 2 | S2, S5 (checklist), inmo24x7 Agente, inmo24x7 Configuración |
-| 3 | S3, S8 (simulator) |
-| 4 | S7, S3 (real search), S5 (statuses) |
-| 5 | S2 (email), S5 (active badge), S6 (delivery) |
-| 6 | S6, S5 (KPIs and inbox) |
-| 7 | S4, S8, S9 |
-| 8 | C2, Cuentas Claras Clientes |
-| 9 | C4 |
-| 10 | C3 |
-| 11 | C1, C5 |
-| 12 | launch and hardening across both products |
-
-Nav-only screens: Simulador (Day 3/8), Conversaciones (Day 7 or Post-MVP), Plantillas de
-WhatsApp (Day 9), Salud del sistema (Day 7), Planes (read-only Day 7/11; Post-MVP beyond).
+| 3a | S4 (live Embedded Signup, coexistence), S9 (Meta health), templates in the backoffice |
+| 3b | S7 (photos in the form and list), S6 (thumbnails), S3 (image messages) |
+| 3c | S7 (import from link, "Actualizar desde el link") |
+| 4.1–4.4 | S6 (follow-ups and reminders), Configuración (Google Calendar), the weekly email |
 
 ## Daily routine
 
-1. Write the day's OpenCode prompt from this file (one section per prompt).
+1. Write the work block's prompt from this file, one item per prompt.
 2. Ask for the plan first and confirm it.
 3. Review the diff, run the app, and try the "Done when" check yourself.
 4. Commit with green CI and update this file with what moved.
