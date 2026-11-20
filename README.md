@@ -6,7 +6,7 @@ A platform of WhatsApp agents that follow up on every conversation until it reac
 
 All repository documentation and code are in English. Product UI copy is in Spanish (Argentina).
 
-See the [12-day MVP roadmap](docs/roadmap-mvp.md) and the [screen specifications](docs/screens-spec.md).
+See the [roadmap](docs/roadmap-mvp.md) (inmo24x7), the [Cuentas Claras roadmap](docs/cuentas-claras-roadmap.md) (on standby) and the [screen specifications](docs/screens-spec.md).
 
 ## The products and their business goals
 
@@ -16,7 +16,7 @@ See the [12-day MVP roadmap](docs/roadmap-mvp.md) and the [screen specifications
 - **Problem:** inquiries arrive at night and on weekends, answers come hours later, and most leads go cold before anyone talks to them.
 - **What it does:** replies on WhatsApp in seconds at any hour, qualifies the lead (operation, area, budget, financing), suggests matching properties from the agency's own listings, books visits, and hands off to an agent with a summary.
 - **Success metric:** booked visits per month.
-- **Status:** the foundation (milestone 1) is implemented; the full product follows Days 1–7 of the roadmap.
+- **Status:** in production. The next objective (full Meta integration, property photos, import from a listing link) is in the [roadmap](docs/roadmap-mvp.md).
 
 ### Cuentas Claras: collect without chasing
 
@@ -33,7 +33,7 @@ See the [12-day MVP roadmap](docs/roadmap-mvp.md) and the [screen specifications
 - **Not for:** large consumer debt collection or retail stores that charge at the counter.
 - **Pricing model:** a base fee plus a fee per managed client, so the price grows with the customer.
 - **Success metric:** money recovered per month and days sales outstanding.
-- **Status:** scope only today; it is built on Days 8–12 of the roadmap on the same engine.
+- **Status:** on standby. Days 8 and 9A are built on the same engine; the rest waits for a channel decision (WhatsApp's policy prohibits debt collection). See the [Cuentas Claras roadmap](docs/cuentas-claras-roadmap.md).
 
 ### What both share
 
