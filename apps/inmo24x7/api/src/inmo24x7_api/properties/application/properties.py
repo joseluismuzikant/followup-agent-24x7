@@ -19,6 +19,7 @@ from ..domain.errors import (
     ImportTooLargeError,
     PropertyInvalidError,
     PropertyLinkTakenError,
+    PropertyManagedExternallyError,
     PropertyNotFoundError,
 )
 from ..domain.imports import (
@@ -75,8 +76,12 @@ class UpdateProperty:
         current = self._properties.get(tenant_id, property_id)
         if current is None:
             raise PropertyNotFoundError(str(property_id))
+        if current.is_external and _touches_synced_fields(changes):
+            raise PropertyManagedExternallyError(str(property_id))
         fields = _valid(changes.apply(current.fields))
-        other = self._properties.get_by_link(tenant_id, fields.link)
+        other = (
+            None if current.is_external else self._properties.get_by_link(tenant_id, fields.link)
+        )
         if other is not None and other.id != property_id:
             raise PropertyLinkTakenError(fields.link)
         if fields == current.fields:
@@ -84,6 +89,15 @@ class UpdateProperty:
         updated = current.with_fields(fields, self._clock())
         self._properties.update(updated)
         return updated
+
+
+def _touches_synced_fields(changes: PropertyChanges) -> bool:
+    """Everything but the conditions comes from Tokko and is overwritten on each sync."""
+    return any(
+        getattr(changes, name) is not None
+        for name in PropertyChanges.__dataclass_fields__
+        if name != "conditions"
+    )
 
 
 class SetPropertyStatus:
@@ -99,6 +113,9 @@ class SetPropertyStatus:
             raise PropertyNotFoundError(str(property_id))
         if current.fields.status is status:
             return current
+        if current.is_external:
+            # Published or paused in Tokko: a sync would undo it here.
+            raise PropertyManagedExternallyError(str(property_id))
         updated = current.with_fields(replace(current.fields, status=status), self._clock())
         self._properties.update(updated)
         return updated

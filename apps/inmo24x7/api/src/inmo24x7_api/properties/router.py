@@ -34,6 +34,7 @@ from .domain.errors import (
     ImportTooLargeError,
     PropertyInvalidError,
     PropertyLinkTakenError,
+    PropertyManagedExternallyError,
     PropertyNotFoundError,
 )
 from .domain.imports import MAX_IMPORT_BYTES, PropertyImport
@@ -149,6 +150,11 @@ class PropertyRead(BaseModel):
     conditions: ConditionsModel
     effective_conditions: ConditionsModel
     from_defaults: list[str]
+    # manual (the form or a spreadsheet) or tokko: a Tokko listing is edited in Tokko, only
+    # its conditions here.
+    source: Literal["manual", "tokko"] = "manual"
+    external_id: str | None = None
+    external_ref: str | None = None
 
 
 class PropertyListRead(BaseModel):
@@ -223,6 +229,9 @@ def property_read(
         conditions=conditions_model(fields.conditions),
         effective_conditions=conditions_model(fields.conditions.over(defaults)),
         from_defaults=sorted(fields.conditions.from_defaults(defaults)),
+        source=item.source.value,  # type: ignore[arg-type]
+        external_id=item.external_id,
+        external_ref=item.external_ref,
     )
 
 
@@ -350,6 +359,8 @@ def build_properties_router(
             )
         except PropertyNotFoundError as error:
             raise _not_found() from error
+        except PropertyManagedExternallyError as error:
+            raise ApiError(409, "property_managed_by_tokko") from error
         except PropertyInvalidError as error:
             raise ApiError(422, "property_invalid") from error
         except PropertyLinkTakenError as error:
@@ -370,6 +381,8 @@ def build_properties_router(
             )
         except PropertyNotFoundError as error:
             raise _not_found() from error
+        except PropertyManagedExternallyError as error:
+            raise ApiError(409, "property_managed_by_tokko") from error
 
     @router.post("/properties/{property_id}/publish", response_model=PropertyRead)
     def publish_property(

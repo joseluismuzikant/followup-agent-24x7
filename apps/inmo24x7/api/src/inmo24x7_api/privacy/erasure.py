@@ -273,6 +273,11 @@ class SqlAlchemyErasure:
         for table in (
             "property_imports",
             "inmo_condition_settings",
+            # Integrations: settings and credentials (Tokko's key, the webhook secret), sync
+            # reports and the delivery log (tests have no lead).
+            "inmo_lead_deliveries",
+            "inmo_sync_reports",
+            "inmo_integrations",
             "whatsapp_connections",
             "whatsapp_signups",
             "do_not_contact",
@@ -391,7 +396,14 @@ class SqlAlchemyErasure:
             )
         )
         leads = scope.lead_ids
-        for table in ("lead_status_changes", "lead_condition_events", "lead_property_matches"):
+        # Delivery logs (Tokko, the webhook) keep status only; what was already sent is in
+        # the agency's systems.
+        for table in (
+            "lead_status_changes",
+            "lead_condition_events",
+            "lead_property_matches",
+            "inmo_lead_deliveries",
+        ):
             self._in(f"DELETE FROM {table} WHERE lead_id IN :ids", leads)  # noqa: S608
         visits = self._in("DELETE FROM visits WHERE lead_id IN :ids", leads)
         lead_count = self._in("DELETE FROM leads WHERE id IN :ids", leads)

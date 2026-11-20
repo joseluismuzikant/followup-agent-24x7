@@ -72,7 +72,18 @@
 		X-Frame-Options "DENY"
 	}
 	encode zstd gzip
-	reverse_proxy web:80
+	# The website button (widget.js, served by the panel) reads its public settings from
+	# here, on the same host as the script; any website may read them (GET only, no
+	# cookies). The API sets CORS and caching on that endpoint.
+	handle /widget/v1/* {
+		reverse_proxy api:8001
+	}
+	# Loaded by other sites' pages (revalidated on each load, like index.html).
+	@widget path /widget.js
+	header @widget Cross-Origin-Resource-Policy "cross-origin"
+	handle {
+		reverse_proxy web:80
+	}
 }
 
 {$ADMIN_DOMAIN} {

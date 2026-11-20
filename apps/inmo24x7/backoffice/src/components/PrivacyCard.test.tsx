@@ -73,6 +73,7 @@ describe("Datos y privacidad", () => {
     await user.click(found.getByRole("button", { name: "Eliminar datos" }));
     const dialog = within(screen.getByRole("dialog", { name: "Eliminar datos de +54 9 11 5555-0188" }));
     expect(dialog.getByText(/Se conserva el «no contactar»/)).toBeTruthy();
+    expect(dialog.getByText("Lo que ya se envió a Tokko o al webhook queda en esos sistemas.")).toBeTruthy();
     const submit = dialog.getByRole("button", { name: "Eliminar datos" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     await user.type(dialog.getByLabelText("Escribí el teléfono para confirmar"), "11 5555-0188");
@@ -150,6 +151,8 @@ describe("Datos y privacidad", () => {
     expect(goes.getByText("20 propiedades y sus importaciones")).toBeTruthy();
     expect(goes.getByText(/2 usuarios \(1 sigue entrando a su otro negocio\)/)).toBeTruthy();
     expect(goes.getByText(/nuestra app deja de recibir sus mensajes en Meta/)).toBeTruthy();
+    expect(goes.getByText(/las integraciones y sus claves/)).toBeTruthy();
+    expect(dialog.getByText("Lo que ya se envió a Tokko o al webhook queda en esos sistemas.")).toBeTruthy();
     await user.type(
       dialog.getByLabelText("Escribí el nombre del negocio para confirmar"),
       "Inmobiliaria Sur",

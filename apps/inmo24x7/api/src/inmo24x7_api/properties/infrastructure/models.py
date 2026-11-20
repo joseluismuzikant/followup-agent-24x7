@@ -12,7 +12,6 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    UniqueConstraint,
     Uuid,
     text,
 )
@@ -23,7 +22,25 @@ from sqlalchemy.orm import Mapped, mapped_column
 class PropertyModel(Base):
     __tablename__ = "properties"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "link", name="uq_properties_tenant_link"),
+        # A link is unique among the agency's own listings; a Tokko property with a sale and a
+        # rent is two listings with the same public link, told apart by the operation.
+        Index(
+            "uq_properties_tenant_link",
+            "tenant_id",
+            "link",
+            unique=True,
+            postgresql_where=text("source = 'manual'"),
+        ),
+        Index(
+            "uq_properties_external",
+            "tenant_id",
+            "source",
+            "external_id",
+            "operation",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL"),
+        ),
+        CheckConstraint("source IN ('manual', 'tokko')", name="ck_properties_source"),
         CheckConstraint("operation IN ('sale', 'rent')", name="ck_properties_operation"),
         CheckConstraint("currency IN ('ARS', 'USD')", name="ck_properties_currency"),
         CheckConstraint("status IN ('published', 'paused')", name="ck_properties_status"),
@@ -51,6 +68,10 @@ class PropertyModel(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # manual (form or spreadsheet) or tokko; a Tokko listing keeps Tokko's id and code.
+    source: Mapped[str] = mapped_column(String(10), nullable=False, server_default=text("'manual'"))
+    external_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    external_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class PropertyImportModel(Base):

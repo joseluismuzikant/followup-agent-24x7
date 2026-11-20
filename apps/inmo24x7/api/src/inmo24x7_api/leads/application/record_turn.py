@@ -61,6 +61,7 @@ class RecordLeadTurn:
             visitor_name=state.get("visitor_name"),
             contact=state.get("contact"),
             at=at,
+            source=state.get("lead_source"),
         )
 
         visit = state.get("visit")

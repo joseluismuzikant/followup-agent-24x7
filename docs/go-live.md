@@ -413,6 +413,19 @@ traffic. Details, disk math and LogQL in `deploy/observability.md`.
   (step 12), or on the VM `./deploy.sh <previous sha>` (`state/previous_tag` holds its tag).
   Migrations stay applied, which is why they must be backward compatible.
 
+## Integraciones (Tokko, webhook, botón para la web)
+
+There is nothing to configure at go-live:
+- Tokko is reached at `https://www.tokkobroker.com/api/v1`. `TOKKO_API_URL` overrides it,
+  for tests only.
+- Each agency pastes its own key or webhook URL in the panel.
+- The website button is served from `APP_DOMAIN`: `/widget.js` is a static file of the
+  panel, and Caddy proxies `/widget/v1/*` to the API (`deploy/Caddyfile`).
+
+Before telling the first agency to connect Tokko, check the items listed in
+`docs/integrations.md` under "To verify with a real key" with that agency's key (two `curl`
+calls). Until then, treat Tokko as beta.
+
 ## Pedidos de baja y de eliminación
 
 The landing (www.inmo24x7.com/eliminacion-de-datos) promises: no more messages within 2
@@ -458,6 +471,9 @@ Requests arrive at **contacto@inmo24x7.com**; answer each one when it is done.
 - LangSmith traces (redacted of PII) are deleted after 14 days.
 - Raw WhatsApp webhook payloads are dropped after 30 days anyway; a deletion removes them at
   once.
+- Leads already sent to the agency's Tokko or to its webhook are in the agency's systems: our
+  deletions remove only our delivery log (and, when closing, the Tokko key, the webhook secret
+  and the sync reports). Tell the requester to ask the agency for those copies.
 
 ---
 

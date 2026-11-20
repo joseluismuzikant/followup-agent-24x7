@@ -311,6 +311,67 @@ As `dueno@inmobiliariasur.test`. The seed imports `docs/samples/propiedades.csv`
 - [ ] Inicio: "Consultas que no cumplían" and "Visitas evitadas" (this month). Simulator leads don't count, as in every KPI; the API tests cover the numbers.
 - [ ] At 390 px nothing scrolls sideways: Propiedades, the form, Configuración, Consultas and Inicio.
 
+## Integrations: Tokko Broker, lead webhook and website button
+
+As `dueno@inmobiliariasur.test`. Nothing here talks to the real Tokko or to Zapier: `scripts/fake_integrations.py` runs a fake Tokko (port 8090) and a webhook receiver (port 8091). The formats and what is still "to verify with a real key" are in `docs/integrations.md`.
+
+**Setup:**
+1. Add `TOKKO_API_URL=http://localhost:8090/api/v1` to `.env` and restart `scripts/dev.py` (the API and the worker both read it).
+2. In another terminal: `uv run python scripts/fake_integrations.py`. It prints every web contact and webhook body it receives.
+
+**Tokko:**
+- [ ] Configuración → "Integraciones" → "Ver integraciones". The Tokko card says "Sin conectar".
+- [ ] Key `otra-clave-123` → "Probar conexión": "Tokko no aceptó esa clave…". Nothing is saved.
+- [ ] Key `fake-tokko-key` → "Conectado", then "Sincronizando con Tokko…". Within a few seconds the worker shows the report: "3 nuevas · 0 actualizadas · 0 pausadas · 0 sin cambios", plus "1 propiedad no se pudo importar" (Casa en Tigre: "la venta no tiene precio publicado.").
+- [ ] Propiedades:
+  - Gorriti 4800, and Cabildo 2100 twice (sale in USD, rent in ARS), each with a "Tokko · TKO…" badge and no "Pausar";
+  - "Editar" shows "Se edita en Tokko" with the data read-only and only "Condiciones" editable;
+  - set "Acepta mascotas: Sí" and save.
+- [ ] Edit `LISTINGS` in `scripts/fake_integrations.py`: change Gorriti's price, delete Cabildo. Restart it, then "Sincronizar ahora":
+  - "0 nuevas · 1 actualizadas · 2 pausadas";
+  - Gorriti keeps "Acepta mascotas";
+  - both Cabildo listings are "Pausada".
+- [ ] The key is not in the page source or in `select credentials from inmo_integrations` (only `k1:…` ciphertext).
+- [ ] "Enviar consultas a Tokko" on, then a simulator or WhatsApp conversation that ends in a hand-off ("…Gorriti", pick a time, "Ana"). On a WhatsApp lead (simulator leads are tests and never leave):
+  - the fake prints a web contact with `properties: [501001]` and the "— vía inmo24x7" summary;
+  - the lead's panel says "Enviado a Tokko ✓".
+  Use `scripts/simulate_whatsapp.py`, as in "WhatsApp without Meta".
+
+**Webhook:**
+- [ ] "Webhook de consultas" → `http://localhost:8091/hook` → "Guardar". The secret shows once ("se muestra una sola vez"); after a reload it is gone.
+- [ ] Restart the fake with `--secret <that secret>` and press "Enviar prueba":
+  - "La prueba llegó (HTTP 200).";
+  - the receiver prints `signature OK`;
+  - the log shows "Prueba · Enviado".
+- [ ] "Generar secreto nuevo", then "Enviar prueba" without restarting the fake: it answers 401 ("El webhook respondió con error"), as a receiver with the old secret would.
+- [ ] A WhatsApp hand-off: the receiver prints the `lead.handed_off` payload (`docs/integrations.md`), and the delivery log has it.
+- [ ] Stop the fake and hand off another lead: the delivery says "Reintentando". Start the fake again; within a minute or two it changes to "Enviado".
+- [ ] `https://` is required: `http://example.com/x` is refused ("Ingresá una dirección que empiece con https://").
+
+**Website button:**
+- [ ] "Botón para tu web":
+  - the snippet points at `http://localhost:5173/widget.js` with this agency's `data-agencia`;
+  - change the color and the side: the preview follows;
+  - "Guardar botón".
+- [ ] Open `http://localhost:5173/widget/v1/<id>`: only the name, number, colors, side and text, with `access-control-allow-origin: *`.
+- [ ] To see it on a "website": save this as `/tmp/sitio/propiedad/501001.html`, serve it with `python3 -m http.server 8099 -d /tmp/sitio`, and open `http://localhost:8099/propiedad/501001.html`:
+
+  ```html
+  <h1>Depto en Gorriti</h1><div data-propiedad="TKO501001" data-titulo="2 ambientes luminoso"></div>
+  <script src="http://localhost:5173/widget.js" data-agencia="<id>" async></script>
+  ```
+
+  The button links to `wa.me/<number>?text=Hola, me interesa la propiedad «2 ambientes luminoso» (ref. TKO501001)`.
+- [ ] Send that exact text with `scripts/simulate_whatsapp.py`:
+  - Sofía greets naming Gorriti 4800, asks only what it still needs, and offers its visit times;
+  - Consultas shows the lead with "Web — botón";
+  - Inicio's "Consultas recibidas" says "1 desde tu web".
+- [ ] At 390 px: Integraciones (all three cards), Propiedades with Tokko badges, and the lead panel. Nothing scrolls sideways.
+
+**Deleting:**
+- [ ] Backoffice → the agency → "Eliminar datos de un contacto": the dialog says "Lo que ya se envió a Tokko o al webhook queda en esos sistemas", and afterwards `inmo_lead_deliveries` has no row of that lead.
+- [ ] "Cerrar cuenta y eliminar datos" lists "las integraciones y sus claves…". Afterwards `inmo_integrations`, `inmo_sync_reports` and `inmo_lead_deliveries` have nothing of that agency. Try this on a throwaway agency.
+
 ## WhatsApp connection, backoffice and suspension (Day 7)
 
 **Embedded Signup locally**

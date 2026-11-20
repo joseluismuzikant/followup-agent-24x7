@@ -56,6 +56,8 @@ class LeadModel(Base):
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # cumple / no_cumple / sin_datos for what the lead chose (or was shown); None = no data.
     conditions_status: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Where the lead came from: "web_button" (the website's WhatsApp button); None otherwise.
+    source: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
 
 class LeadStatusChangeModel(Base):

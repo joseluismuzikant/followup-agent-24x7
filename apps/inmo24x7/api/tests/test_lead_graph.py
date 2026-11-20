@@ -17,6 +17,7 @@ from inmo24x7_api.leads.graph import plan_turn
 from inmo24x7_api.leads.tools import DECLARED, HAND_OFF_EVENT, lead_handlers, lead_tools
 from inmo24x7_api.properties.domain.property import Currency, Operation
 from inmo24x7_api.properties.domain.search import Listing
+from inmo24x7_api.properties.infrastructure.sample import SAMPLE_LISTINGS
 from lead_fakes import DEFAULTS, Chat, ListingSearch
 
 
@@ -437,6 +438,9 @@ def test_every_declared_tool_has_a_handler_and_is_reached_from_the_graph() -> No
     visit.say("Me llamo Ana Pérez")
     visit.say("ana@example.com")
     reached |= set(visit.tool_calls)
+    web = Chat()
+    web.say(f"Hola, me interesa la propiedad «Depto» (ref. {SAMPLE_LISTINGS[0].id})")
+    reached |= set(web.tool_calls)
 
     assert reached == set(DECLARED)
 

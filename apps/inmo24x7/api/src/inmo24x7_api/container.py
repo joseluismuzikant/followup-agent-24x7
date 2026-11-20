@@ -145,6 +145,8 @@ from .dashboard.application.get_dashboard import GetDashboard
 from .dashboard.infrastructure.queries import SqlAlchemyDashboardQueries
 from .database import UsageSessionLocal, get_session
 from .defaults import build_setup_defaults
+from .integrations import wiring as integration_wiring
+from .integrations.application import GetPublicWidget, IntegrationUseCases
 from .leads.application.conditions import OverrideMatch
 from .leads.application.inbox import (
     CancelVisit,
@@ -674,6 +676,23 @@ def reconnect_link_use_case(session: SessionDep) -> Callable[[UUID, UUID], int]:
     return wiring.reconnect_link(session, PRODUCT)
 
 
+def get_integration_clients() -> integration_wiring.IntegrationClients:
+    """Tokko and the webhook's HTTP clients (tests override them with fakes)."""
+    return integration_wiring.get_clients()
+
+
+def integration_use_cases(
+    session: SessionDep,
+    services: ServicesDep,
+    clients: Annotated[integration_wiring.IntegrationClients, Depends(get_integration_clients)],
+) -> IntegrationUseCases:
+    return integration_wiring.use_cases(session, services, clients)
+
+
+def public_widget_use_case(session: SessionDep) -> GetPublicWidget:
+    return integration_wiring.public_widget(session)
+
+
 def delivery_statuses(session: SessionDep) -> SqlAlchemyOutboundRepository:
     return SqlAlchemyOutboundRepository(session)
 
@@ -782,6 +801,9 @@ def job_handlers(
                 ),
             ),
             (CLOSE_CLEANUP_JOB, ForgetClosingJob(SqlAlchemyErasure(session), clock)),
+            *integration_wiring.job_handlers(
+                session, services, get_lead_use_case(session), clock=clock
+            ),
         ]
     )
 

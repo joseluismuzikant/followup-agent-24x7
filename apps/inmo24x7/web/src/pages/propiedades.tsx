@@ -1,4 +1,4 @@
-import type { Property, PropertyInput } from "@followup/api-client-inmo24x7";
+import type { Property, PropertyChanges, PropertyInput } from "@followup/api-client-inmo24x7";
 import {
   Badge,
   Button,
@@ -79,8 +79,10 @@ export function PropiedadesPage() {
   }
 
   const save = useMutation({
-    mutationFn: (input: PropertyInput) =>
-      editing && editing !== "new" ? updateProperty(editing.id, input) : createProperty(input),
+    mutationFn: (input: PropertyInput | PropertyChanges) =>
+      editing && editing !== "new"
+        ? updateProperty(editing.id, input)
+        : createProperty(input as PropertyInput),
     onSuccess: async () => {
       setEditing(null);
       await refresh();
@@ -262,7 +264,9 @@ function PropertyRow({
     <TableRow>
       <TableCell>
         <div className="flex flex-col">
-          <span className="font-medium">{property.title}</span>
+          <span className="font-medium">
+            {property.title} <TokkoBadge property={property} />
+          </span>
           <span className="text-xs text-muted-foreground">
             {property.address} ·{" "}
             <a
@@ -288,7 +292,7 @@ function PropertyRow({
           <Badge tone={published ? "success" : "neutral"}>
             {published ? "Publicada" : "Pausada"}
           </Badge>
-          {canEdit ? (
+          {canEdit && property.source !== "tokko" ? (
             <Button
               variant="link"
               size="sm"
@@ -338,7 +342,9 @@ function PropertyListItem({
     <li className="flex flex-col gap-2 rounded-lg border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col">
-          <span className="font-medium">{property.title}</span>
+          <span className="font-medium">
+            {property.title} <TokkoBadge property={property} />
+          </span>
           <span className="text-sm text-muted-foreground">{property.address}</span>
           <ConditionBadges property={property} max={2} />
         </div>
@@ -367,15 +373,17 @@ function PropertyListItem({
         </span>
         {canEdit ? (
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              aria-label={`${published ? "Pausar" : "Publicar"}: ${property.title}`}
-              onClick={onToggle}
-            >
-              {published ? "Pausar" : "Publicar"}
-            </Button>
+            {property.source !== "tokko" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                aria-label={`${published ? "Pausar" : "Publicar"}: ${property.title}`}
+                onClick={onToggle}
+              >
+                {published ? "Pausar" : "Publicar"}
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               size="sm"
@@ -388,6 +396,18 @@ function PropertyListItem({
         ) : null}
       </div>
     </li>
+  );
+}
+
+/** "Tokko": the listing comes from Tokko and is edited there (only its conditions here). */
+function TokkoBadge({ property }: { property: Property }) {
+  if (property.source !== "tokko") {
+    return null;
+  }
+  return (
+    <Badge tone="info" title="Se edita en Tokko">
+      Tokko{property.external_ref ? ` · ${property.external_ref}` : ""}
+    </Badge>
   );
 }
 

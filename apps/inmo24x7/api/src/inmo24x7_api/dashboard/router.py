@@ -19,6 +19,8 @@ class ReceivedRead(BaseModel):
     total: int
     # "N fuera de horario": the first message came outside team hours.
     out_of_hours: int
+    # "N desde tu web": the website's "Consultar por WhatsApp" button.
+    from_web: int = 0
 
 
 class VisitsKpiRead(BaseModel):
@@ -71,7 +73,11 @@ def build_dashboard_router(dashboard_factory: Callable[..., GetDashboard]) -> AP
         return DashboardRead(
             business_name=dashboard.business_name,
             week_start=dashboard.week_start,
-            received=ReceivedRead(total=dashboard.received, out_of_hours=dashboard.out_of_hours),
+            received=ReceivedRead(
+                total=dashboard.received,
+                out_of_hours=dashboard.out_of_hours,
+                from_web=dashboard.from_web,
+            ),
             qualified=dashboard.qualified,
             visits=VisitsKpiRead(total=dashboard.visits, confirmed=dashboard.visits_confirmed),
             response_time_seconds=dashboard.response_seconds,

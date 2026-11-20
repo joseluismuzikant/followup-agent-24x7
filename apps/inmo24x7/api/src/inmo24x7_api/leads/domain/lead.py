@@ -38,6 +38,9 @@ class HandOffReason(StrEnum):
     QUALIFIED = "qualified"  # answered everything without picking a visit
 
 
+WEB_BUTTON = "web_button"  # "Web — botón": the website's "Consultar por WhatsApp"
+
+
 @dataclass(frozen=True, slots=True)
 class StatusChange:
     status: LeadStatus
@@ -69,6 +72,8 @@ class Lead:
     # "Pidió no ser contactado": the contact's do-not-contact flag (read from its own
     # table, never saved with the lead).
     do_not_contact: bool = False
+    # Where the lead came from: WEB_BUTTON, or None (WhatsApp or the simulator directly).
+    source: str | None = None
 
     @classmethod
     def start(
@@ -160,6 +165,7 @@ class Lead:
         visitor_name: str | None,
         contact: str | None,
         at: datetime,
+        source: str | None = None,
     ) -> "Lead":
         return replace(
             self,
@@ -167,6 +173,7 @@ class Lead:
             visitor_name=visitor_name or self.visitor_name,
             contact=contact or self.contact,
             last_activity_at=max(at, self.last_activity_at),
+            source=self.source or source,
         )
 
 

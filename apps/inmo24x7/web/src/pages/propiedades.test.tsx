@@ -18,6 +18,7 @@ import {
   fetchProperties,
   importProperties,
   setPropertyPublished,
+  updateProperty,
 } from "../api/properties";
 import { EMPTY_CONDITIONS } from "../lib/conditions";
 import { me, phoneViewport } from "../test-fixtures";
@@ -64,6 +65,9 @@ function property(overrides: Partial<Property> = {}): Property {
     conditions: { ...EMPTY_CONDITIONS },
     effective_conditions: { ...EMPTY_CONDITIONS },
     from_defaults: [],
+    source: "manual",
+    external_id: null,
+    external_ref: null,
     ...overrides,
   };
 }
@@ -234,6 +238,28 @@ describe("PropiedadesPage", () => {
       contrato_minimo_meses: 24,
       mascotas: false,
       condiciones: "Requiere dos garantías",
+    });
+  });
+
+  it("edits only the conditions of a Tokko listing", async () => {
+    const tokko = property({ source: "tokko", external_id: "101", external_ref: "TKO101" });
+    vi.mocked(fetchProperties).mockResolvedValue(page([tokko]));
+    vi.mocked(updateProperty).mockResolvedValue(tokko);
+    const user = renderPage();
+
+    const row = (await screen.findByText(/2 ambientes luminoso/)).closest("tr") as HTMLElement;
+    expect(within(row).getByText("Tokko · TKO101")).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: /Pausar/ })).toBeNull();
+    await user.click(within(row).getByRole("button", { name: "Editar: 2 ambientes luminoso" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Editar propiedad" }));
+    expect(dialog.getByText("Se edita en Tokko")).toBeTruthy();
+    expect(dialog.queryByLabelText("Título")).toBeNull();
+    const pets = within(dialog.getByRole("radiogroup", { name: "Acepta mascotas" }));
+    await user.click(pets.getByRole("radio", { name: "Sí" }));
+    await user.click(dialog.getByRole("button", { name: "Guardar" }));
+
+    expect(vi.mocked(updateProperty)).toHaveBeenCalledWith("p1", {
+      conditions: { ...EMPTY_CONDITIONS, mascotas: true },
     });
   });
 

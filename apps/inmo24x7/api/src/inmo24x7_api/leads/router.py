@@ -43,7 +43,7 @@ from .domain.errors import (
     VisitNotFoundError,
     VisitTimeInPastError,
 )
-from .domain.lead import Lead
+from .domain.lead import WEB_BUTTON, Lead
 from .domain.repositories import InboxTab, LeadFilters, Search
 
 logger = logging.getLogger("inmo24x7.leads")
@@ -81,6 +81,8 @@ class LeadRead(BaseModel):
     conditions_status: ConditionStatusName | None = None
     # "Pidió no ser contactado": nothing can be sent to them (replies, templates).
     do_not_contact: bool = False
+    # "web_button" ("Web — botón": the website's "Consultar por WhatsApp"), or null.
+    source: Literal["web_button"] | None = None
 
 
 class ConditionFactRead(BaseModel):
@@ -210,6 +212,7 @@ def lead_read(lead: Lead, next_visit_at: datetime | None = None) -> LeadRead:
         next_visit_at=next_visit_at,
         conditions_status=lead.conditions_status,  # type: ignore[arg-type]
         do_not_contact=lead.do_not_contact,
+        source="web_button" if lead.source == WEB_BUTTON else None,
     )
 
 

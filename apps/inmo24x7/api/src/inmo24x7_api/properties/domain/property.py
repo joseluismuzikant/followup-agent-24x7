@@ -30,6 +30,14 @@ class PropertyStatus(StrEnum):
     PAUSED = "paused"
 
 
+class PropertyOrigin(StrEnum):
+    """Where a listing comes from. A Tokko listing is edited in Tokko: here only its
+    conditions are editable, and each sync overwrites the rest."""
+
+    MANUAL = "manual"  # the form or a spreadsheet import
+    TOKKO = "tokko"
+
+
 class Problem(StrEnum):
     """Why a property is invalid. Stable codes; the import report words them in Spanish."""
 
@@ -147,10 +155,20 @@ class Property:
     fields: PropertyFields
     created_at: datetime
     updated_at: datetime
+    source: PropertyOrigin = PropertyOrigin.MANUAL
+    # The external system's id (Tokko's property id); None for manual listings. One Tokko
+    # property with a sale and a rent is two listings here with the same external_id.
+    external_id: str | None = None
+    # The agency's own code for it (Tokko's reference code), as the website shows it.
+    external_ref: str | None = None
 
     @property
     def is_published(self) -> bool:
         return self.fields.status is PropertyStatus.PUBLISHED
+
+    @property
+    def is_external(self) -> bool:
+        return self.source is not PropertyOrigin.MANUAL
 
     def with_fields(self, fields: PropertyFields, now: datetime) -> "Property":
         return replace(self, fields=fields, updated_at=now)

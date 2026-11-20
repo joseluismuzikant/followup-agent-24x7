@@ -765,6 +765,53 @@ handed off by then. Dedupe keys make it at most one of each per lead. They go to
 notification emails through SMTP (Mailpit locally), with a link to
 `{PANEL_URL}/consultas?lead=<id>`.
 
+### Integrations (inmo24x7): Tokko Broker, lead webhook, website button
+
+Two ports keep external systems out of the agent:
+- `properties/domain/sources.py` `PropertySource`: an agency's listings elsewhere.
+- `leads/domain/sinks.py` `LeadSink`: a qualified lead delivered elsewhere.
+
+The adapters live in `inmo24x7_api/integrations/`:
+- `tokko.py`, the only module that knows Tokko's API;
+- `webhook.py`, a signed JSON POST.
+
+Adding another CRM is one adapter; the graph never changes.
+
+**Settings.** `inmo_integrations` holds one row per agency and integration, with credentials
+encrypted by `TokenCipher`. The panel's Configuración → Integraciones reads and writes it.
+
+**Listings in.**
+- A 6-hourly sweep job queues one `integrations.tokko_sync` per agency; "Sincronizar ahora"
+  queues one too.
+- `SyncProperties` upserts by (external id, operation), with one listing per operation.
+- It keeps our conditions, pauses what is no longer listed (never deletes), and writes an
+  `inmo_sync_reports` row.
+- Tokko listings are read-only in the panel except their conditions (`PropertyOrigin`).
+
+**Leads out.**
+- The hand-off that queues the "Nueva consulta" email also queues `lead.handed_off`, once
+  per lead.
+- Its handler creates one `inmo_lead_deliveries` row and one `integrations.deliver_lead` job
+  per enabled sink, deduplicated per lead and sink.
+- `DeliverLead` builds the `QualifiedLead` (answers, chosen properties with their external
+  ids, the visit, a Spanish summary).
+- A retryable failure returns `RetryLater`, so the attempt stays on record and the queue
+  backs off. A permanent one marks the delivery failed.
+- The lead panel reads `/leads/{id}/deliveries`.
+
+**Website button.**
+- `widget.js`, a static file served by the panel, reads the agency's public settings from
+  `/widget/v1/<public id>`. Caddy sends that path on the panel's host to the API; it is CORS
+  `*` and GET only.
+- The button opens WhatsApp with a prefilled text naming the property.
+- `properties/domain/reference.py` reads that text in the first message, without the model.
+  The graph's `find_referenced_property` tool turns it into the chosen card, so Sofía greets
+  naming it and goes to its gate question or visit times.
+- The lead's `source` becomes `web_button`.
+
+Payloads, signatures and the Tokko fields still "to verify with a real key" are in
+`docs/integrations.md`.
+
 ### Embedded Signup (S4)
 
 ```text
