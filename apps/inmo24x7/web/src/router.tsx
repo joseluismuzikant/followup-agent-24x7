@@ -21,12 +21,14 @@ import { ProbarPage } from "./pages/probar";
 import { PropiedadesPage } from "./pages/propiedades";
 
 const accountPage = { productName: "inmo24x7", account, authMode, getSupabase, useAuth };
+/** Where a sign-in lands: trying the agent. A new account still goes to the wizard first. */
+export const START_PAGE = "/probar";
 
 export const router = createBrowserRouter([
   {
     path: "/ingreso",
     element: (
-      <RedirectIfAuthed>
+      <RedirectIfAuthed to={START_PAGE}>
         <IngresoPage />
       </RedirectIfAuthed>
     ),

@@ -88,7 +88,7 @@ from followup_core.messaging.infrastructure.repositories import (
     SqlAlchemySignupRepository,
     SqlAlchemyWebhookCounters,
 )
-from followup_core.scheduling.domain.jobs import Job, JobHandlers, Reschedule
+from followup_core.scheduling.domain.jobs import Job, JobHandlers, Reschedule, RetryLater
 from followup_core.scheduling.infrastructure.queue import SqlAlchemyJobQueue
 from followup_core.tenancy.application.admin_tenants import (
     CreateBusinessForOwner,
@@ -386,6 +386,15 @@ def warn_if_model_unpriced(settings: Settings) -> None:
             extra={
                 "model": settings.llm_model,
                 "detail": "Add its price to llm_prices.toml (followup_platform); costs stay empty.",
+            },
+        )
+    model = settings.transcribe_model
+    if model and not model.startswith("fake") and not load_prices().has_audio_model(model):
+        logger.warning(
+            "transcribe_model_unpriced",
+            extra={
+                "model": model,
+                "detail": "Add its [[audio_price]] to llm_prices.toml; its costs stay empty.",
             },
         )
 
@@ -718,7 +727,7 @@ def job_handlers(
     debounce = timedelta(seconds=settings.inbound_debounce_seconds)
     is_active = tenant_is_active(session)
 
-    def process(job: Job) -> Reschedule | None:
+    def process(job: Job) -> Reschedule | RetryLater | None:
         # Built per job: the agent runtime needs this session's connection.
         handle = HandleIncomingMessage(
             threads,
@@ -744,6 +753,9 @@ def job_handlers(
             is_active,
             opt_out=contact_opt_out(session, clock),
             on_opt_out=NotifyOptOut(SqlAlchemyLeadRepository(session), queue, clock),
+            audio=wiring.audio_transcription(
+                services, wiring.transcription_usage(usage, clock) if usage else None
+            ),
         )(job)
 
     conditions = SqlAlchemyConditionSettingsRepository(session)

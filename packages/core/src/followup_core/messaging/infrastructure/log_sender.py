@@ -11,6 +11,7 @@ from uuid import uuid4
 from followup_core.scheduling.domain.jobs import JobQueue, NewJob
 
 from ..domain.connection import WhatsAppConnection
+from ..domain.outbound import Media
 
 logger = logging.getLogger("followup.whatsapp")
 
@@ -59,6 +60,14 @@ class LogSender:
 
     def mark_read(self, connection: WhatsAppConnection, wamid: str) -> None:
         logger.info("whatsapp_log_mark_read", extra={"tenant_id": str(connection.tenant_id)})
+
+
+class LogMediaDownloader:
+    """Development connections (the log sender) have no media at Meta: an empty audio, which
+    the fake transcriber turns into a fixed sentence."""
+
+    def download(self, connection: WhatsAppConnection, media_id: str, max_bytes: int) -> Media:
+        return Media(b"", "audio/ogg")
 
 
 class RecordingWhatsAppSender:

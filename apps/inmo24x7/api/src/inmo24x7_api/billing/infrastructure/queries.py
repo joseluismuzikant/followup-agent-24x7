@@ -15,11 +15,16 @@ from ..domain.usage import BusinessUsage, DailyUsage, Month, UsageFigures, Usage
 _BUSINESSES = text(
     """
     WITH usage AS (
-      SELECT tenant_id, count(*) AS calls, sum(input_tokens) AS input_tokens,
+      SELECT tenant_id,
+             count(*) FILTER (WHERE operation <> 'transcribe') AS calls,
+             sum(input_tokens) AS input_tokens,
              sum(output_tokens) AS output_tokens, sum(cost_usd) AS cost,
              sum(cost_usd) FILTER (WHERE is_test) AS test_cost,
              count(*) FILTER (WHERE cost_usd IS NULL) AS unpriced,
-             count(*) FILTER (WHERE NOT usage_reported) AS unreported
+             count(*) FILTER (WHERE NOT usage_reported) AS unreported,
+             count(*) FILTER (WHERE operation = 'transcribe') AS transcriptions,
+             sum(audio_seconds) FILTER (WHERE operation = 'transcribe') AS audio_seconds,
+             sum(cost_usd) FILTER (WHERE operation = 'transcribe') AS audio_cost
       FROM llm_usage
       WHERE created_at >= :start AND created_at < :end
       GROUP BY tenant_id
@@ -44,6 +49,9 @@ _BUSINESSES = text(
            coalesce(u.output_tokens, 0) AS output_tokens, coalesce(u.cost, 0) AS cost,
            coalesce(u.test_cost, 0) AS test_cost, coalesce(u.unpriced, 0) AS unpriced,
            coalesce(u.unreported, 0) AS unreported,
+           coalesce(u.transcriptions, 0) AS transcriptions,
+           coalesce(u.audio_seconds, 0) AS audio_seconds,
+           coalesce(u.audio_cost, 0) AS audio_cost,
            coalesce(c.conversations, 0) AS conversations,
            coalesce(tp.templates, 0) AS templates
     FROM tenants t
@@ -130,6 +138,9 @@ def _figures(row: Any) -> UsageFigures:
         unreported_calls=row.unreported,
         conversations=row.conversations,
         template_messages=row.templates,
+        transcriptions=row.transcriptions,
+        audio_seconds=float(row.audio_seconds),
+        audio_cost_usd=Decimal(row.audio_cost),
     )
 
 

@@ -91,6 +91,15 @@ function detail(overrides: Partial<LeadDetail> = {}): LeadDetail {
         created_at: "2026-11-02T14:50:00Z",
       },
       {
+        id: "m1b",
+        direction: "inbound",
+        author: "visitor",
+        text: "Hola, ¿sigue disponible el de Gorriti?",
+        cards: null,
+        content_type: "audio",
+        created_at: "2026-11-02T14:50:30Z",
+      },
+      {
         id: "m2",
         direction: "outbound",
         author: "agent",
@@ -232,7 +241,10 @@ describe("ConsultasPage", () => {
     expect(within(panel).getByText(/· por WhatsApp/)).toBeTruthy();
     expect(within(panel).getByText("Garantía")).toBeTruthy();
     expect(within(panel).getByText("Propietaria")).toBeTruthy();
-    expect(within(panel).getByText("Audio")).toBeTruthy();
+    // Voice notes: their transcript, or that it could not be transcribed.
+    expect(within(panel).getAllByText(/Audio/)).toHaveLength(2);
+    expect(within(panel).getByText("Hola, ¿sigue disponible el de Gorriti?")).toBeTruthy();
+    expect(within(panel).getByText("No se pudo transcribir")).toBeTruthy();
     expect(within(panel).getByText("Leído")).toBeTruthy();
     expect(within(panel).getByText("El agente derivó la consulta a tu equipo")).toBeTruthy();
     expect(within(panel).getByText("Espera tu confirmación")).toBeTruthy();

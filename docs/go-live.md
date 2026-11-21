@@ -161,6 +161,15 @@ Every variable has a comment. Where each value comes from:
   extracting reliably. Empty leaves the model's default (`none` on GPT-5.4); `minimal` is
   accepted for GPT-5 models that support it, and GPT-5.4, which doesn't, retries with `low`
   (log `llm_reasoning_effort_fallback`) without failing the turn. Other providers ignore it.
+- `TRANSCRIBE_MODEL` (optional): Sofía answers WhatsApp voice notes. `openai:gpt-transcribe`
+  (needs `OPENAI_API_KEY`, USD 0.0045/min) or `deepseek:asr` (needs `DEEPSEEK_API_KEY`;
+  at most 120 s and 8 MiB per audio). It is independent of `LLM_MODEL`, which can stay on
+  Claude; `anthropic` and `mimo` cannot transcribe and the API refuses to start with them.
+  `TRANSCRIBE_MAX_SECONDS` (default 120) and `TRANSCRIBE_MAX_MB` (default 8) cap each audio;
+  longer, unsupported or failed ones get one fixed reply ("No pude escuchar bien el
+  audio…"). The audio is never stored, only its transcript on the message (shown in the
+  inbox as "🎤 Audio"). Empty: audios get "Por ahora solo puedo leer mensajes de texto".
+  Name the transcription provider on the landing's privacy page before turning it on.
 - `META_APP_ID`, `META_APP_SECRET`, `META_EMBEDDED_SIGNUP_CONFIG_ID`: step 8.
 - `WHATSAPP_VERIFY_TOKEN`: `openssl rand -hex 24`.
 - `TOKEN_ENCRYPTION_KEY`: `python3 -c "import base64, os;

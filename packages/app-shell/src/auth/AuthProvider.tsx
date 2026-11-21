@@ -66,13 +66,15 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function RedirectIfAuthed({ children }: { children: ReactNode }) {
+/** The sign-in page for someone already signed in (or who just signed in): the product's
+ * start page (`to`, "/" by default). */
+export function RedirectIfAuthed({ children, to = "/" }: { children: ReactNode; to?: string }) {
   const { session, loading } = useAuth();
   if (loading) {
     return null;
   }
   if (session) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={to} replace />;
   }
   return <>{children}</>;
 }

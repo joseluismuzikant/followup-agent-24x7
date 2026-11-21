@@ -8,6 +8,10 @@
 # them. Never guess a price: copy it from the provider's pricing page and put that URL in
 # `source`. cached_input_per_mtok may stay empty when the provider has no cache discount.
 #
+# Transcription (TRANSCRIBE_MODEL, voice notes) is priced per audio length, in its own
+# [[audio_price]] rows: usd_per_hour, billed by the second (a started second counts whole).
+# Empty means "not priced yet", as above.
+#
 # After fixing a price, recompute past rows (dry run first):
 #   uv run --all-packages python scripts/recompute_llm_costs.py --from 2026-11-01
 #   uv run --all-packages python scripts/recompute_llm_costs.py --from 2026-11-01 --apply
@@ -21,13 +25,66 @@
 # cached_input_per_mtok = "0.30"
 # source = "https://provider.example/pricing"
 
+# --- Anthropic (Claude) ---------------------------------------------------------------------
+# Claude Haiku 5.5: prices for prompts up to 100K tokens (Sofía's are far below). A prompt over
+# 100K tokens pays 5x (0.50 / 2.50 / 0.05); this file has one price per model.
+[[price]]
+model = "anthropic:claude-haiku-5-5"
+effective_from = 2026-11-21
+input_per_mtok = "0.10"
+output_per_mtok = "0.50"
+cached_input_per_mtok = "0.01"
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+
 [[price]]
 model = "anthropic:claude-sonnet-5-5"
 effective_from = 2026-11-01
-input_per_mtok = ""
-output_per_mtok = ""
-cached_input_per_mtok = ""
-source = ""
+input_per_mtok = "2.00"
+output_per_mtok = "10.00"
+cached_input_per_mtok = "0.10"
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+
+# --- DeepSeek -------------------------------------------------------------------------------
+# Off-peak prices. Peak hours (01:00–04:00 and 06:00–10:00 UTC, Mon–Fri, except Chinese public
+# holidays) cost 2x: flash 0.30 / 1.20 / 0.006, v4-pro 1.32 / 3.96 / 0.044. The file has one
+# price per model, so it uses off-peak, which covers most Argentine daytime traffic: calls at
+# peak hours are under-counted by half.
+[[price]]
+model = "deepseek:deepseek-flash"
+effective_from = 2026-11-21
+input_per_mtok = "0.15"
+output_per_mtok = "0.60"
+cached_input_per_mtok = "0.003"
+source = "https://api-docs.deepseek.com/quick_start/pricing"
+
+[[price]]
+model = "deepseek:deepseek-v4-pro"
+effective_from = 2026-11-21
+input_per_mtok = "0.66"
+output_per_mtok = "1.98"
+cached_input_per_mtok = "0.022"
+source = "https://api-docs.deepseek.com/quick_start/pricing"
+
+# --- Xiaomi MiMo ----------------------------------------------------------------------------
+# Overseas prices (Real-time API). MiMo-V2.5 and MiMo-V2.5-Pro were retired on 2026-10-21 (their
+# ids no longer work) and mimo-v2-flash is no longer listed: the current models are V2.6.
+[[price]]
+model = "mimo:mimo-v2.6-flash"
+effective_from = 2026-11-21
+input_per_mtok = "0.14"
+output_per_mtok = "0.28"
+cached_input_per_mtok = "0.0028"
+source = "https://platform.xiaomimimo.com/docs/en-US/price/pay-as-you-go"
+
+[[price]]
+model = "mimo:mimo-v2.6-pro"
+effective_from = 2026-11-21
+input_per_mtok = "0.435"
+output_per_mtok = "0.87"
+cached_input_per_mtok = "0.0036"
+source = "https://platform.xiaomimimo.com/docs/en-US/price/pay-as-you-go"
+
+# --- OpenAI ---------------------------------------------------------------------------------
 
 [[price]]
 model = "openai:gpt-5.4-nano"
@@ -44,3 +101,19 @@ input_per_mtok = "0.75"
 output_per_mtok = "4.50"
 cached_input_per_mtok = "0.075"
 source = "https://developers.openai.com/api/docs/pricing"
+
+# --- Transcription (audio) ------------------------------------------------------------------
+# GPT Transcribe: USD 0.0045 per minute (= 0.27 per hour), the pricing page's estimate.
+[[audio_price]]
+model = "openai:gpt-transcribe"
+effective_from = 2026-11-21
+usd_per_hour = "0.27"
+source = "https://developers.openai.com/api/docs/pricing"
+
+# DeepSeek ASR: list price USD 0.116 per hour; billed now at the limited-time 50% off (0.058),
+# with no end date on the page. When it ends, add a row at "0.116" from that date.
+[[audio_price]]
+model = "deepseek:asr"
+effective_from = 2026-11-21
+usd_per_hour = "0.058"
+source = "https://api-docs.deepseek.com/quick_start/pricing"

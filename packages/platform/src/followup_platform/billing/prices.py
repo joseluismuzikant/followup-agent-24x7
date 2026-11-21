@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from followup_core.conversation.domain.usage import Price, PriceBook
+from followup_core.conversation.domain.usage import AudioPrice, Price, PriceBook
 
 # One price file for every product: a model costs the same whoever calls it.
 PRICES_FILE = Path(__file__).with_name("llm_prices.toml")
@@ -28,6 +28,34 @@ def _amount(entry: dict[str, Any], key: str, index: int) -> Decimal | None:
     if value < 0:
         raise PriceFileError(f"price #{index}: {key} cannot be negative.")
     return value
+
+
+def _model_and_date(entry: dict[str, Any], index: int, kind: str) -> tuple[str, date]:
+    model = str(entry.get("model", "")).strip()
+    effective_from = entry.get("effective_from")
+    if ":" not in model:
+        raise PriceFileError(f"{kind} #{index}: model must look like 'provider:model'.")
+    if not isinstance(effective_from, date):
+        raise PriceFileError(f"{kind} #{index}: effective_from must be a date (2026-11-01).")
+    return model, effective_from
+
+
+def _audio_prices(data: dict[str, Any]) -> list[AudioPrice]:
+    """[[audio_price]] rows: USD per hour of audio; an empty price is skipped."""
+    prices: list[AudioPrice] = []
+    seen: set[tuple[str, date]] = set()
+    for index, entry in enumerate(data.get("audio_price", []), start=1):
+        model, effective_from = _model_and_date(entry, index, "audio_price")
+        if (model, effective_from) in seen:
+            raise PriceFileError(
+                f"audio_price #{index}: {model} has two prices from {effective_from}."
+            )
+        seen.add((model, effective_from))
+        per_hour = _amount(entry, "usd_per_hour", index)
+        if per_hour is None:
+            continue
+        prices.append(AudioPrice(model, effective_from, per_hour, str(entry.get("source", ""))))
+    return prices
 
 
 def parse_prices(content: str) -> PriceBook:
@@ -63,7 +91,7 @@ def parse_prices(content: str) -> PriceBook:
                 source=str(entry.get("source", "")),
             )
         )
-    return PriceBook(prices)
+    return PriceBook(prices, _audio_prices(data))
 
 
 @lru_cache

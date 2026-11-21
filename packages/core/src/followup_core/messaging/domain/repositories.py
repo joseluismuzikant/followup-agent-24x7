@@ -37,6 +37,14 @@ class InboundEventRepository(Protocol):
 
     def mark(self, event_ids: Sequence[UUID], status: EventStatus) -> None: ...
 
+    def media_id(self, event_id: UUID) -> str | None:
+        """The Meta media id of an audio event, from its stored notification."""
+        ...
+
+    def set_transcript(self, event_id: UUID, text: str) -> None:
+        """The voice note's transcript, as the event's text (never the audio)."""
+        ...
+
     def purge_payloads(self, before: datetime) -> int: ...
 
 

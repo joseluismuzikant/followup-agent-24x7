@@ -14,6 +14,8 @@ from uuid import UUID
 import httpx
 from fastapi.testclient import TestClient
 from followup_core.conversation.domain.llm import LanguageModel
+from followup_core.conversation.domain.transcription import Transcriber
+from followup_core.conversation.domain.usage import LlmUsageRecorder
 from followup_core.conversation.infrastructure.fake_llm import FakeLanguageModel
 from followup_core.messaging.infrastructure.crypto import TokenCipher
 from followup_core.messaging.infrastructure.graph import GraphClient
@@ -34,6 +36,8 @@ PHONE_NUMBER_ID = "pn-test-1"
 VISITOR = "5491155550188"
 # What the Cloud API's `to` carries for VISITOR: Argentine mobiles go without the 9.
 VISITOR_TO = "541155550188"
+# Where Meta's short-lived media URLs point.
+MEDIA_HOST = "lookaside.fbsbx.com"
 
 
 class FakeGraph:
@@ -48,6 +52,9 @@ class FakeGraph:
         self.verification_status = "verified"
         self.quality_rating = "GREEN"
         self.name_status = "APPROVED"
+        # The voice note any media id downloads (bytes the fake transcriber reads as text).
+        self.audio = b""
+        self.audio_size: int | None = None
         self._sent = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -76,6 +83,19 @@ class FakeGraph:
             return httpx.Response(200, json={"messages": [{"id": f"wamid.out.{self._sent}"}]})
         if path.endswith("/subscribed_apps"):
             return httpx.Response(200, json={"success": True})
+        if request.url.host == MEDIA_HOST:
+            return httpx.Response(200, content=self.audio)
+        if request.method == "GET" and path.split("/")[-1].startswith("media-"):
+            size = self.audio_size if self.audio_size is not None else len(self.audio)
+            return httpx.Response(
+                200,
+                json={
+                    "url": f"https://{MEDIA_HOST}/whatsapp_business/attachments/?mid=1",
+                    "mime_type": "audio/ogg; codecs=opus",
+                    "file_size": size,
+                    "id": path.split("/")[-1],
+                },
+            )
         if request.method == "GET":
             return httpx.Response(
                 200,
@@ -113,7 +133,9 @@ class Clock:
         self.now += timedelta(**kwargs)
 
 
-def build_services(graph: FakeGraph, debounce: float = 3.0) -> MessagingServices:
+def build_services(
+    graph: FakeGraph, debounce: float = 3.0, transcriber: Transcriber | None = None
+) -> MessagingServices:
     settings = replace(
         get_settings(),
         meta_app_secret=APP_SECRET,
@@ -129,6 +151,7 @@ def build_services(graph: FakeGraph, debounce: float = 3.0) -> MessagingServices
         cipher=TokenCipher.from_setting(settings.token_encryption_key),
         graph=GraphClient(transport=httpx.MockTransport(graph.handler)),
         email=RecordingEmailSender(),
+        transcriber=transcriber,
     )
 
 
@@ -140,6 +163,7 @@ class WhatsAppWorld:
         services: MessagingServices,
         graph: FakeGraph,
         llm: LanguageModel | None = None,
+        usage: LlmUsageRecorder | None = None,
     ) -> None:
         self.client = client
         self.sessions = sessions
@@ -149,7 +173,9 @@ class WhatsAppWorld:
         self.llm = llm or FakeLanguageModel()
         self.runner = JobRunner(
             sessions,
-            lambda session: job_handlers(session, services, self.llm, None, self.clock),
+            lambda session: job_handlers(
+                session, services, self.llm, None, self.clock, usage=usage
+            ),
             self.clock,
             jitter=lambda: 0.5,
         )

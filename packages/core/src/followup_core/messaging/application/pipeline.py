@@ -6,10 +6,11 @@ answer, and sending is a job of its own, so a Meta outage never rolls back a tur
 """
 
 import logging
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from followup_core.conversation.application.threads import (
@@ -20,11 +21,17 @@ from followup_core.conversation.application.threads import (
 )
 from followup_core.conversation.domain.repositories import ThreadLock
 from followup_core.conversation.domain.thread import (
+    MAX_MESSAGE_LENGTH,
     Author,
     Channel,
     InboundPart,
     Message,
     ThreadKey,
+)
+from followup_core.conversation.domain.transcription import (
+    Transcriber,
+    TranscriptionError,
+    ogg_opus_seconds,
 )
 from followup_core.infrastructure import log_context
 from followup_core.scheduling.domain.jobs import Job, JobQueue, NewJob, Reschedule, RetryLater
@@ -40,8 +47,11 @@ from ..domain.opt_out import (
 )
 from ..domain.outbound import (
     OUTSIDE_SERVICE_WINDOW,
+    UNHEARD_AUDIO_REPLY,
     UNREADABLE_REPLY,
     DeliveryStatus,
+    MediaDownloader,
+    MediaTooLargeError,
     MessageRenderer,
     OutboundPart,
     SendError,
@@ -234,6 +244,40 @@ class QueueOutbound:
         )
 
 
+DEFAULT_TRANSCRIBE_MAX_SECONDS = 120.0
+# DeepSeek's ASR limit, and far above a 2-minute WhatsApp voice note (Ogg Opus, ~0.5 MB).
+DEFAULT_TRANSCRIBE_MAX_BYTES = 8 * 1024 * 1024
+TRANSCRIPTION_RETRY = "transcription_retry"
+# A lead is waiting: a retryable failure is retried twice (≈15–30 s of backoff), then the
+# fixed reply, instead of the job's full budget (minutes).
+TRANSCRIBE_ATTEMPTS = 3
+
+
+class TranscriptionUsage(Protocol):
+    def __call__(
+        self,
+        tenant_id: UUID,
+        model: str,
+        seconds: float | None,
+        latency_ms: int,
+        succeeded: bool,
+    ) -> None:
+        """Records one transcription for Consumo. Never raises."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class AudioTranscription:
+    """Voice notes into text for the agent (TRANSCRIBE_MODEL set). The audio is downloaded
+    from Meta, transcribed in memory and dropped: only the transcript is stored."""
+
+    transcriber: Transcriber
+    media_for: Callable[[WhatsAppConnection], MediaDownloader]
+    usage: TranscriptionUsage | None = None
+    max_seconds: float = DEFAULT_TRANSCRIBE_MAX_SECONDS
+    max_bytes: int = DEFAULT_TRANSCRIBE_MAX_BYTES
+
+
 class ProcessInbound:
     """One job per inbound message; the first one that runs after the burst settles takes
     every pending message of the conversation, in order, and answers them with one turn."""
@@ -253,9 +297,11 @@ class ProcessInbound:
         is_active: TenantIsActive = always_active,
         opt_out: ContactOptOut | None = None,
         on_opt_out: OptOutObserver | None = None,
+        audio: AudioTranscription | None = None,
     ) -> None:
         self._events = events
         self._connections = connections
+        self._audio = audio
         self._is_active = is_active
         self._opt_out = opt_out
         self._on_opt_out = on_opt_out
@@ -267,7 +313,7 @@ class ProcessInbound:
         self._debounce = debounce
         self._clock = clock
 
-    def __call__(self, job: Job) -> Reschedule | None:
+    def __call__(self, job: Job) -> Reschedule | RetryLater | None:
         event = self._events.get(UUID(job.payload["event_id"]))
         if event is None or event.tenant_id is None or event.status is not EventStatus.PENDING:
             return None
@@ -283,6 +329,17 @@ class ProcessInbound:
             # Still typing: answer once the burst settles.
             return Reschedule(newest + self._debounce)
 
+        tenant_id, wa_id = event.tenant_id, event.wa_id
+        active = self._is_active(tenant_id)
+        unheard = False
+        if self._audio is not None and active and any(item.is_audio for item in pending):
+            # Before everything else: a "BAJA" said in a voice note counts.
+            outcome = self._transcribe(job, tenant_id, pending)
+            if isinstance(outcome, RetryLater):
+                return outcome
+            unheard = outcome
+            pending = self._events.pending_for(tenant_id, wa_id)
+
         parts = [
             InboundPart(
                 text=item.text or "",
@@ -291,12 +348,10 @@ class ProcessInbound:
             )
             for item in pending
         ]
-        tenant_id, wa_id = event.tenant_id, event.wa_id
         last = pending[-1]
-        active = self._is_active(tenant_id)
         blocked = self._opt_out is not None and self._opt_out.is_blocked(tenant_id, wa_id)
         if self._opt_out is not None and any(
-            item.is_text and is_opt_out(item.text or "") for item in pending
+            item.readable and is_opt_out(item.text or "") for item in pending
         ):
             # "BAJA", before the agent and whoever has the conversation: one confirmation
             # (none if already opted out, or nothing can be sent), then silence.
@@ -316,7 +371,7 @@ class ProcessInbound:
             self._events.mark([item.id for item in pending], EventStatus.PROCESSED)
             return None
         opted_out = False
-        if any(item.is_text for item in pending):
+        if any(item.readable for item in pending):
             taps = [item.choice_id for item in pending if item.choice_id]
             turn = self._handle.execute(
                 key,
@@ -327,7 +382,8 @@ class ProcessInbound:
             replies = list(turn.outbound)
             opted_out = turn.opt_out
         else:
-            fixed = self._reply_without_agent.execute(key, parts, UNREADABLE_REPLY).outbound
+            reply = UNHEARD_AUDIO_REPLY if unheard else UNREADABLE_REPLY
+            fixed = self._reply_without_agent.execute(key, parts, reply).outbound
             replies = [fixed] if fixed else []
         self._events.mark([item.id for item in pending], EventStatus.PROCESSED)
 
@@ -347,6 +403,70 @@ class ProcessInbound:
         self._queue_outbound(replies, wa_id)
         self._after_burst(tenant_id, last)
         return None
+
+    def _transcribe(
+        self, job: Job, tenant_id: UUID, pending: Sequence[InboundEvent]
+    ) -> bool | RetryLater:
+        """Transcribes the burst's voice notes not transcribed yet (a retry never pays twice).
+        True when one could not be heard; RetryLater for a retryable failure while the job
+        has attempts left (the backoff), after which it counts as not heard."""
+        audio = self._audio
+        assert audio is not None
+        connection = self._connections.get_by_tenant(tenant_id)
+        unheard = False
+        for item in pending:
+            if not item.is_audio or (item.text or "").strip():
+                continue
+            media_id = self._events.media_id(item.id)
+            if connection is None or media_id is None:
+                unheard = True
+                continue
+            started = time.monotonic()
+            try:
+                media = audio.media_for(connection).download(connection, media_id, audio.max_bytes)
+                seconds = ogg_opus_seconds(media.content)
+                if seconds is not None and seconds > audio.max_seconds:
+                    raise MediaTooLargeError()
+                transcript = audio.transcriber.transcribe(media.content, media.mime_type)
+            except MediaTooLargeError:
+                logger.info("whatsapp_audio_too_long", extra={"event_id": str(item.id)})
+                unheard = True
+                continue
+            except (TranscriptionError, SendError) as error:
+                retryable = bool(getattr(error, "retryable", False))
+                if isinstance(error, TranscriptionError):
+                    self._record_transcription(audio, tenant_id, None, started, succeeded=False)
+                code = str(getattr(error, "failure", None) or error)
+                logger.warning(
+                    "whatsapp_audio_not_transcribed",
+                    extra={"event_id": str(item.id), "code": code, "retryable": retryable},
+                )
+                if retryable and job.attempts < min(job.max_attempts, TRANSCRIBE_ATTEMPTS):
+                    return RetryLater(TRANSCRIPTION_RETRY)
+                unheard = True
+                continue
+            self._record_transcription(audio, tenant_id, transcript.seconds, started, True)
+            if transcript.seconds is not None and transcript.seconds > audio.max_seconds:
+                unheard = True
+                continue
+            text = transcript.text.strip()[:MAX_MESSAGE_LENGTH]
+            if text:
+                self._events.set_transcript(item.id, text)
+            else:
+                unheard = True
+        return unheard
+
+    @staticmethod
+    def _record_transcription(
+        audio: AudioTranscription,
+        tenant_id: UUID,
+        seconds: float | None,
+        started: float,
+        succeeded: bool,
+    ) -> None:
+        if audio.usage is not None:
+            latency = int((time.monotonic() - started) * 1000)
+            audio.usage(tenant_id, audio.transcriber.model_name, seconds, latency, succeeded)
 
     def _opted_out(
         self, tenant_id: UUID, wa_id: str, wamid: str, confirmation_id: UUID | None

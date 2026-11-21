@@ -177,6 +177,9 @@ def test_totals_and_one_row_per_business_sorted_by_cost(usage: Usage) -> None:
         "template_messages": 2,
         "unpriced_calls": 1,
         "unreported_calls": 0,
+        "transcriptions": 0,
+        "audio_minutes": 0.0,
+        "audio_cost_usd": "0.000000",
     }
     norte_row = _row(body, "Inmobiliaria Norte")["figures"]
     assert (norte_row["unreported_calls"], norte_row["cost_per_conversation_usd"]) == (1, None)

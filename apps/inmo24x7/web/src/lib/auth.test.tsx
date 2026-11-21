@@ -4,7 +4,8 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readAuthMode } from "./auth-mode";
-import { AuthProvider, RequireAuth, useAuth } from "./auth";
+import { START_PAGE } from "../router";
+import { AuthProvider, RedirectIfAuthed, RequireAuth, useAuth } from "./auth";
 import { readDevToken, signOutDev, storeDevToken } from "./dev-session";
 import { getSupabase } from "./supabase";
 
@@ -119,5 +120,38 @@ describe("readAuthMode", () => {
     expect(readAuthMode("")).toBe("supabase");
     expect(readAuthMode("prod")).toBe("supabase");
     expect(readAuthMode(" dev ")).toBe("dev");
+  });
+});
+
+describe("after signing in", () => {
+  beforeEach(() => {
+    mode.current = "dev";
+    signOutDev();
+  });
+
+  it("opens Probar el agente (the start page), not Inicio", async () => {
+    storeDevToken("dev:dueno@inmobiliariasur.test");
+
+    render(
+      <MemoryRouter initialEntries={["/ingreso"]}>
+        <AuthProvider>
+          <Routes>
+            <Route
+              path="/ingreso"
+              element={
+                <RedirectIfAuthed to={START_PAGE}>
+                  <div>Ingreso</div>
+                </RedirectIfAuthed>
+              }
+            />
+            <Route path="/" element={<div>Inicio</div>} />
+            <Route path="/probar" element={<div>Probar</div>} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Probar")).toBeTruthy();
+    expect(START_PAGE).toBe("/probar");
   });
 });

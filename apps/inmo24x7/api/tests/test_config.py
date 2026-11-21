@@ -511,3 +511,48 @@ def test_llm_reasoning_effort_rejects_other_values(monkeypatch) -> None:
 
     with pytest.raises(ConfigurationError, match="LLM_REASONING_EFFORT"):
         get_settings()
+
+
+def _transcribe_env(monkeypatch, model: str) -> None:
+    _production_env(
+        monkeypatch, database_url="postgresql+psycopg://db/app", cors="https://app.example.com"
+    )
+    monkeypatch.setenv("TRANSCRIBE_MODEL", model)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+
+def test_claude_answers_while_openai_transcribes(monkeypatch) -> None:
+    _transcribe_env(monkeypatch, "openai:gpt-transcribe")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+
+    settings = get_settings()
+
+    assert settings.llm_model == "anthropic:claude-sonnet-5-5"
+    assert (settings.transcribe_model, settings.transcribe_api_key) == (
+        "openai:gpt-transcribe",
+        "sk-openai",
+    )
+    assert settings.transcribe_max_seconds == 120
+
+
+def test_anthropic_cannot_transcribe(monkeypatch) -> None:
+    _transcribe_env(monkeypatch, "anthropic:claude-haiku-5-5")
+
+    with pytest.raises(
+        ConfigurationError, match="anthropic does not transcribe audio; use openai, deepseek"
+    ):
+        get_settings()
+
+
+def test_the_transcription_provider_needs_its_key(monkeypatch) -> None:
+    _transcribe_env(monkeypatch, "deepseek:asr")
+
+    with pytest.raises(ConfigurationError, match="DEEPSEEK_API_KEY must be set"):
+        get_settings()
+
+
+def test_transcription_is_off_by_default(monkeypatch) -> None:
+    _transcribe_env(monkeypatch, "")
+
+    assert get_settings().transcribe_model == ""

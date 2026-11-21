@@ -24,12 +24,18 @@ FREE_PROVIDERS = frozenset({"fake"})
 class LlmOperation(StrEnum):
     EXTRACT = "extract"
     COMPOSE_REPLY = "compose_reply"
+    # A voice note to text (TRANSCRIBE_MODEL): billed by `audio_seconds`, no tokens.
+    TRANSCRIBE = "transcribe"
+
+
+SECONDS_PER_HOUR = Decimal(3600)
 
 
 @dataclass(frozen=True, slots=True)
 class LlmCall:
     tenant_id: UUID
-    thread_id: UUID
+    # None for a transcription (it runs before the turn creates the thread).
+    thread_id: UUID | None
     channel: str
     is_test: bool
     operation: LlmOperation
@@ -39,6 +45,7 @@ class LlmCall:
     latency_ms: int
     succeeded: bool
     created_at: datetime
+    audio_seconds: float | None = None
 
     @property
     def provider(self) -> str:
@@ -63,17 +70,39 @@ class Price:
         return self.effective_from.isoformat()
 
 
-class PriceBook:
-    """Prices by model; the newest one whose date has started applies."""
+@dataclass(frozen=True, slots=True)
+class AudioPrice:
+    """USD per hour of audio (transcription), billed by the second, from `effective_from`."""
 
-    def __init__(self, prices: Iterable[Price] = ()) -> None:
-        by_model: dict[str, list[Price]] = {}
-        for price in prices:
-            by_model.setdefault(price.model, []).append(price)
-        self._prices: Mapping[str, Sequence[Price]] = {
-            model: sorted(items, key=lambda item: item.effective_from, reverse=True)
-            for model, items in by_model.items()
-        }
+    model: str
+    effective_from: date
+    usd_per_hour: Decimal
+    source: str = ""
+
+    @property
+    def version(self) -> str:
+        return self.effective_from.isoformat()
+
+
+def _newest_first[T: (Price, AudioPrice)](items: Iterable[T]) -> Mapping[str, Sequence[T]]:
+    by_model: dict[str, list[T]] = {}
+    for item in items:
+        by_model.setdefault(item.model, []).append(item)
+    return {
+        model: sorted(group, key=lambda item: item.effective_from, reverse=True)
+        for model, group in by_model.items()
+    }
+
+
+class PriceBook:
+    """Prices by model; the newest one whose date has started applies. Token prices and
+    audio (per-minute) prices are kept apart."""
+
+    def __init__(
+        self, prices: Iterable[Price] = (), audio_prices: Iterable[AudioPrice] = ()
+    ) -> None:
+        self._prices = _newest_first(prices)
+        self._audio = _newest_first(audio_prices)
 
     def price_for(self, model: str, at: datetime) -> Price | None:
         day = at.date()
@@ -82,8 +111,18 @@ class PriceBook:
             None,
         )
 
+    def audio_price_for(self, model: str, at: datetime) -> AudioPrice | None:
+        day = at.date()
+        return next(
+            (price for price in self._audio.get(model, ()) if price.effective_from <= day),
+            None,
+        )
+
     def has_model(self, model: str) -> bool:
         return model in self._prices
+
+    def has_audio_model(self, model: str) -> bool:
+        return model in self._audio
 
 
 def cost_usd(usage: TokenUsage, price: Price) -> Decimal:
@@ -107,10 +146,29 @@ class PricedCost:
     price_version: str | None
 
 
-def price_call(prices: PriceBook, model: str, usage: TokenUsage, at: datetime) -> PricedCost:
+def audio_cost_usd(seconds: float, price: AudioPrice) -> Decimal:
+    """Billed by the second, a started second counting whole (DeepSeek's rule; OpenAI's
+    per-minute estimate is spread the same way)."""
+    whole = Decimal(int(-(-seconds // 1)))
+    return (whole * price.usd_per_hour / SECONDS_PER_HOUR).quantize(Decimal("0.000001"))
+
+
+def price_call(
+    prices: PriceBook,
+    model: str,
+    usage: TokenUsage,
+    at: datetime,
+    audio_seconds: float | None = None,
+    operation: str | None = None,
+) -> PricedCost:
     provider, _, _ = model.partition(":")
     if provider in FREE_PROVIDERS:
         return PricedCost(Decimal(0), None)
+    if operation == LlmOperation.TRANSCRIBE.value:
+        audio = prices.audio_price_for(model, at)
+        if audio is None or audio_seconds is None:
+            return PricedCost(None, None)
+        return PricedCost(audio_cost_usd(audio_seconds, audio), audio.version)
     price = prices.price_for(model, at)
     if price is None:
         return PricedCost(None, None)

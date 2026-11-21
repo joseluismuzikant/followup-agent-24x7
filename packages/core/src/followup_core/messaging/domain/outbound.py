@@ -22,6 +22,25 @@ MAX_ROW_DESCRIPTION = 72
 SERVICE_WINDOW = timedelta(hours=24)
 OUTSIDE_SERVICE_WINDOW = "outside_service_window"
 UNREADABLE_REPLY = "Por ahora solo puedo leer mensajes de texto. ¿Me lo escribís?"
+# A voice note that could not be transcribed (too long, unsupported, the provider failed).
+UNHEARD_AUDIO_REPLY = "No pude escuchar bien el audio. ¿Me lo escribís, así no se pierde nada?"
+AUDIO_TYPES = frozenset({"audio", "voice"})
+
+
+@dataclass(frozen=True, slots=True)
+class Media:
+    """Downloaded media, kept in memory only for the transcription: never stored."""
+
+    content: bytes
+    mime_type: str
+
+
+class MediaTooLargeError(Exception):
+    pass
+
+
+class MediaDownloader(Protocol):
+    def download(self, connection: WhatsAppConnection, media_id: str, max_bytes: int) -> Media: ...
 
 
 class DeliveryStatus(StrEnum):

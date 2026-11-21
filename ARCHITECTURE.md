@@ -708,8 +708,22 @@ worker: whatsapp.send ─▶ Cloud API, in order ─▶ wamid ─▶ statuses fr
 - **Channel facts.** The thread key is `tenant:whatsapp:<wa_id>`. The visitor's number becomes
   the lead's contact, so the agent never asks for a phone on WhatsApp. A tapped reply button
   carries the slot id: `choice_id` is the same path the simulator's slot buttons use, and the
-  graph accepts only ids it offered. Media (audio, images, ...) is stored with its type and gets
-  a fixed reply without the model; reactions are ignored. Processed messages are marked read.
+  graph accepts only ids it offered. Media (images, video, documents, stickers) is stored with
+  its type and gets a fixed reply without the model; reactions are ignored. Processed
+  messages are marked read.
+- **Voice notes** (`TRANSCRIBE_MODEL`, off when empty). `ProcessInbound` transcribes a burst's
+  audios first, so a "BAJA" said in one counts and a voice note plus a text are one turn: the
+  media id comes from the stored notification, the file from Meta (`GET /{media-id}` → a
+  short-lived url, then that url, both with the business's token; never logged), the length
+  from the Ogg Opus file itself (`TRANSCRIBE_MAX_SECONDS`, `TRANSCRIBE_MAX_MB`), then the
+  `Transcriber` port (core `conversation/infrastructure/transcribers.py`: openai, deepseek,
+  fake). The transcript is saved on the event before the turn, so a retry never pays twice;
+  the audio is kept only in memory. The message is stored as `content_type="audio"` with the
+  transcript as its text, which the agent reads like text. A retryable provider error retries
+  the job (at most 3 attempts, the queue's backoff); after that, or for a too long or
+  unsupported audio, one fixed reply ("No pude escuchar bien el audio…"). Each transcription
+  is an `llm_usage` row (`operation="transcribe"`, `audio_seconds`, no tokens, no thread),
+  priced from `[[audio_price]]` in `llm_prices.toml` (USD per hour, by the second).
 - **Why sending is a job.** The turn stores its replies and their rendered parts
   (`whatsapp_outbound`, `queued`) in the turn's transaction and enqueues one send job, so a Meta
   outage never rolls back a turn and a retry never sends a part twice (parts with a wamid are
@@ -754,7 +768,9 @@ worker: whatsapp.send ─▶ Cloud API, in order ─▶ wamid ─▶ statuses fr
   with a tombstone `tenants` row). Plain SQL in foreign-key order in `erasure.py`; the
   `test_privacy.py` scans read every table as text, so a new table that keeps a deleted
   contact's phone, thread or lead fails there. Kept on purpose: the do-not-contact flag,
-  `llm_usage` rows (unlinked), counts-only audit events.
+  `llm_usage` rows (unlinked), counts-only audit events. Transcripts live only on the
+  message and the inbound event, so they go with them; no audio file or media URL is stored
+  (the notification keeps Meta's media id until the 30-day payload purge).
 
 ### New-lead email
 

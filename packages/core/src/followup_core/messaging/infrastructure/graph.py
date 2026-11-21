@@ -10,7 +10,7 @@ import httpx
 
 from ..application.connections import PhoneInfo
 from ..domain.connection import BusinessVerification, WhatsAppConnection
-from ..domain.outbound import SendError, template_body
+from ..domain.outbound import Media, MediaTooLargeError, SendError, template_body
 from ..domain.phones import to_cloud_api_recipient
 from .crypto import TokenCipher
 
@@ -111,6 +111,34 @@ class GraphClient:
         if not messages or not messages[0].get("id"):
             raise GraphApiError("missing_wamid", retryable=False)
         return str(messages[0]["id"])
+
+    def download_media(self, media_id: str, token: str, max_bytes: int) -> Media:
+        """GET /{media-id} → a short-lived `url`, then GET that url with the same token.
+        Never logs the url or the token; refuses media over `max_bytes` (MediaTooLargeError)
+        before or while downloading."""
+        info = self._request("GET", f"/{media_id}", token)
+        url, size = info.get("url"), info.get("file_size")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise GraphApiError("missing_media_url", retryable=False)
+        if isinstance(size, int) and size > max_bytes:
+            raise MediaTooLargeError()
+        content = bytearray()
+        try:
+            with self._client.stream(
+                "GET", url, headers={"Authorization": f"Bearer {token}"}
+            ) as response:
+                if not response.is_success:
+                    status = response.status_code
+                    logger.warning("graph_media_error", extra={"status": status})
+                    raise GraphApiError(f"http_{status}", retryable=status == 429 or status >= 500)
+                for chunk in response.iter_bytes():
+                    content.extend(chunk)
+                    if len(content) > max_bytes:
+                        raise MediaTooLargeError()
+        except httpx.HTTPError as error:
+            raise GraphApiError("network_error", retryable=True) from error
+        mime = str(info.get("mime_type") or "audio/ogg")
+        return Media(bytes(content), mime)
 
     def mark_read(self, phone_number_id: str, token: str, wamid: str) -> None:
         self._request(
@@ -222,6 +250,18 @@ class CloudApiSender:
     def mark_read(self, connection: WhatsAppConnection, wamid: str) -> None:
         token = self._cipher.decrypt(connection.access_token_encrypted)
         self._client.mark_read(connection.phone_number_id, token, wamid)
+
+
+class CloudMediaDownloader:
+    """Media of a connection's messages, with its own (decrypted) token."""
+
+    def __init__(self, client: GraphClient, cipher: TokenCipher) -> None:
+        self._client = client
+        self._cipher = cipher
+
+    def download(self, connection: WhatsAppConnection, media_id: str, max_bytes: int) -> Media:
+        token = self._cipher.decrypt(connection.access_token_encrypted)
+        return self._client.download_media(media_id, token, max_bytes)
 
 
 class CloudGraphPort:
