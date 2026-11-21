@@ -8,6 +8,12 @@ import { ApiRequestError } from "./api";
 import { storeDevToken } from "./auth/dev-session";
 import type { AuthMode } from "./auth/mode";
 
+/** The product's own legal pages, linked under the form. */
+export interface LegalLinks {
+  termsUrl: string;
+  privacyUrl: string;
+}
+
 export interface SignInProps {
   /** "inmo24x7", "Cuentas Claras": shown next to the logo. */
   productName: string;
@@ -20,7 +26,8 @@ export interface SignInProps {
   authMode: AuthMode;
   getSupabase: () => SupabaseClient;
   account: AccountApi;
-  showLegal?: boolean;
+  /** Without it, the screen shows no legal footer. */
+  legalLinks?: LegalLinks;
   /** A seeded account, as the email's placeholder in dev mode. */
   devPlaceholder?: string;
 }
@@ -36,7 +43,7 @@ export function SignIn({
   authMode,
   getSupabase,
   account,
-  showLegal = false,
+  legalLinks,
   devPlaceholder,
 }: SignInProps) {
   const [email, setEmail] = useState("");
@@ -110,13 +117,23 @@ export function SignIn({
       title={title}
       description={description}
       footer={
-        showLegal ? (
+        legalLinks ? (
           <>
-            <a href="#" className="underline">
+            <a
+              href={legalLinks.termsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
               Términos
             </a>{" "}
             ·{" "}
-            <a href="#" className="underline">
+            <a
+              href={legalLinks.privacyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
               Política de privacidad
             </a>
           </>

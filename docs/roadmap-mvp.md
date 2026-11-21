@@ -7,7 +7,7 @@ The focus is **inmo24x7**. It runs in production on the shared core (Oracle Clou
 Every screen element is specified in [`screens-spec.md`](screens-spec.md). The original
 12-day plan, day by day, is in this file's git history.
 
-Updated: 20/11/2026.
+Updated: 21/11/2026.
 
 ## 1. Status: done and in production
 
@@ -35,8 +35,6 @@ Updated: 20/11/2026.
 
 **Still pending from the items above:**
 
-- The panel's sign-in screen shows "Términos" and "Política de privacidad" with `href="#"`.
-  Point them to the landing's pages.
 - The Tokko integration is beta. Five points need checking with a real agency's key
   ([`integrations.md`](integrations.md), "To verify with a real key").
 
@@ -52,15 +50,27 @@ Two deploys hung forever pulling images.
 - Prune old app images after a successful deploy, keeping the last 3 tags.
 - A 30-minute limit on the GitHub deploy job, and SSH keepalives.
 
-**Status:** written and checked locally against a fake `docker`; not merged.
+**Status:** merged; 1 of 2 deploys done (#19, #20). The first automatic production deploy
+with it succeeded on 20/11/2026, in about 7 minutes, with nobody touching the VM. The merge
+of the sign-in legal links (`chore/legal-links-roadmap`) is the second.
 
 **Done when:** it is merged, the rehearsal passes with it, and two production deploys in a
 row finish without anyone touching the VM.
 
-## 3. Next objective: real agencies on their own number, with photos
+## 3. Next objective: real agencies on their own number
 
-One milestone in three parts. 3b and 3c start now. 3a starts when Meta approves the app review
-(expected by 09/12/2026).
+3a starts when Meta approves the app review (expected by 09/12/2026).
+
+**Decision of 21/11/2026: photos come from the listing's own link, for now.**
+
+- Properties keep being uploaded with their own link. It is required in the form and in the
+  CSV.
+- Sofía already answers with that link. Each option is its own WhatsApp message with the link
+  and its preview (`leads/whatsapp.py`, `preview_url`), so WhatsApp shows the photo and title
+  of the listing's own page. That is how leads see photos for now.
+- 3b (storing photos) and 3c (importing a property by reading its link) are postponed, with
+  no scraping of portals. Both moved to section 4, "Postponed".
+- 3a, the full Meta integration, stays as the next objective.
 
 ### 3a. Full Meta integration
 
@@ -106,7 +116,41 @@ One milestone in three parts. 3b and 3c start now. 3a starts when Meta approves 
 answers, the agent replies from the phone, and the visit-confirmation template goes out after
 24 h.
 
-### 3b. Property images
+## 4. After that
+
+Ordered by value for the first clients. Revisit the order with their feedback.
+
+1. **Follow-up of leads that stop answering.** A template at 24 and 48 h. A lead who wrote
+   "BAJA" is never written to again.
+   **Done when:** a lead who stops answering gets one follow-up, a BAJA lead gets none, and
+   the inbox shows both.
+2. **Visit reminder the day before, with confirmation.** It uses the reminder template
+   from 3a.
+   **Done when:** the lead gets the reminder, answers, and the visit shows as confirmed or
+   cancelled in the panel.
+3. **Google Calendar.** Propose slots from the agent's real calendar, and add confirmed
+   visits to it.
+   **Done when:** Sofía never offers a busy slot, and a confirmed visit appears in the
+   calendar.
+4. **Weekly summary email for the agent:** leads, qualified leads, visits requested and
+   visits avoided.
+   **Done when:** every agency owner gets it on Monday morning with the previous week's
+   numbers, and the numbers match Inicio.
+5. **Plans and automatic billing** (a 14-day trial, a Mercado Pago subscription), once there
+   are about 10 clients.
+   **Done when:** a trial ends, the agency pays from the panel, and an unpaid agency is
+   suspended without manual work.
+6. **Later, if clients ask:**
+   - several agents per agency, with lead assignment;
+   - an LLM model per agency, set in the backoffice only, from an allowlist of tested models;
+   - cost limits per agency.
+
+### Postponed: property photos and import from a link (decision of 21/11/2026)
+
+They wait because each option's link preview already shows leads the listing's own photo and
+title, and 3a is what lets real agencies use the product. No scraping of portals.
+
+#### 3b. Property images
 
 **Photos:** up to 5 per property, one marked as the cover. Sources:
 
@@ -135,7 +179,7 @@ answers, the agent replies from the phone, and the visit-confirmation template g
 **Done when:** an agent uploads photos from the phone, and a lead on WhatsApp gets the
 options with their cover photos and can ask for more.
 
-### 3c. The publication link and importing a property from it
+#### 3c. The publication link and importing a property from it
 
 **Already in the code:**
 
@@ -167,35 +211,6 @@ options with their cover photos and can ask for more.
 
 **Done when:** pasting the link of an agency's own Zonaprop or RE/MAX listing fills the form
 with title, operation, price, currency, zone, address, rooms and cover photo.
-
-## 4. After that
-
-Ordered by value for the first clients. Revisit the order with their feedback.
-
-1. **Follow-up of leads that stop answering.** A template at 24 and 48 h. A lead who wrote
-   "BAJA" is never written to again.
-   **Done when:** a lead who stops answering gets one follow-up, a BAJA lead gets none, and
-   the inbox shows both.
-2. **Visit reminder the day before, with confirmation.** It uses the reminder template
-   from 3a.
-   **Done when:** the lead gets the reminder, answers, and the visit shows as confirmed or
-   cancelled in the panel.
-3. **Google Calendar.** Propose slots from the agent's real calendar, and add confirmed
-   visits to it.
-   **Done when:** Sofía never offers a busy slot, and a confirmed visit appears in the
-   calendar.
-4. **Weekly summary email for the agent:** leads, qualified leads, visits requested and
-   visits avoided.
-   **Done when:** every agency owner gets it on Monday morning with the previous week's
-   numbers, and the numbers match Inicio.
-5. **Plans and automatic billing** (a 14-day trial, a Mercado Pago subscription), once there
-   are about 10 clients.
-   **Done when:** a trial ends, the agency pays from the panel, and an unpaid agency is
-   suspended without manual work.
-6. **Later, if clients ask:**
-   - several agents per agency, with lead assignment;
-   - an LLM model per agency, set in the backoffice only, from an allowlist of tested models;
-   - cost limits per agency.
 
 ## 5. Operations
 
@@ -243,8 +258,8 @@ These don't depend on code, and some take days. Start them before the item that 
 | Meta Tech Provider app review (submitted 19/11/2026) | 3a | Up to 20 days |
 | A real agency willing to connect its number, with the WhatsApp Business app on its phone | 3a | Days |
 | A card at Meta for that agency's WABA (WhatsApp Manager) | 3a | Minutes, done by the agency |
-| Oracle Object Storage bucket and an API key for the VM | 3b | Minutes |
-| Own listing links from the pilot agency on Zonaprop, Argenprop and RE/MAX, to test 3c | 3c | Minutes |
+| Oracle Object Storage bucket and an API key for the VM | 3b (postponed) | Minutes |
+| Own listing links from the pilot agency on Zonaprop, Argenprop and RE/MAX, to test 3c | 3c (postponed) | Minutes |
 | A real Tokko key from an agency, to close the "to verify" list | Tokko out of beta | Days |
 | Google Cloud OAuth app with the Calendar scope (verification for sensitive scopes) | 4.3 | Days to weeks |
 | Mercado Pago subscription account | 4.5 | Days |
@@ -253,9 +268,7 @@ These don't depend on code, and some take days. Start them before the item that 
 
 | Checkpoint | Proves |
 | --- | --- |
-| Two production deploys in a row without touching the VM | Deploy hardening (2) |
-| An agent uploads photos from the phone, and a lead gets cover photos on WhatsApp | 3b |
-| A pasted own-listing link fills the property form | 3c |
+| Two production deploys in a row without touching the VM (1 of 2 done, 20/11/2026) | Deploy hardening (2) |
 | A real agency's own number answers a lead, with the agent replying from the phone | 3a |
 | The first paying client | 4.5 and 5b |
 
@@ -266,8 +279,8 @@ These don't depend on code, and some take days. Start them before the item that 
 | The app review is rejected or takes longer than 20 days | Fix what Meta asks and resubmit; meanwhile, keep connecting numbers by hand in the backoffice (it works today) |
 | Coexistence doesn't deliver the phone's replies as expected | The agent takes over from the panel's inbox (takeover works today) and Sofía pauses that conversation |
 | Templates rejected | Rewrite them as neutral utility text and resubmit early |
-| A portal blocks reading the page (3c) | The form opens with what was read and the agent completes it; never work around the block |
-| Image storage costs or upload sizes grow | Resize and compress on upload; keep the 5-photo limit |
+| A portal blocks reading the page (3c, postponed) | The form opens with what was read and the agent completes it; never work around the block |
+| Image storage costs or upload sizes grow (3b, postponed) | Resize and compress on upload; keep the 5-photo limit |
 | Tokko's real API differs from the docs | The differences stay in `integrations/tokko.py`; the integration stays beta until checked |
 | Oracle ARM capacity unavailable | Google Cloud Run for the API, with the same Supabase database |
 | LLM costs grow with real traffic | Backoffice Consumo and the monthly cost alert; GPT-5.4 nano by default |
@@ -280,8 +293,8 @@ to come:
 | Item | Screens it changes |
 | --- | --- |
 | 3a | S4 (live Embedded Signup, coexistence), S9 (Meta health), templates in the backoffice |
-| 3b | S7 (photos in the form and list), S6 (thumbnails), S3 (image messages) |
-| 3c | S7 (import from link, "Actualizar desde el link") |
+| 3b (postponed, section 4) | S7 (photos in the form and list), S6 (thumbnails), S3 (image messages) |
+| 3c (postponed, section 4) | S7 (import from link, "Actualizar desde el link") |
 | 4.1–4.4 | S6 (follow-ups and reminders), Configuración (Google Calendar), the weekly email |
 
 ## Daily routine

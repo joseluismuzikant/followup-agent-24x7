@@ -20,7 +20,6 @@ export function IngresoPage() {
       authMode={authMode}
       getSupabase={getSupabase}
       account={account}
-      showLegal
       devPlaceholder="dueno@ascensoresdelta.test"
     />
   );

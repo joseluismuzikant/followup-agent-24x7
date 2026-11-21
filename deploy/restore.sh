@@ -29,7 +29,7 @@ ensure_backup_image
 if [[ "$object" == "latest" ]]; then
 	# shellcheck disable=SC2016 # expanded inside the container, where BACKUP_REMOTE is set
 	object="daily/$(compose --profile tools run --rm -T --entrypoint sh backup \
-		-c 'rclone lsf --files-only "$BACKUP_REMOTE/daily"' | sort | tail -n 1)"
+		-c 'rclone lsf --files-only "$BACKUP_REMOTE/daily"' </dev/null | sort | tail -n 1)"
 	[[ "$object" != "daily/" ]] || {
 		echo "No daily backups found." >&2
 		exit 1
@@ -46,9 +46,9 @@ for _ in $(seq 1 30); do
 done
 
 say "Restoring $object"
-compose --profile tools run --rm --user root \
+compose --profile tools run --rm -T --user root \
 	--entrypoint /usr/local/bin/restore-inside.sh \
 	-v "$identity:/run/age/identity:ro" \
 	-e "RESTORE_URL=postgresql://postgres:scratch@${scratch}:5432/postgres" \
-	backup "$object"
+	backup "$object" </dev/null
 say "Restore drill passed; the scratch database is removed on exit."

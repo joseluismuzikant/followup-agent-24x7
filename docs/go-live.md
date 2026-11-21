@@ -191,6 +191,11 @@ migration fails, and nothing restarts), starts the five services, and waits for
 previous one back, and says that migrations were **not** rolled back. Later deploys are
 automatic after each merge, with your approval (step 12).
 
+Running `./deploy.sh` by hand over SSH is safe. In older versions it could hang for good right
+after "Migrating the database" when run from a terminal: `timeout` put `compose run` in a
+background process group and the kernel stopped it when it touched the TTY. For an old
+release, run `./deploy.sh <sha> </dev/null 2>&1 | cat`.
+
 For any other `docker compose` command on the VM use `./dc.sh` (it sets the deployed image
 tag, the profiles and the Caddy and Grafana settings `deploy.sh` uses), for example
 `./dc.sh ps`, `./dc.sh logs -f api worker`, `./dc.sh up -d grafana`. A plain
@@ -393,7 +398,7 @@ start.
 3. Check the network to `ghcr.io`.
 4. Run the deploy again. Layers that already came down are not pulled again.
 
-If the migration timed out twice, run `./dc.sh --profile tools run --rm migrate alembic current`
+If the migration timed out twice, run `./dc.sh --profile tools run --rm -T migrate alembic current`
 before deploying again. If that hangs too, the problem is in Docker, not the deploy:
 `sudo systemctl restart docker` fixes it, but it restarts every container.
 

@@ -64,10 +64,14 @@ compose() {
 
 # Runs `docker compose ...` for at most $1 seconds (SIGTERM, then SIGKILL 15 s later).
 # Returns 124 when it ran out of time (137 when it also had to be killed).
+# stdin is /dev/null: `timeout` puts compose in a background process group, and from an
+# interactive SSH session a compose that touches the terminal (a `run` allocating a TTY) is
+# stopped by the kernel (SIGTTIN/SIGTTOU) and never runs. Not `timeout --foreground`: it
+# would no longer kill compose on a timeout, which the retries rely on.
 compose_within() {
 	local seconds="$1"
 	shift
-	timeout --kill-after=15 "$seconds" docker compose "${compose_args[@]}" "$@"
+	timeout --kill-after=15 "$seconds" docker compose "${compose_args[@]}" "$@" </dev/null
 }
 
 timed_out() { [[ "$1" == 124 || "$1" == 137 ]]; }

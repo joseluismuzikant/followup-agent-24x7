@@ -77,7 +77,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/mnt" -w /mnt/deploy koalaman/shellcheck:v0.10.0 -x \
             deploy.sh restore.sh lib.sh bootstrap.sh backup-now.sh dc.sh install-files.sh \
-            backup/backup.sh backup/restore-inside.sh rehearsal/rehearsal.sh rehearsal/smoke.sh
+            backup/backup.sh backup/restore-inside.sh rehearsal/rehearsal.sh rehearsal/smoke.sh \
+            rehearsal/tty-check.sh
+      - name: deploy.sh from an interactive terminal (fake docker, no daemon)
+        run: deploy/rehearsal/tty-check.sh
       - name: compose file
         working-directory: deploy
         run: |

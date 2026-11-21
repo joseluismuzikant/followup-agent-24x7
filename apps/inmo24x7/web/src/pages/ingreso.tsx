@@ -1,8 +1,14 @@
-import { SignIn } from "@followup/app-shell";
+import { type LegalLinks, SignIn } from "@followup/app-shell";
 
 import { account } from "../api/client";
 import { authMode } from "../lib/auth-mode";
 import { getSupabase } from "../lib/supabase";
+
+/** The legal pages on the landing (www.inmo24x7.com). */
+export const LEGAL_LINKS: LegalLinks = {
+  termsUrl: "https://www.inmo24x7.com/terminos",
+  privacyUrl: "https://www.inmo24x7.com/privacidad",
+};
 
 export function IngresoPage() {
   return (
@@ -14,7 +20,7 @@ export function IngresoPage() {
       getSupabase={getSupabase}
       account={account}
       devPlaceholder="dueno@inmobiliariasur.test"
-      showLegal
+      legalLinks={LEGAL_LINKS}
     />
   );
 }

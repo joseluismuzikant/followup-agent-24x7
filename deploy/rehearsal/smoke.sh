@@ -137,7 +137,9 @@ ok "a bad signature is refused (401)"
 say "Logs in Loki (Alloy → Loki, queried through Grafana)"
 grafana_password="$(setting GRAFANA_ADMIN_PASSWORD)"
 loki_lines() { # LogQL → number of lines in the last 15 minutes
-	compose exec -T grafana curl -fsS -u "admin:$grafana_password" \
+	# Grafana's image has busybox wget, not curl.
+	compose exec -T grafana wget -qO- \
+		--header "Authorization: Basic $(printf 'admin:%s' "$grafana_password" | base64 -w0)" \
 		"http://127.0.0.1:3000/api/datasources/proxy/uid/loki/loki/api/v1/query_range?limit=100&since=15m&query=$(
 			python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1"
 		)" | json 'sum(len(stream["values"]) for stream in data["data"]["result"])'

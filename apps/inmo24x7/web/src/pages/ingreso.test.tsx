@@ -41,6 +41,17 @@ describe("IngresoPage", () => {
     expect(screen.queryByText(/Modo desarrollo/)).toBeNull();
   });
 
+  it("links the landing's legal pages", () => {
+    render(<IngresoPage />);
+
+    expect(screen.getByRole("link", { name: "Términos" }).getAttribute("href")).toBe(
+      "https://www.inmo24x7.com/terminos",
+    );
+    expect(screen.getByRole("link", { name: "Política de privacidad" }).getAttribute("href")).toBe(
+      "https://www.inmo24x7.com/privacidad",
+    );
+  });
+
   it("signs in with Supabase", async () => {
     render(<IngresoPage />);
 
