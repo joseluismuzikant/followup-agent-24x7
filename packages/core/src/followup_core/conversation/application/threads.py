@@ -19,6 +19,7 @@ from ..domain.thread import (
     ThreadKey,
     ThreadStatus,
     clean_inbound_text,
+    readable_content,
 )
 from .ports import AgentConfigSource, BusinessContextSource
 
@@ -125,7 +126,8 @@ class HandleIncomingMessage:
         """One turn for one message, or for a burst of them (`InboundPart`s, each stored on
         its own; the agent reads their texts joined, in order)."""
         parts = [InboundPart(text)] if isinstance(text, str) else list(text)
-        # What the agent cannot read (media in a burst) is stored but not given to it.
+        # What the agent cannot read (media in a burst) is stored but not given to it; a
+        # transcribed voice note is read like text.
         stored = [
             clean_inbound_text(part.text)
             if part.content_type == "text"
@@ -133,7 +135,9 @@ class HandleIncomingMessage:
             for part in parts
         ]
         texts = [
-            value for part, value in zip(parts, stored, strict=True) if part.content_type == "text"
+            value
+            for part, value in zip(parts, stored, strict=True)
+            if readable_content(part.content_type, value)
         ]
         if not texts:
             raise ValueError("A turn needs at least one text message.")
@@ -266,7 +270,9 @@ def _unanswered_after_release(thread: Thread, history: Sequence[Message]) -> lis
     for message in reversed(history):
         if message.author is Author.AGENT:
             break
-        if message.author is Author.VISITOR and message.content_type == "text":
+        if message.author is Author.VISITOR and readable_content(
+            message.content_type, message.text
+        ):
             unread.append(message.text)
     return unread[::-1]
 

@@ -26,7 +26,14 @@ class SqlAlchemyLlmUsageRecorder:
 
     def record(self, call: LlmCall) -> None:
         try:
-            priced = price_call(self._prices, call.model, call.usage, call.created_at)
+            priced = price_call(
+                self._prices,
+                call.model,
+                call.usage,
+                call.created_at,
+                call.audio_seconds,
+                call.operation.value,
+            )
             with self._sessions() as session:
                 session.add(
                     LlmUsageModel(
@@ -46,6 +53,7 @@ class SqlAlchemyLlmUsageRecorder:
                         succeeded=call.succeeded,
                         cost_usd=priced.cost_usd,
                         price_version=priced.price_version,
+                        audio_seconds=call.audio_seconds,
                         created_at=call.created_at,
                     )
                 )
@@ -83,7 +91,9 @@ def recompute_costs(
         usage = TokenUsage(
             row.input_tokens, row.output_tokens, row.cached_input_tokens, row.usage_reported
         )
-        priced = price_call(prices, row.model, usage, row.created_at)
+        priced = price_call(
+            prices, row.model, usage, row.created_at, row.audio_seconds, row.operation
+        )
         month = months.setdefault(
             row.created_at.astimezone(UTC).strftime("%Y-%m"),
             {"changed": 0, "before": Decimal(0), "after": Decimal(0), "unpriced": 0},

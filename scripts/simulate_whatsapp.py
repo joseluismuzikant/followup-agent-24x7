@@ -74,7 +74,11 @@ def message_payload(
     if audio:
         message |= {
             "type": "audio",
-            "audio": {"id": uuid4().hex, "mime_type": "audio/ogg; codecs=opus", "voice": True},
+            "audio": {
+                "id": f"media-{uuid4().hex}",
+                "mime_type": "audio/ogg; codecs=opus",
+                "voice": True,
+            },
         }
     elif option:
         message |= {

@@ -15,6 +15,7 @@ from followup_core.conversation.infrastructure.llm_providers import (
     REASONING_EFFORTS,
     parse_model_spec,
 )
+from followup_core.conversation.infrastructure.transcribers import parse_transcribe_spec
 from followup_core.messaging.infrastructure.crypto import TokenCipherError, parse_key
 from followup_core.tenancy.domain.product import FIRST_PRODUCT, Product
 from sqlalchemy.engine import make_url
@@ -24,6 +25,8 @@ DEFAULT_DATABASE_URL = "postgresql+psycopg://followup:followup@localhost:5433/fo
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://localhost:5174"
 DEFAULT_LLM_TIMEOUT_SECONDS = 20.0
 DEFAULT_SIMULATOR_DAILY_LIMIT = 300
+DEFAULT_TRANSCRIBE_MAX_SECONDS = 120.0
+DEFAULT_TRANSCRIBE_MAX_MB = 8.0
 AUTH_MODES = ("supabase", "dev")
 WHATSAPP_SENDERS = ("cloud", "log")
 # Committed in .env.example for local development only: production refuses it.
@@ -116,6 +119,12 @@ class Settings:
     llm_timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
     # OpenAI GPT-5 only: "minimal" or "low"; empty = the provider's default.
     llm_reasoning_effort: str = ""
+    # Voice notes to text ("openai:gpt-transcribe", "deepseek:asr"); empty = off (audios get
+    # the fixed "solo puedo leer texto" reply). Its own provider: LLM_MODEL may be Claude.
+    transcribe_model: str = ""
+    transcribe_api_key: str = ""
+    transcribe_max_seconds: float = DEFAULT_TRANSCRIBE_MAX_SECONDS
+    transcribe_max_bytes: int = int(DEFAULT_TRANSCRIBE_MAX_MB * 1024 * 1024)
     simulator_daily_limit: int = DEFAULT_SIMULATOR_DAILY_LIMIT
     langsmith_tracing: bool = False
     langsmith_api_key: str = ""
@@ -221,6 +230,24 @@ def _llm_settings(
     api_key = os.getenv(provider.api_key_env, "").strip()
     if not api_key:
         raise ConfigurationError(f"{provider.api_key_env} must be set for LLM_MODEL={model}.")
+    return model, api_key
+
+
+def _transcribe_settings() -> tuple[str, str]:
+    """TRANSCRIBE_MODEL and its provider's key (the same variables as LLM_MODEL's). A provider
+    that cannot transcribe (anthropic, mimo) is refused at startup with the reason."""
+    model = os.getenv("TRANSCRIBE_MODEL", "").strip()
+    if not model:
+        return "", ""
+    try:
+        spec = parse_transcribe_spec(model)
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
+    if spec.api_key_env is None:
+        return model, ""
+    api_key = os.getenv(spec.api_key_env, "").strip()
+    if not api_key:
+        raise ConfigurationError(f"{spec.api_key_env} must be set for TRANSCRIBE_MODEL={model}.")
     return model, api_key
 
 
@@ -434,6 +461,7 @@ def load_settings(spec: ProductSpec) -> Settings:
             )
 
     llm_model, llm_api_key = _llm_settings(production, rehearsal, spec.requires_llm)
+    transcribe_model, transcribe_api_key = _transcribe_settings()
 
     return Settings(
         app_env=app_env,
@@ -453,6 +481,14 @@ def load_settings(spec: ProductSpec) -> Settings:
         llm_base_url=os.getenv("LLM_BASE_URL", "").strip(),
         llm_timeout_seconds=_positive_number("LLM_TIMEOUT_SECONDS", DEFAULT_LLM_TIMEOUT_SECONDS),
         llm_reasoning_effort=_reasoning_effort(),
+        transcribe_model=transcribe_model,
+        transcribe_api_key=transcribe_api_key,
+        transcribe_max_seconds=_positive_number(
+            "TRANSCRIBE_MAX_SECONDS", DEFAULT_TRANSCRIBE_MAX_SECONDS
+        ),
+        transcribe_max_bytes=int(
+            _positive_number("TRANSCRIBE_MAX_MB", DEFAULT_TRANSCRIBE_MAX_MB) * 1024 * 1024
+        ),
         simulator_daily_limit=int(
             _positive_number("SIMULATOR_DAILY_LIMIT", DEFAULT_SIMULATOR_DAILY_LIMIT)
         ),

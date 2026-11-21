@@ -27,6 +27,8 @@ import { apiErrorMessage } from "../lib/api-errors";
 import {
   currentMonth,
   formatCost,
+  audioHint,
+  formatAudioMinutes,
   formatCount,
   formatShare,
   monthLabel,
@@ -38,6 +40,7 @@ const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const operationLabels: Record<string, string> = {
   extract: "Entender el mensaje",
   compose_reply: "Escribir la respuesta",
+  transcribe: "Transcribir audios",
 };
 
 /** Consumo: LLM cost, conversations and WhatsApp templates per business, per UTC month. */
@@ -120,7 +123,7 @@ function Report({ month, onOpen }: { month: string; onOpen: (tenantId: string) =
   const totals = report.totals;
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <KpiCard
           label={`Costo del LLM · ${monthLabel(report.month)}`}
           value={formatCost(totals.cost_usd, totals)}
@@ -136,6 +139,11 @@ function Report({ month, onOpen }: { month: string; onOpen: (tenantId: string) =
           label="Parte del simulador"
           value={formatShare(totals.test_share)}
           hint={`${formatCount(totals.template_messages)} plantillas de WhatsApp`}
+        />
+        <KpiCard
+          label="Audios"
+          value={formatAudioMinutes(totals.audio_minutes, totals.transcriptions)}
+          hint={audioHint(totals)}
         />
       </div>
       <Card>
@@ -274,11 +282,16 @@ function TenantUsageView({ detail }: { detail: TenantUsage }) {
       <h2 className="text-lg font-semibold">
         {detail.business.name} · {monthLabel(detail.month)}
       </h2>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <KpiCard label="Costo del LLM" value={formatCost(figures.cost_usd, figures)} />
         <KpiCard label="Conversaciones" value={formatCount(figures.conversations)} />
         <KpiCard label="Costo por conversación" value={formatCost(figures.cost_per_conversation_usd, figures)} />
         <KpiCard label="Parte del simulador" value={formatShare(figures.test_share)} />
+        <KpiCard
+          label="Audios"
+          value={formatAudioMinutes(figures.audio_minutes, figures.transcriptions)}
+          hint={audioHint(figures)}
+        />
       </div>
       <Card>
         <CardHeader>

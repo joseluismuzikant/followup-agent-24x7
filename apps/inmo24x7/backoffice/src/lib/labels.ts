@@ -156,6 +156,22 @@ export function formatCount(value: number): string {
   return count.format(value);
 }
 
+const minutes = new Intl.NumberFormat("es-AR", { maximumFractionDigits: 1 });
+
+/** Voice notes transcribed: "12,5 min", or "—" when there were none. */
+export function formatAudioMinutes(value: number, transcriptions: number): string {
+  return transcriptions ? `${minutes.format(value)} min` : "—";
+}
+
+/** The audios' line under the card: how many and their cost (part of the total). */
+export function audioHint(item: { transcriptions: number; audio_cost_usd: string }): string {
+  if (!item.transcriptions) {
+    return "Sin audios transcriptos";
+  }
+  const noun = item.transcriptions === 1 ? "audio" : "audios";
+  return `${count.format(item.transcriptions)} ${noun} · ${formatUsd(item.audio_cost_usd)} (incluido en el costo)`;
+}
+
 /** "2026-11" for the current UTC month (Consumo works in UTC months). */
 export function currentMonth(now: Date = new Date()): string {
   return now.toISOString().slice(0, 7);

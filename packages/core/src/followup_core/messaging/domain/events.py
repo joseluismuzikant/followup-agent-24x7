@@ -27,3 +27,12 @@ class InboundEvent:
     @property
     def is_text(self) -> bool:
         return self.type in ("text", "button")
+
+    @property
+    def is_audio(self) -> bool:
+        return self.type in ("audio", "voice")
+
+    @property
+    def readable(self) -> bool:
+        """What the agent reads: a text, a tap, or a voice note already transcribed."""
+        return self.is_text or (self.is_audio and bool((self.text or "").strip()))

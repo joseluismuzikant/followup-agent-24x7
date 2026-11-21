@@ -78,6 +78,29 @@ describe("Consumo", () => {
     expect(row.textContent).not.toContain("0,00");
   });
 
+  it("shows the audio minutes and their cost apart from the tokens", async () => {
+    const figures = usageFigures({
+      transcriptions: 12,
+      audio_minutes: 9.5,
+      audio_cost_usd: "0.042750",
+    });
+    vi.mocked(fetchUsage).mockResolvedValue(usageReport({ totals: figures }));
+    renderPage();
+
+    const audios = await screen.findByLabelText("Audios");
+    expect(audios.textContent).toContain("9,5 min");
+    expect(audios.textContent).toContain("12 audios");
+    expect(audios.textContent).toContain("incluido en el costo");
+  });
+
+  it("says there were no audios when nothing was transcribed", async () => {
+    renderPage();
+
+    const audios = await screen.findByLabelText("Audios");
+    expect(audios.textContent).toContain("—");
+    expect(audios.textContent).toContain("Sin audios transcriptos");
+  });
+
   it("downloads the table as CSV", async () => {
     vi.mocked(downloadUsageCsv).mockResolvedValue();
     const user = renderPage();

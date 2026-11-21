@@ -41,6 +41,10 @@ class UsageFiguresRead(BaseModel):
     unpriced_calls: int
     # Calls whose provider reported no usage ("sin datos").
     unreported_calls: int
+    # Voice notes transcribed, their audio minutes and cost (included in cost_usd).
+    transcriptions: int
+    audio_minutes: float
+    audio_cost_usd: str
 
 
 class BusinessUsageRead(BaseModel):
@@ -94,6 +98,9 @@ def _figures(figures: UsageFigures) -> UsageFiguresRead:
         template_messages=figures.template_messages,
         unpriced_calls=figures.unpriced_calls,
         unreported_calls=figures.unreported_calls,
+        transcriptions=figures.transcriptions,
+        audio_minutes=round(figures.audio_seconds / 60, 2),
+        audio_cost_usd=f"{figures.audio_cost_usd:.6f}",
     )
 
 

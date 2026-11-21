@@ -215,6 +215,20 @@ class SqlAlchemyInboundEventRepository:
                 .values(status=status.value)
             )
 
+    def media_id(self, event_id: UUID) -> str | None:
+        model = self._session.get(WhatsAppInboundEventModel, event_id)
+        payload = (model.payload or {}) if model else {}
+        media = payload.get(model.type) if model else None
+        media_id = media.get("id") if isinstance(media, dict) else None
+        return str(media_id) if media_id else None
+
+    def set_transcript(self, event_id: UUID, text: str) -> None:
+        self._session.execute(
+            update(WhatsAppInboundEventModel)
+            .where(WhatsAppInboundEventModel.id == event_id)
+            .values(text=text)
+        )
+
     def purge_payloads(self, before: datetime) -> int:
         result = self._session.execute(
             update(WhatsAppInboundEventModel)

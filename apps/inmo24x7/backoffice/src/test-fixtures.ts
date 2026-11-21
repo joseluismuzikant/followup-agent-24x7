@@ -171,6 +171,9 @@ export function usageFigures(overrides: Partial<UsageFigures> = {}): UsageFigure
     template_messages: 3,
     unpriced_calls: 0,
     unreported_calls: 0,
+    transcriptions: 0,
+    audio_minutes: 0,
+    audio_cost_usd: "0.000000",
     ...overrides,
   };
 }

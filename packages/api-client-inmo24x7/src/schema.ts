@@ -3190,6 +3190,12 @@ export interface components {
             unpriced_calls: number;
             /** Unreported Calls */
             unreported_calls: number;
+            /** Transcriptions */
+            transcriptions: number;
+            /** Audio Minutes */
+            audio_minutes: number;
+            /** Audio Cost Usd */
+            audio_cost_usd: string;
         };
         /** UsageReportRead */
         UsageReportRead: {

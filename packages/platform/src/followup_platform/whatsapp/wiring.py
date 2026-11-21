@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from followup_core.conversation.domain.llm import TokenUsage
+from followup_core.conversation.domain.transcription import Transcriber
+from followup_core.conversation.domain.usage import LlmCall, LlmOperation, LlmUsageRecorder
+from followup_core.conversation.infrastructure.transcribers import build_transcriber
 from followup_core.identity.infrastructure.models import ProfileModel
 from followup_core.messaging.application.connections import (
     ConnectionDefaults,
@@ -28,11 +32,13 @@ from followup_core.messaging.application.pipeline import (
     MARK_READ_JOB,
     SEND_JOB,
     ApplyDeliveryStatus,
+    AudioTranscription,
     IngestWebhook,
     MarkRead,
     SenderFor,
     SendQueued,
     TemplateUpdates,
+    TranscriptionUsage,
 )
 from followup_core.messaging.application.reconnect import (
     RECONNECT_EMAIL_JOB,
@@ -41,17 +47,22 @@ from followup_core.messaging.application.reconnect import (
 )
 from followup_core.messaging.application.signup import CompleteEmbeddedSignup
 from followup_core.messaging.domain.connection import SenderKind, WhatsAppConnection
-from followup_core.messaging.domain.outbound import WhatsAppSender
+from followup_core.messaging.domain.outbound import MediaDownloader, WhatsAppSender
 from followup_core.messaging.domain.signup import Signup
 from followup_core.messaging.infrastructure.crypto import TokenCipher
 from followup_core.messaging.infrastructure.graph import (
     CloudApiSender,
     CloudGraphPort,
+    CloudMediaDownloader,
     CloudSignupGraph,
     GraphClient,
     LogGraphPort,
 )
-from followup_core.messaging.infrastructure.log_sender import LOG_STATUS_JOB, LogSender
+from followup_core.messaging.infrastructure.log_sender import (
+    LOG_STATUS_JOB,
+    LogMediaDownloader,
+    LogSender,
+)
 from followup_core.messaging.infrastructure.repositories import (
     SqlAlchemyConnectionRepository,
     SqlAlchemyDoNotContactRepository,
@@ -88,11 +99,14 @@ class MessagingServices:
     cipher: TokenCipher
     graph: GraphClient
     email: EmailSender
+    # TRANSCRIBE_MODEL's provider; None = voice notes get the fixed reply (today's behavior).
+    transcriber: Transcriber | None = None
 
 
 def build_messaging_services(settings: Settings) -> MessagingServices:
     return MessagingServices(
         settings=settings,
+        transcriber=build_transcriber(settings.transcribe_model, settings.transcribe_api_key),
         cipher=TokenCipher.from_setting(settings.token_encryption_key),
         graph=GraphClient(settings.meta_graph_base_url, settings.meta_graph_api_version),
         email=SmtpEmailSender(
@@ -121,6 +135,59 @@ def sender_for(services: MessagingServices, queue: SqlAlchemyJobQueue) -> Sender
         return LogSender(queue)
 
     return choose
+
+
+def media_for(services: MessagingServices) -> Callable[[WhatsAppConnection], MediaDownloader]:
+    """Cloud connections download from Meta; development ones have no media."""
+
+    def choose(connection: WhatsAppConnection) -> MediaDownloader:
+        if connection.sender is SenderKind.CLOUD:
+            return CloudMediaDownloader(services.graph, services.cipher)
+        return LogMediaDownloader()
+
+    return choose
+
+
+def transcription_usage(
+    recorder: LlmUsageRecorder, clock: Callable[[], datetime] = utc_now
+) -> TranscriptionUsage:
+    """Each transcription as an llm_usage row (operation "transcribe", billed by seconds)."""
+
+    def record(
+        tenant_id: UUID, model: str, seconds: float | None, latency_ms: int, succeeded: bool
+    ) -> None:
+        recorder.record(
+            LlmCall(
+                tenant_id=tenant_id,
+                thread_id=None,
+                channel="whatsapp",
+                is_test=False,
+                operation=LlmOperation.TRANSCRIBE,
+                model=model,
+                usage=TokenUsage(reported=seconds is not None),
+                latency_ms=latency_ms,
+                succeeded=succeeded,
+                created_at=clock(),
+                audio_seconds=seconds,
+            )
+        )
+
+    return record
+
+
+def audio_transcription(
+    services: MessagingServices, usage: TranscriptionUsage | None = None
+) -> AudioTranscription | None:
+    """Voice notes for ProcessInbound, or None while TRANSCRIBE_MODEL is empty."""
+    if services.transcriber is None:
+        return None
+    return AudioTranscription(
+        services.transcriber,
+        media_for(services),
+        usage,
+        services.settings.transcribe_max_seconds,
+        services.settings.transcribe_max_bytes,
+    )
 
 
 def graph_for(services: MessagingServices) -> Callable[[WhatsAppConnection], GraphPort]:

@@ -111,6 +111,17 @@ class InboundPart:
     content_type: str = "text"
 
 
+# Voice notes; with a transcript the agent reads them like text.
+AUDIO_CONTENT_TYPES = frozenset({"audio", "voice"})
+
+
+def readable_content(content_type: str, text: str) -> bool:
+    """What the agent reads: text, or a voice note with its transcript."""
+    if content_type == "text":
+        return True
+    return content_type in AUDIO_CONTENT_TYPES and bool(text.strip())
+
+
 def clean_inbound_text(text: str) -> str:
     cleaned = text.strip()
     if not cleaned or len(cleaned) > MAX_MESSAGE_LENGTH:

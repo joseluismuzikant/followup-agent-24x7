@@ -44,12 +44,32 @@ import { LeadStatusBadge } from "./LeadStatusBadge";
 
 export const DETAIL_REFRESH_MS = 5_000;
 
+const AUDIO_TYPES = new Set(["audio", "voice"]);
+
+/** A voice note: "🎤 Audio" and what it said (its transcript), or that it could not be read. */
+function audioText(text: string) {
+  return (
+    <span className="flex flex-col gap-0.5">
+      <span className="text-xs font-medium text-muted-foreground">
+        <span aria-hidden="true">🎤 </span>Audio
+      </span>
+      {text.trim() ? (
+        <span className="whitespace-pre-line break-words">{text}</span>
+      ) : (
+        <span className="italic text-muted-foreground">No se pudo transcribir</span>
+      )}
+    </span>
+  );
+}
+
 function transcriptMessage(message: SimulatorMessage): TranscriptMessage {
   const media = message.content_type !== "text";
   return {
     id: message.id,
     author: message.author,
-    text: media ? (
+    text: AUDIO_TYPES.has(message.content_type) ? (
+      audioText(message.text)
+    ) : media ? (
       <span className="italic">
         {contentTypeLabels[message.content_type] ?? "Archivo"}
         {message.text ? `: ${message.text}` : ""}

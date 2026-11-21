@@ -7,6 +7,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Identity,
     Integer,
@@ -82,4 +83,6 @@ class LlmUsageModel(Base):
     succeeded: Mapped[bool] = mapped_column(Boolean, nullable=False)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
     price_version: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # A transcription's audio length (operation "transcribe"); NULL for model calls.
+    audio_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

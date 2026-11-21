@@ -64,6 +64,11 @@ class UsageFigures:
     conversations: int = 0
     # Template messages Meta accepted in the month (Meta bills them; no price here).
     template_messages: int = 0
+    # Voice notes transcribed (TRANSCRIBE_MODEL): not model calls; billed by audio length.
+    # Their cost is part of cost_usd too.
+    transcriptions: int = 0
+    audio_seconds: float = 0.0
+    audio_cost_usd: Decimal = Decimal(0)
 
     @property
     def cost_per_conversation(self) -> Decimal | None:
@@ -89,6 +94,9 @@ class UsageFigures:
             self.unreported_calls + other.unreported_calls,
             self.conversations + other.conversations,
             self.template_messages + other.template_messages,
+            self.transcriptions + other.transcriptions,
+            self.audio_seconds + other.audio_seconds,
+            self.audio_cost_usd + other.audio_cost_usd,
         )
 
 
