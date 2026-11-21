@@ -43,7 +43,8 @@ jwt_expiry = 3600
 enable_signup = false
 
 [auth.email]
-enable_signup = false
+# No `enable_signup = false` here: under [auth.email] it turns off email logins altogether
+# ("email_provider_disabled"). Signing up is already off with [auth] enable_signup above.
 # Invited users are created confirmed (the invitation link proves the address).
 enable_confirmations = false
 

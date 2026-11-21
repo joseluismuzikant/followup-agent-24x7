@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelInvoice,
@@ -45,6 +45,10 @@ function renderPage() {
 }
 
 describe("FacturasPage", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchMe).mockResolvedValue(me());
@@ -126,6 +130,8 @@ describe("FacturasPage", () => {
   });
 
   it("shows what comes next and registers a promise that pauses the reminders", async () => {
+    // The form only takes a date from today on: fix today so 20/11 stays in the future.
+    vi.useFakeTimers({ now: new Date(2026, 10, 10, 12), toFake: ["Date"] });
     vi.mocked(fetchInvoices).mockResolvedValue(
       invoiceList([invoice({ next_action: "Recordatorio mañana 9:00", next_action_kind: "reminder" })]),
     );

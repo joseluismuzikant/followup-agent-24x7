@@ -59,8 +59,8 @@ Grafana's own data (users, the changed password) lives on the `grafana_data` vol
 | Alloy | 192 MB | `alloy_data`: read positions |
 
 Grafana has 512 MB because at 256 MB it ran at about 83 % in production and thrashed: the
-kernel kept evicting its page cache inside the limit and it read terabytes from disk again;
-512 MB is about twice what it uses.
+kernel kept evicting its page cache inside the limit and it read terabytes from disk again.
+Started fresh in the rehearsal it already uses about 300 MB, so 512 MB leaves room to work.
 
 Grafana's healthcheck checks only Grafana (`/api/health`). Loki has none (its image has no
 shell); when Loki can't be queried, every alert rule goes to Error and Grafana emails a
