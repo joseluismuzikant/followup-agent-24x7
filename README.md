@@ -783,7 +783,8 @@ supabase                           local Supabase CLI configuration (auth only)
 
 ## Images
 
-On every push to `master`, after the tests, CI's `release-gate` job checks each product's
+CI tests every pull request (a branch without a PR is not tested until the PR is opened) and
+every push to `master`. On every push to `master`, after the tests, CI's `release-gate` job checks each product's
 repository variables, and for each product that has them builds arm64 images (on GitHub's native ARM runners) for its
 API, web and backoffice and pushes them to GitHub Container Registry as `sha-<commit>` (and
 `latest`). A product without them is skipped with a notice, never a failure. The panel
