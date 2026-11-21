@@ -187,7 +187,8 @@ services:
       - loki_data:/loki
     profiles: [observability]
     restart: unless-stopped
-    # Distroless (no shell): Grafana's healthcheck waits for Loki's /ready instead.
+    # Distroless (no shell), so no healthcheck: when Loki can't be queried, every alert rule
+    # goes to Error and Grafana emails a DatasourceError (observability.md, "Memory and disk").
     mem_limit: 512m
     networks: [internal]
     logging: *logging
@@ -254,13 +255,16 @@ services:
     profiles: [observability]
     restart: unless-stopped
     depends_on: [loki]
+    # Grafana's own health only: Loki's /ready is 503 for a while after each restart, and
+    # would mark a working Grafana unhealthy.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null && wget -qO- http://loki:3100/ready >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
-    mem_limit: 256m
+    # 256m ran at ~83% and thrashed (terabytes of block reads re-reading evicted pages).
+    mem_limit: 512m
     networks: [internal]
     logging: *logging
 

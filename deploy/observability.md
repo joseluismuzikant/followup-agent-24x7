@@ -55,8 +55,16 @@ Grafana's own data (users, the changed password) lives on the `grafana_data` vol
 | Service | Memory limit | Disk |
 | --- | --- | --- |
 | Loki | 512 MB | `loki_data`: the logs (below) |
-| Grafana | 256 MB | `grafana_data`: a few MB |
+| Grafana | 512 MB | `grafana_data`: a few MB |
 | Alloy | 192 MB | `alloy_data`: read positions |
+
+Grafana has 512 MB because at 256 MB it ran at about 83 % in production and thrashed: the
+kernel kept evicting its page cache inside the limit and it read terabytes from disk again;
+512 MB is about twice what it uses.
+
+Grafana's healthcheck checks only Grafana (`/api/health`). Loki has none (its image has no
+shell); when Loki can't be queried, every alert rule goes to Error and Grafana emails a
+DatasourceError. To check Loki by hand: `./dc.sh exec grafana wget -qO- http://loki:3100/ready`.
 
 **Disk estimate, to check after a week** (`docker system df -v | grep loki_data`): at MVP
 traffic the app writes roughly 150 MB of JSON a day (a request line per API call, a few lines

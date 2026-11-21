@@ -46,6 +46,11 @@ starts Cuentas Claras (profile `cuentas-claras`) at https://cuentasclaras.localh
 https://cuentasclaras-admin.localhost and https://cuentasclaras-api.localhost; the smoke
 checks still cover inmo24x7 only.
 
+`deploy/rehearsal/tty-check.sh` (CI runs it too) needs no Docker and no Supabase. It runs the
+real `deploy.sh` inside a pseudo-terminal with a fake `docker`, and fails if the migration's
+`compose run` would touch the terminal: run by hand over SSH, that stops the deploy at
+"Migrating the database".
+
 `smoke` checks, in order:
 
 1. `https://api.localhost/health/ready` reports the deployed commit;

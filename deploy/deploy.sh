@@ -32,6 +32,10 @@
 # reclaimed is printed. Third-party images and images in use are never removed.
 # DEPLOY_SKIP_PRUNE=1 skips it.
 #
+# Safe to run by hand from an interactive SSH session: every step under a timeout runs with
+# stdin from /dev/null, and the migration's `compose run` with -T (no TTY), so nothing in a
+# background process group touches the terminal (see compose_within in lib.sh).
+#
 # Migrations are never rolled back: they must stay compatible with the previous version
 # (expand first, remove in a later deploy; see ARCHITECTURE.md, "Migrations").
 set -euo pipefail
@@ -105,7 +109,8 @@ pull_image() {
 	local image="$1" attempt status reason=""
 	for attempt in 1 2; do
 		status=0
-		timeout --kill-after=15 "$pull_timeout" docker pull --quiet "$image" >/dev/null || status=$?
+		timeout --kill-after=15 "$pull_timeout" docker pull --quiet "$image" </dev/null >/dev/null ||
+			status=$?
 		((status == 0)) && return 0
 		if timed_out "$status"; then
 			reason="timed out after $pull_timeout s"
@@ -174,7 +179,7 @@ migrate() {
 	local attempt status
 	for attempt in 1 2; do
 		status=0
-		compose_within "$migrate_timeout" --profile tools run --rm migrate || status=$?
+		compose_within "$migrate_timeout" --profile tools run --rm -T migrate || status=$?
 		((status == 0)) && return 0
 		if ! timed_out "$status"; then
 			echo "Migration failed: nothing was restarted, $keeps_running keeps running." >&2
@@ -190,7 +195,7 @@ migrate() {
 	done
 	echo "Migration timed out twice ($migrate_timeout s each) and was stopped: nothing was" \
 		"restarted, $keeps_running keeps running. Check './dc.sh --profile tools run --rm" \
-		"migrate alembic current' before retrying." >&2
+		"-T migrate alembic current' before retrying." >&2
 	return 1
 }
 
