@@ -127,11 +127,24 @@ def test_the_price_in_force_on_the_call_date_applies() -> None:
     assert price_call(prices, "fake", usage, datetime.now(UTC)).cost_usd == Decimal(0)
 
 
-def test_the_shipped_price_file_loads_and_prices_nothing_yet() -> None:
+def test_the_shipped_price_file_loads_and_prices_the_models_in_use() -> None:
     prices = parse_prices(PRICES_FILE.read_text(encoding="utf-8"))
 
-    # Empty entries until someone copies the real prices in.
-    assert not prices.has_model("anthropic:claude-sonnet-5-5")
+    for model in (
+        "anthropic:claude-haiku-5-5",
+        "anthropic:claude-sonnet-5-5",
+        "openai:gpt-5.4-nano",
+        "openai:gpt-5.4-mini",
+        "deepseek:deepseek-flash",
+        "deepseek:deepseek-v4-pro",
+        "mimo:mimo-v2.6-flash",
+        "mimo:mimo-v2.6-pro",
+    ):
+        assert prices.has_model(model), model
+    # Retired ids are not priced: they no longer work.
+    assert not prices.has_model("mimo:mimo-v2.5")
+    assert prices.has_audio_model("openai:gpt-transcribe")
+    assert prices.has_audio_model("deepseek:asr")
 
 
 def test_the_price_file_is_validated() -> None:
