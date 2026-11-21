@@ -45,7 +45,7 @@ export {
   type ChecklistLike,
   type SetupChecklistCardProps,
 } from "./SetupChecklistCard";
-export { SignIn, type SignInProps } from "./SignIn";
+export { type LegalLinks, SignIn, type SignInProps } from "./SignIn";
 export { WizardFrame, type WizardFrameProps } from "./WizardFrame";
 export { NotificationEmailsField } from "./NotificationEmailsField";
 export {

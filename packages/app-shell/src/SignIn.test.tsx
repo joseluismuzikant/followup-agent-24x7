@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountApi } from "./account";
 import { ApiRequestError } from "./api";
 import { readDevToken, signOutDev } from "./auth/dev-session";
-import { SignIn } from "./SignIn";
+import { SignIn, type SignInProps } from "./SignIn";
 
 const auth = { signInWithPassword: vi.fn(), resetPasswordForEmail: vi.fn() };
 const getSupabase = () => ({ auth }) as unknown as SupabaseClient;
@@ -18,7 +18,7 @@ const account = {
   devSignIn: vi.fn(),
 } satisfies AccountApi;
 
-function renderSignIn(authMode: "dev" | "supabase") {
+function renderSignIn(authMode: "dev" | "supabase", props: Partial<SignInProps> = {}) {
   return render(
     <SignIn
       productName="Cuentas Claras"
@@ -27,6 +27,7 @@ function renderSignIn(authMode: "dev" | "supabase") {
       authMode={authMode}
       getSupabase={getSupabase}
       account={account}
+      {...props}
     />,
   );
 }
@@ -54,6 +55,31 @@ describe("SignIn", () => {
     expect(screen.getByText("Cobrá sin reclamar.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Google/ })).toBeNull();
     expect(screen.getByText(/Las cuentas las crea un administrador/)).toBeTruthy();
+  });
+
+  it("links the product's legal pages in a new tab", () => {
+    renderSignIn("supabase", {
+      legalLinks: {
+        termsUrl: "https://example.com/terminos",
+        privacyUrl: "https://example.com/privacidad",
+      },
+    });
+
+    const terms = screen.getByRole("link", { name: "Términos" });
+    const privacy = screen.getByRole("link", { name: "Política de privacidad" });
+    expect(terms.getAttribute("href")).toBe("https://example.com/terminos");
+    expect(privacy.getAttribute("href")).toBe("https://example.com/privacidad");
+    for (const link of [terms, privacy]) {
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    }
+  });
+
+  it("shows no legal footer without legal links", () => {
+    renderSignIn("supabase");
+
+    expect(screen.queryByRole("link", { name: "Términos" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Política de privacidad" })).toBeNull();
   });
 
   it("signs in with email and password through Supabase", async () => {
