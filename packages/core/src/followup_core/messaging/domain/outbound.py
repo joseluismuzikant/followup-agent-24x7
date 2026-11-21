@@ -14,6 +14,11 @@ from .connection import WhatsAppConnection
 MAX_TEXT_LENGTH = 4096
 MAX_BUTTONS = 3
 MAX_BUTTON_TITLE = 20
+# Interactive lists (the Cloud API's limits).
+MAX_LIST_ROWS = 10
+MAX_LIST_BUTTON = 20
+MAX_ROW_TITLE = 24
+MAX_ROW_DESCRIPTION = 72
 SERVICE_WINDOW = timedelta(hours=24)
 OUTSIDE_SERVICE_WINDOW = "outside_service_window"
 UNREADABLE_REPLY = "Por ahora solo puedo leer mensajes de texto. ¿Me lo escribís?"
@@ -95,6 +100,33 @@ def buttons_body(text: str, buttons: Sequence[tuple[str, str]]) -> dict[str, Any
                     }
                     for choice_id, title in buttons[:MAX_BUTTONS]
                 ]
+            },
+        },
+    }
+
+
+def list_body(text: str, button: str, rows: Sequence[tuple[str, str, str]]) -> dict[str, Any]:
+    """An interactive list: one section of (id, title, description) rows, at most 10;
+    `button` opens it. Titles are cut to 24 characters, descriptions to 72."""
+    return {
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": text[:1024]},
+            "action": {
+                "button": button[:MAX_LIST_BUTTON],
+                "sections": [
+                    {
+                        "rows": [
+                            {
+                                "id": row_id[:200],
+                                "title": title[:MAX_ROW_TITLE],
+                                "description": description[:MAX_ROW_DESCRIPTION],
+                            }
+                            for row_id, title, description in rows[:MAX_LIST_ROWS]
+                        ]
+                    }
+                ],
             },
         },
     }

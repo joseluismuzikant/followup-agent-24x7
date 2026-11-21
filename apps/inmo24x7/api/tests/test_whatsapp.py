@@ -272,7 +272,8 @@ def test_a_model_failure_keeps_the_messages_pending_for_a_retry(client, auth, da
 def test_cards_are_one_text_each_with_the_link_and_slots_are_buttons(world: World) -> None:
     world.chat("Hola", "Quiero alquilar", "Palermo")
     sent = world.graph.sent()
-    cards = [body for body in sent if body["text"]["body"].startswith("*")]
+    texts = [body for body in sent if body["type"] == "text"]
+    cards = [body for body in texts if body["text"]["body"].startswith("*")]
     assert cards and all(body["text"]["preview_url"] for body in cards)
     title, _address, price, *rest = cards[0]["text"]["body"].split("\n")
     assert title.startswith("*") and title.endswith("*") and "$" in price
@@ -285,6 +286,30 @@ def test_cards_are_one_text_each_with_the_link_and_slots_are_buttons(world: Worl
     buttons = world.graph.sent()[-1]["interactive"]["action"]["buttons"]
     assert 1 <= len(buttons) <= 3
     assert all(len(button["reply"]["title"]) <= 20 for button in buttons)
+
+
+def test_a_card_picked_from_the_list_or_buttons_goes_on_with_that_property(
+    world: World,
+) -> None:
+    world.chat("Hola", "Quiero alquilar", "Palermo")
+    pick = next(body for body in world.graph.sent() if body["type"] == "interactive")
+    interactive = pick["interactive"]
+    if interactive["type"] == "list":
+        rows = interactive["action"]["sections"][0]["rows"]
+        options = [(row["id"], row["description"].split(" · ")[0]) for row in rows]
+    else:
+        buttons = interactive["action"]["buttons"]
+        options = [(b["reply"]["id"], b["reply"]["title"].rstrip("…")) for b in buttons]
+    chosen, address = options[-1]
+
+    assert world.say("2 ambientes", option=chosen) == 200
+    world.run()
+
+    # The pick is the lead's text in the inbox, and Sofía goes on with that property.
+    transcript = world.transcript()
+    assert ("inbound", "visitor", "2 ambientes") in transcript
+    answer = [text for direction, author, text in transcript if author == "agent"][-1]
+    assert address in answer, answer
 
 
 def test_long_texts_are_split(world: World) -> None:

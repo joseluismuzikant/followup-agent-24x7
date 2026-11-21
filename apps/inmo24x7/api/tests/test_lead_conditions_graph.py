@@ -256,3 +256,16 @@ def test_never_asks_income() -> None:
 
     every_text = " ".join(t for turn in chat.turns for t in texts(turn)).lower()
     assert "ingreso" not in every_text and "sueldo de" not in every_text
+
+
+def test_a_tapped_card_goes_on_with_its_decisive_question() -> None:
+    chat = Chat(search=PolicySearch([GORRITI, HONDURAS]))
+    for text in ["Hola", "Quiero alquilar", "Palermo"]:
+        chat.say(text)
+
+    # The simulator sends the card's title and its id: the id decides, not the text.
+    asked = chat.say("2 ambientes", choice_id=GORRITI.id)
+
+    assert chat.asked()[-1] == "garantia"
+    assert not asked[0]["slots"]
+    assert chat.state()["pending_card"] == GORRITI.id

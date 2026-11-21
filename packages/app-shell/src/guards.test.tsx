@@ -12,6 +12,7 @@ import { ApiRequestError } from "./api";
 import type { MeLike } from "./RequireProfile";
 import { RequireAdmin } from "./RequireAdmin";
 import { RequireProfile } from "./RequireProfile";
+import { ResumeOnboarding } from "./ResumeOnboarding";
 
 const session = { session: { accessToken: "t", email: "ana@example.com" }, loading: false, signOut: vi.fn() };
 const useAuth = () => session;
@@ -145,5 +146,40 @@ describe("RequireAdmin", () => {
     expect(await screen.findByText("ana@example.com")).toBeTruthy();
     await userEvent.setup().click(screen.getByRole("button", { name: "Cerrar sesión" }));
     expect(session.signOut).toHaveBeenCalled();
+  });
+});
+
+describe("ResumeOnboarding", () => {
+  function onboarding(completed: string[]) {
+    return {
+      finished: false,
+      completed_steps: completed.map((step) => ({ step })),
+    };
+  }
+  function resume(completed: string[], essentialSteps?: string[]) {
+    return wrap(
+      <ResumeOnboarding
+        fetchMe={() => Promise.resolve(me(false))}
+        fetchOnboarding={() => Promise.resolve(onboarding(completed))}
+        essentialSteps={essentialSteps}
+      >
+        <p>Inicio</p>
+      </ResumeOnboarding>,
+    );
+  }
+
+  it("opens the wizard while an essential step is missing", async () => {
+    resume([], ["business"]);
+    expect(await screen.findByText("Alta")).toBeTruthy();
+  });
+
+  it("opens the page once the essential steps are done, even with the wizard unfinished", async () => {
+    resume(["business"], ["business"]);
+    expect(await screen.findByText("Inicio")).toBeTruthy();
+  });
+
+  it("without essential steps, any unfinished wizard opens it (Cuentas Claras)", async () => {
+    resume(["business"]);
+    expect(await screen.findByText("Alta")).toBeTruthy();
   });
 });

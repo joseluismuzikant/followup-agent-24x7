@@ -40,15 +40,21 @@ describe("ResumeOnboarding", () => {
     vi.mocked(fetchMe).mockResolvedValue(me());
   });
 
-  it("opens the wizard when onboarding is unfinished", async () => {
-    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("try"));
+  it("opens the wizard for a new account (the business step is not done)", async () => {
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("business"));
     renderPanel();
     expect(await screen.findByText("Wizard")).toBeTruthy();
   });
 
+  it("opens the panel once the business is done, even with the wizard unfinished", async () => {
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("try"));
+    renderPanel();
+    expect(await screen.findByText("Panel")).toBeTruthy();
+  });
+
   it("lets the user into the panel after Terminar después", async () => {
     deferOnboarding();
-    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("try"));
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("business"));
     renderPanel();
     expect(await screen.findByText("Panel")).toBeTruthy();
   });

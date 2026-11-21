@@ -14,9 +14,11 @@ Never ask income, salary amounts or other financial details: for "recibo de suel
 whether they have one.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from followup_core.conversation.domain.answers import normalize
 from followup_core.tenancy.domain.agent_config import QualificationQuestion, QuestionKind
 
 from ..properties.domain.conditions import (
@@ -93,6 +95,39 @@ CONFIRMATIONS: Mapping[str, QualificationQuestion] = {
         QuestionKind.BOOLEAN,
     ),
 }
+
+
+# Short answers to a yes / no question, read without the model: a whole message made only of
+# these ("si dale", "ok, lo consigo") is a yes; one of the "no" answers is a no.
+_YES_PHRASES = (
+    "lo consigo",
+    "de una",
+    "por supuesto",
+    "si",
+    "dale",
+    "ok",
+    "okay",
+    "claro",
+    "puedo",
+    "obvio",
+    "bueno",
+)
+_NO_ANSWERS = frozenset({"no", "no puedo", "no tengo", "no lo consigo", "no podria", "nop"})
+
+
+def read_yes_no(text: str) -> bool | None:
+    """The lead's yes or no when the message is one of the common short answers; None
+    otherwise (it is left to the model: "no sé" is neither)."""
+    said = " ".join(re.findall(r"[a-z]+", normalize(text)))
+    if said in _NO_ANSWERS:
+        return False
+    rest = said
+    while rest:
+        phrase = next((p for p in _YES_PHRASES if rest == p or rest.startswith(p + " ")), None)
+        if phrase is None:
+            return None
+        rest = rest[len(phrase) :].strip()
+    return True if said else None
 
 
 def facts_for(operation: Operation | None) -> list[QualificationQuestion]:

@@ -29,7 +29,7 @@ interface ChatSimulatorProps {
   agentName: string;
   businessName: string;
   messages: readonly ChatMessage[];
-  /** `choiceId` is set when a quick reply (visit slot) was tapped. */
+  /** `choiceId` is set when a quick reply (visit slot) or a property card was tapped. */
   onSend: (text: string, choiceId?: string) => void;
   onReset: () => void;
   /** Shows the typing indicator and blocks sending. */
@@ -49,17 +49,29 @@ const bubbleStyles: Record<ChatAuthor, string> = {
 };
 
 /** Only the latest offer is answerable: once the visitor wrote again, old buttons go away. */
-function answerableSlots(messages: readonly ChatMessage[]): string | null {
+function latestAnswerable(
+  messages: readonly ChatMessage[],
+  offers: (message: ChatMessage) => boolean,
+): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message.author === "visitor") {
       return null;
     }
-    if (message.slots && message.slots.length > 0) {
+    if (offers(message)) {
       return message.id;
     }
   }
   return null;
+}
+
+function answerableSlots(messages: readonly ChatMessage[]): string | null {
+  return latestAnswerable(messages, (message) => Boolean(message.slots?.length));
+}
+
+/** The same rule for property cards: only the latest ones can be picked. */
+function answerableCards(messages: readonly ChatMessage[]): string | null {
+  return latestAnswerable(messages, (message) => Boolean(message.cards?.length));
 }
 
 function ChatSimulator({
@@ -77,6 +89,7 @@ function ChatSimulator({
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const slotsMessageId = answerableSlots(messages);
+  const cardsMessageId = answerableCards(messages);
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "end" });
@@ -157,7 +170,15 @@ function ChatSimulator({
             {message.cards && message.cards.length > 0 ? (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {message.cards.map((card) => (
-                  <PropertyCard key={card.id} property={card} resolveLink={resolveLink} />
+                  <PropertyCard
+                    key={card.id}
+                    property={card}
+                    resolveLink={resolveLink}
+                    onChoose={
+                      message.id === cardsMessageId ? () => onSend(card.title, card.id) : undefined
+                    }
+                    disabled={typing}
+                  />
                 ))}
               </div>
             ) : null}

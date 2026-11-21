@@ -61,6 +61,7 @@ from .conditions import (
     facts_for,
     gate_question,
     lead_conditions,
+    read_yes_no,
 )
 from .display import money, price_label
 from .domain.lead import HandOffReason
@@ -128,8 +129,11 @@ class LeadState(TypedDict):
     pending_card: NotRequired[str | None]
     gate_asked: NotRequired[list[str]]
     # A requirement the lead was told about before the visit: {"card_id", "requirement",
-    # "asks"}; waiting for their yes or no.
+    # "asks", "confirmed_once"}; waiting for their yes or no. "confirmed_once": an unclear
+    # answer was already asked about again, in other words.
     requirement_check: NotRequired[dict[str, Any] | None]
+    # Every requirement told about, as "<card id>:<requirement>": never told twice.
+    requirements_asked: NotRequired[list[str]]
     # "Nothing fits" was asked (once per conversation): {"requirement", "asks"}.
     relax_offer: NotRequired[dict[str, Any] | None]
     relax_asked: NotRequired[bool]
@@ -204,14 +208,26 @@ def gate_step(
     if question is not None:
         return Step(ReplyIntent.ASK, question, card_id=card["id"])
     match = card_match(card, answers)
-    if match.status is MatchStatus.NO_CUMPLE and policy.warn_before_visit:
-        failure = match.failed[0]
+    told = set(state.get("requirements_asked") or [])
+    failures = [
+        failure
+        for failure in match.failed
+        if requirement_key(card["id"], failure.requirement.value) not in told
+    ]
+    if failures and policy.warn_before_visit:
+        # A requirement already told about this card is never told again: the lead chose it
+        # knowing it (the team sees the mismatch).
+        failure = failures[0]
         return Step(
             ReplyIntent.REQUIREMENT_CHECK,
             card_id=card["id"],
             failure={"requirement": failure.requirement.value, "asks": failure.asks},
         )
     return Step(ReplyIntent.OFFER_SLOTS, card_id=card["id"])
+
+
+def requirement_key(card_id: str, requirement: str) -> str:
+    return f"{card_id}:{requirement}"
 
 
 def _fitting_cards(state: LeadState, excluding: str | None) -> list[dict[str, Any]]:
@@ -298,6 +314,11 @@ def plan_turn(
     visit = bool(state.get("visit"))
     offer = state.get("visit_offer") or {}
     card = _card(state, choice)
+    check = state.get("requirement_check")
+    if card is not None and check and card["id"] == check["card_id"]:
+        # The card whose requirement is pending, "picked" again ("si dale" read as a pick):
+        # the answer to the requirement, not a new choice.
+        card = None
     if _changes_visit(state, slot):
         # A first pick, or a different slot that replaces the visit already noted.
         steps.append(Step(ReplyIntent.SLOT_CHOSEN))
@@ -309,7 +330,6 @@ def plan_turn(
         gate = gate_step(state, card, questions, policy)
         return [Step(ReplyIntent.GREET), gate] if first_turn else [gate]
     else:
-        check = state.get("requirement_check")
         can_meet = state.get("turn_can_meet")
         if check and can_meet is not None:
             if can_meet:
@@ -318,6 +338,10 @@ def plan_turn(
             if fitting:
                 return [Step(ReplyIntent.OFFER_FITTING, card_id=check["card_id"])]
             return [Step(ReplyIntent.NO_FIT, card_id=check["card_id"])]
+        if check and not check.get("confirmed_once"):
+            # Unclear: once more, in other words, as a plain yes / no. A second unclear answer
+            # goes on with the conversation (`respond` drops the check).
+            return [Step(ReplyIntent.REQUIREMENT_CONFIRM, card_id=check["card_id"])]
         pending_card = _card(state, state.get("pending_card"))
         if pending_card is not None and not visit:
             # The answer to the decisive question: go on with that property.
@@ -460,8 +484,11 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             answers[question.key] = value
     if confirmation is not None:
         said = parse_answer(confirmation, result.values.get(confirmation.key))
+        if not isinstance(said, bool):
+            # Common short answers ("si dale", "no puedo") never depend on the model.
+            said = read_yes_no(state["inbound"])
         key = "turn_can_meet" if confirmation.key == PUEDE_CUMPLIR else "turn_wants_alternatives"
-        update[key] = said if isinstance(said, bool) else None
+        update[key] = said
     if referenced is not None:
         _choose_referenced(update, answers, referenced, state)
     update["answers"] = answers
@@ -605,6 +632,15 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     )
     steps = plan_turn(state, questions, policy)
     update: dict[str, Any] = {}
+    check = state.get("requirement_check")
+    if (
+        check
+        and check.get("confirmed_once")
+        and state.get("turn_can_meet") is None
+        and not any(step.card_id == check["card_id"] for step in steps)
+    ):
+        # Asked twice, still unclear: never a third time; the team sees the mismatch.
+        update["requirement_check"] = None
     facts: dict[str, str] = {"visitor_name": state.get("visitor_name") or ""}
     events: list[dict[str, Any]] = list(state.get("condition_events") or [])
     chosen: list[str] = list(state.get("chosen_property_ids") or [])
@@ -711,12 +747,25 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             choose(card["id"])
             update["pending_card"] = None
             update["requirement_check"] = {"card_id": card["id"], **step.failure}
+            told = list(update.get("requirements_asked") or state.get("requirements_asked") or [])
+            update["requirements_asked"] = [
+                *told,
+                requirement_key(card["id"], step.failure["requirement"]),
+            ]
             events.append(_event("mismatch", card["id"]))
             facts["option"] = card["label"]
             facts["requirement"] = step.failure["asks"]
             note = _card_conditions(card).condiciones
             if note:
                 facts["conditions_note"] = note
+
+        elif intent is ReplyIntent.REQUIREMENT_CONFIRM:
+            check = state.get("requirement_check") or {}
+            card = card_of(check.get("card_id"))
+            assert card is not None
+            update["requirement_check"] = {**check, "confirmed_once": True}
+            facts["option"] = card["label"]
+            facts["requirement"] = check["asks"]
 
         elif intent is ReplyIntent.OFFER_FITTING:
             events.append(_event("visit_avoided", step.card_id))
@@ -835,7 +884,7 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             asked_key = NAME_KEY
         elif intent in (ReplyIntent.ASK_CONTACT, ReplyIntent.INVALID_CONTACT):
             asked_key = CONTACT_KEY
-        elif intent is ReplyIntent.REQUIREMENT_CHECK:
+        elif intent in (ReplyIntent.REQUIREMENT_CHECK, ReplyIntent.REQUIREMENT_CONFIRM):
             asked_key = PUEDE_CUMPLIR
 
     # A lead who asks for a person after another kind of hand-off still gets human_requested.
