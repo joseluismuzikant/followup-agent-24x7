@@ -115,7 +115,7 @@ Optional, for Sentry in the panels (section 12a): variables `SENTRY_ORG`, `SENTR
 
 Images are published only once these variables exist. Until then CI's `release-gate` job
 prints a notice listing what is missing and skips `images-inmo24x7`; tests and checks still
-run (and must pass) on every push. With all six set, push (or re-run CI on) `master`: it
+run (and must pass) on every pull request and every push to `master`. With all six set, push (or re-run CI on) `master`: it
 builds `ghcr.io/<owner>/<repo>/inmo24x7-{api,web,backoffice}:sha-<commit>` for arm64, on
 GitHub's native ARM runners (no QEMU). Note the full commit sha: that is what you deploy.
 
@@ -348,6 +348,10 @@ If `deploy/systemd/` changed, the run shows a warning with the one command to ru
 on the VM (the units are never installed from GitHub). Skipped without an error: a push whose
 images were skipped (missing variables, step 4), or `DEPLOY_ENABLED` not `true`. One deploy
 runs at a time, and a running one is never cancelled.
+
+**Branches are tested through their pull request:** a branch without a PR is not tested until
+the PR is opened. A new push to a PR cancels its previous, outdated CI run; a push to `master`
+is never cancelled.
 
 **Redeploy or roll back:** Actions → Deploy → Run workflow with any full sha whose images CI
 built (`state/previous_tag` on the VM, or the previous run's summary, has the last one). It

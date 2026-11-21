@@ -1,8 +1,19 @@
 name: CI
 
+# Branches are tested through their pull request; master on every push (its runs build the
+# images and deploy). A push to a branch without a PR runs nothing.
 on:
   push:
+    branches: [master]
   pull_request:
+
+# A new push to a PR cancels its outdated run. A push to master gets a group of its own (the
+# run id): never cancelled, never queued behind a deploy waiting for approval, and never
+# replaced while pending (a group keeps one pending run). The deploy job's production-deploy
+# group (deploy.yml) is separate and unaffected.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -118,7 +129,8 @@ jobs:
 
   # Images are published only for a product whose production values exist as repository
   # variables (docs/go-live.md, step 4). A product that is not ready yet is skipped with a
-  # notice, never an error: tests, lint and the schema checks above run on every push anyway.
+  # notice, never an error: tests, lint and the schema checks above run on every pull request
+  # and every push to master anyway.
   release-gate:
     if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
     needs:
