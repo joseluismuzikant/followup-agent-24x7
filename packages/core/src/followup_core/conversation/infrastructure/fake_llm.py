@@ -283,6 +283,11 @@ _TEMPLATES: dict[ReplyIntent, dict[Tone, str]] = {
         Tone.PROFESSIONAL: "Esta propiedad {requirement}. ¿Podrías cumplir con eso?",
         Tone.FORMAL: "Le comento que esta propiedad {requirement}. ¿Podría cumplir con eso?",
     },
+    ReplyIntent.REQUIREMENT_CONFIRM: {
+        Tone.WARM: "Para no equivocarme: esta propiedad {requirement}. ¿Te sirve igual, sí o no?",
+        Tone.PROFESSIONAL: "Para confirmar: esta propiedad {requirement}. ¿Le sirve, sí o no?",
+        Tone.FORMAL: "Para confirmar: esta propiedad {requirement}. ¿Le resulta posible, sí o no?",
+    },
     ReplyIntent.OFFER_FITTING: {
         Tone.WARM: "¡Entendido! Entonces te pueden servir {options}. ¿Querés visitar alguna?",
         Tone.PROFESSIONAL: "Entendido. Te pueden servir {options}. ¿Querés visitar alguna?",

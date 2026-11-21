@@ -4,9 +4,44 @@ from typing import Any
 from urllib.parse import urljoin
 
 from followup_core.conversation.domain.thread import Author, Message
-from followup_core.messaging.domain.outbound import buttons_body, text_bodies
+from followup_core.messaging.domain.outbound import (
+    MAX_BUTTON_TITLE,
+    MAX_BUTTONS,
+    buttons_body,
+    list_body,
+    text_bodies,
+)
 
 OVER_BUDGET_NOTE = "Un poco más de tu presupuesto"
+PICK_PROMPT = "¿Cuál te interesa?"
+PICK_LIST_BUTTON = "Ver opciones"
+
+
+def _short(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def pick_body(cards: list[dict[str, Any]]) -> dict[str, Any]:
+    """One message to pick a card, like the visit slots: reply buttons titled with the
+    address (titles like "2 ambientes" repeat) for up to 3 cards, a list otherwise."""
+    if len(cards) <= MAX_BUTTONS:
+        return buttons_body(
+            PICK_PROMPT,
+            [(card["id"], _short(str(card["address"]), MAX_BUTTON_TITLE)) for card in cards],
+        )
+    return list_body(
+        PICK_PROMPT,
+        PICK_LIST_BUTTON,
+        [
+            (
+                card["id"],
+                _short(str(card["title"]), 24),
+                _short(f"{card['address']} · {card['price_label']}", 72),
+            )
+            for card in cards
+        ],
+    )
 
 
 def card_text(card: dict[str, Any], link: str) -> str:
@@ -20,7 +55,8 @@ def card_text(card: dict[str, Any], link: str) -> str:
 class LeadMessageRenderer:
     """- text → text messages (split above 4,096 characters);
     - property cards → the intro text, then one message per card with the title in bold,
-      address, price, the over-budget note and the listing link (with its preview);
+      address, price, the over-budget note and the listing link (with its preview), then
+      one message to pick one (`pick_body`: reply buttons, or a list above 3 cards);
     - visit slots → reply buttons (ids are the slot ids, titles "jue 6/11 10:30");
     - a template the team sends outside the 24-hour window (the visit confirmation) → that
       template, as stored in the payload;
@@ -46,10 +82,13 @@ class LeadMessageRenderer:
                 )
             ]
         bodies = text_bodies(message.text)
-        for card in payload.get("cards") or []:
+        cards = payload.get("cards") or []
+        for card in cards:
             link = card["link"]
             if card.get("is_sample"):
                 link = urljoin(self._panel_url, link.lstrip("/"))
             text = {"body": card_text(card, link), "preview_url": True}
             bodies.append({"type": "text", "text": text})
+        if cards:
+            bodies.append(pick_body(cards))
         return bodies

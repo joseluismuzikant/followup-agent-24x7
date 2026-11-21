@@ -6,12 +6,15 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchDashboard } from "../api/dashboard";
+import { fetchMe } from "../api/me";
 import { fetchOnboarding } from "../api/onboarding";
 import { fetchWhatsAppStatus } from "../api/whatsapp";
-import { isOnboardingDeferred, deferOnboarding } from "../lib/onboarding-deferred";
-import { onboardingState, whatsappStatus } from "../test-fixtures";
+import { ResumeOnboarding } from "../components/ResumeOnboarding";
+import { isOnboardingDeferred, deferOnboarding, resumeOnboarding } from "../lib/onboarding-deferred";
+import { me, onboardingState, whatsappStatus } from "../test-fixtures";
 import { InicioPage } from "./inicio";
 
+vi.mock("../api/me", () => ({ fetchMe: vi.fn() }));
 vi.mock("../api/onboarding", () => ({ fetchOnboarding: vi.fn() }));
 vi.mock("../api/dashboard", () => ({ fetchDashboard: vi.fn() }));
 
@@ -30,13 +33,20 @@ function dashboard(overrides: Partial<Dashboard> = {}): Dashboard {
 }
 vi.mock("../api/whatsapp", () => ({ fetchWhatsAppStatus: vi.fn() }));
 
-function renderInicio() {
+function renderInicio({ afterLogin = false } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const inicio = afterLogin ? (
+    <ResumeOnboarding>
+      <InicioPage />
+    </ResumeOnboarding>
+  ) : (
+    <InicioPage />
+  );
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/"]}>
         <Routes>
-          <Route path="/" element={<InicioPage />} />
+          <Route path="/" element={inicio} />
           <Route path="/onboarding" element={<div>Wizard</div>} />
           <Route path="/agente" element={<div>Agente</div>} />
           <Route path="/consultas" element={<div>Consultas</div>} />
@@ -72,6 +82,36 @@ describe("Inicio setup checklist", () => {
     expect(screen.getByRole("link", { name: "Probar el agente" }).getAttribute("href")).toBe(
       "/probar",
     );
+  });
+
+  it("opens on Inicio after login once the business is done, with the checklist", async () => {
+    resumeOnboarding(); // no "Terminar después" in this session
+    vi.mocked(fetchMe).mockResolvedValue(me());
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("try"));
+    renderInicio({ afterLogin: true });
+
+    expect(await screen.findByText("Te falta poco para dejarlo completo")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continuar configuración" })).toBeTruthy();
+    expect(screen.queryByText("Wizard")).toBeNull();
+  });
+
+  it("opens the wizard after login for a brand-new account", async () => {
+    resumeOnboarding();
+    vi.mocked(fetchMe).mockResolvedValue(me());
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("business"));
+    renderInicio({ afterLogin: true });
+
+    expect(await screen.findByText("Wizard")).toBeTruthy();
+  });
+
+  it("opens on Inicio after login once the wizard is finished", async () => {
+    resumeOnboarding();
+    vi.mocked(fetchMe).mockResolvedValue(me());
+    vi.mocked(fetchOnboarding).mockResolvedValue(onboardingState("done"));
+    renderInicio({ afterLogin: true });
+
+    expect(await screen.findByText("Te falta poco para dejarlo completo")).toBeTruthy();
+    expect(screen.queryByText("Wizard")).toBeNull();
   });
 
   it("resumes the wizard from Continuar configuración", async () => {

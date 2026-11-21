@@ -39,7 +39,7 @@ export {
 export { RequireAdmin, type RequireAdminProps } from "./RequireAdmin";
 export { RequireProfile, type MeLike } from "./RequireProfile";
 export { RouterLinkProvider } from "./RouterLinkProvider";
-export { canEditSetup, ResumeOnboarding } from "./ResumeOnboarding";
+export { canEditSetup, type OnboardingLike, ResumeOnboarding } from "./ResumeOnboarding";
 export {
   SetupChecklistCard,
   type ChecklistLike,

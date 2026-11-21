@@ -172,6 +172,14 @@ def test_text_button_and_audio_messages_are_parsed() -> None:
     assert (voice.type, voice.text) == ("audio", None)
 
 
+def test_a_list_row_pick_is_parsed_like_a_button() -> None:
+    row = simulate_whatsapp.message_payload("2 ambientes", option="p3", wamid="w4")
+
+    ((pick,), _) = parse_webhook(row)
+
+    assert (pick.type, pick.text, pick.choice_id) == ("button", "2 ambientes", "p3")
+
+
 def test_reactions_and_other_fields_are_ignored() -> None:
     payload = simulate_whatsapp.message_payload("x")
     message = payload["entry"][0]["changes"][0]["value"]["messages"][0]
@@ -231,8 +239,11 @@ def test_cards_become_one_text_each_with_the_listing_link() -> None:
     }
     sample = {**card, "link": "/ejemplo/a", "is_sample": True, "over_budget": False}
 
-    bodies = LeadMessageRenderer("https://panel.example")(_message({"cards": [card, sample]}))
+    *bodies, pick = LeadMessageRenderer("https://panel.example")(
+        _message({"cards": [card, sample]})
+    )
 
+    assert pick["type"] == "interactive"
     assert [body["text"]["body"] for body in bodies] == [
         "Mirá",
         "*2 ambientes*\nGorriti 4800\n$850.000 por mes\nUn poco más de tu presupuesto\n"
@@ -240,6 +251,51 @@ def test_cards_become_one_text_each_with_the_listing_link() -> None:
         "*2 ambientes*\nGorriti 4800\n$850.000 por mes\nhttps://panel.example/ejemplo/a",
     ]
     assert [body["text"]["preview_url"] for body in bodies] == [False, True, True]
+
+
+def _cards(count: int) -> list[dict]:
+    return [
+        {
+            "id": f"p{n}",
+            "title": "2 ambientes reciclado con balcón",
+            "address": f"Avenida Raúl Scalabrini Ortiz {1000 + n}",
+            "price_label": "$850.000 por mes",
+            "link": f"https://inmo.example/p/{n}",
+            "over_budget": False,
+            "is_sample": False,
+        }
+        for n in range(count)
+    ]
+
+
+def test_two_cards_are_followed_by_reply_buttons_to_pick_one() -> None:
+    bodies = LeadMessageRenderer("https://panel.example")(_message({"cards": _cards(2)}))
+
+    *texts, pick = bodies
+    assert [body["type"] for body in texts] == ["text", "text", "text"]
+    assert pick["type"] == "interactive" and pick["interactive"]["type"] == "button"
+    assert pick["interactive"]["body"]["text"] == "¿Cuál te interesa?"
+    buttons = [button["reply"] for button in pick["interactive"]["action"]["buttons"]]
+    assert [button["id"] for button in buttons] == ["p0", "p1"]
+    assert all(len(button["title"]) <= 20 for button in buttons)
+    # The address tells them apart (the titles are often the same).
+    assert buttons[0]["title"].startswith("Avenida Raúl")
+
+
+def test_five_cards_are_followed_by_a_list_to_pick_one() -> None:
+    bodies = LeadMessageRenderer("https://panel.example")(_message({"cards": _cards(5)}))
+
+    *texts, pick = bodies
+    assert len(texts) == 6 and all(body["type"] == "text" for body in texts)
+    interactive = pick["interactive"]
+    assert pick["type"] == "interactive" and interactive["type"] == "list"
+    assert interactive["body"]["text"] == "¿Cuál te interesa?"
+    assert interactive["action"]["button"] == "Ver opciones"
+    (section,) = interactive["action"]["sections"]
+    rows = section["rows"]
+    assert [row["id"] for row in rows] == ["p0", "p1", "p2", "p3", "p4"]
+    assert all(len(row["title"]) <= 24 and len(row["description"]) <= 72 for row in rows)
+    assert rows[0]["description"].startswith("Avenida Raúl Scalabrini Ortiz 1000 · $850.000")
 
 
 def test_slots_become_at_most_three_short_reply_buttons() -> None:

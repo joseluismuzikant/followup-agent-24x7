@@ -43,6 +43,9 @@ class ReplyIntent(StrEnum):
     # Before visit times: facts["option"] needs facts["requirement"] ("pide seguro de
     # caución"), which the lead does not meet; say it kindly and ask if they could meet it.
     REQUIREMENT_CHECK = "requirement_check"
+    # The answer to requirement_check was unclear: ask once more, in other words and as a
+    # plain yes / no ("¿Podés conseguir … — sí o no?"). Never the same message twice.
+    REQUIREMENT_CONFIRM = "requirement_confirm"
     # The lead cannot meet it: suggest facts["options"] (already shown) and ask which.
     OFFER_FITTING = "offer_fitting"
     # Every option fails on facts["requirement"]: ask once if they would consider it.

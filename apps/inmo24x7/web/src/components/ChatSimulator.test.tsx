@@ -161,3 +161,41 @@ describe("ChatSimulator visit slots and system events", () => {
     ).toBe(true);
   });
 });
+
+describe("ChatSimulator property cards", () => {
+  it("picks a card by tapping it, like a slot: its title and its id", async () => {
+    const { onSend, user } = renderChat();
+
+    await user.click(screen.getByRole("button", { name: "Elegir 2 ambientes amoblado" }));
+
+    expect(onSend).toHaveBeenCalledWith("2 ambientes amoblado", "a");
+  });
+
+  it("opens the listing from Ver fotos without picking the card", async () => {
+    const { onSend, user } = renderChat();
+    const link = screen.getByRole("link", { name: "Ver fotos" });
+
+    expect(link.closest("button")).toBeNull();
+    await user.click(link);
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("only the latest cards can be picked: not after the visitor wrote again", () => {
+    renderChat({
+      messages: [...messages, { id: "3", author: "visitor", text: "Contame más" }],
+    });
+
+    expect(screen.getByText("2 ambientes amoblado")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Elegir 2 ambientes amoblado" })).toBeNull();
+  });
+
+  it("disables the cards while the agent is typing", () => {
+    renderChat({ typing: true });
+
+    expect(
+      (screen.getByRole("button", { name: "Elegir 2 ambientes amoblado" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+});

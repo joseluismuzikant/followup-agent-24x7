@@ -84,6 +84,21 @@ def test_picking_a_slot_that_hands_off_is_one_message(owner: Account) -> None:
     assert (lead["status"], lead["hand_off_reason"]) == ("visit_proposed", "visit")
 
 
+def test_tapping_a_card_picks_it_like_a_slot(owner: Account) -> None:
+    _send(owner, "Hola")
+    _send(owner, "Quiero alquilar")
+    cards = _send(owner, "Palermo")["messages"][0]["cards"]
+    card = cards[-1]
+
+    # The text alone ("2 ambientes") names no card: the tapped id decides.
+    response = owner.post("/simulator/messages", {"text": card["title"], "choice_id": card["id"]})
+
+    assert response.status_code == 200, response.json()
+    agent = [m for m in response.json()["messages"] if m["author"] == "agent"]
+    assert card["address"] in agent[-1]["text"]
+    assert agent[-1]["slots"]
+
+
 def test_reset_starts_a_new_thread(owner: Account) -> None:
     _send(owner, "Hola")
     before = owner.get("/simulator").json()["thread"]["key"]

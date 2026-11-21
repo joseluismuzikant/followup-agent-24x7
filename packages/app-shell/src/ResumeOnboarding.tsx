@@ -10,14 +10,27 @@ export function canEditSetup(role: string): boolean {
   return role === "owner" || role === "manager";
 }
 
-/** Sends owners and managers with an unfinished wizard back to it after login. */
+export interface OnboardingLike {
+  finished: boolean;
+  completed_steps?: { step: string }[];
+}
+
+/**
+ * Sends owners and managers back to the wizard after login.
+ *
+ * With `essentialSteps`, only while one of them is not completed (a brand-new account has
+ * nothing to show yet); otherwise the page asked for opens, and Inicio's checklist leads back
+ * to the wizard. Without it, while the wizard is unfinished.
+ */
 export function ResumeOnboarding({
   fetchMe,
   fetchOnboarding,
+  essentialSteps,
   children,
 }: {
   fetchMe: () => Promise<MeLike>;
-  fetchOnboarding: () => Promise<{ finished: boolean }>;
+  fetchOnboarding: () => Promise<OnboardingLike>;
+  essentialSteps?: readonly string[];
   children: ReactNode;
 }) {
   const meQuery = useQuery({ queryKey: ["me"], queryFn: fetchMe });
@@ -31,9 +44,13 @@ export function ResumeOnboarding({
     return null;
   }
   // If the onboarding record is unavailable, never block the panel on it.
-  const unfinished = onboardingQuery.data && !onboardingQuery.data.finished;
+  const onboarding = onboardingQuery.data;
+  const unfinished = onboarding !== undefined && !onboarding.finished;
+  const done = new Set((onboarding?.completed_steps ?? []).map((completed) => completed.step));
+  const needsWizard =
+    unfinished && (essentialSteps === undefined || essentialSteps.some((step) => !done.has(step)));
   const role = meQuery.data?.profile.role ?? "";
-  if (unfinished && canEditSetup(role) && !isOnboardingDeferred()) {
+  if (needsWizard && canEditSetup(role) && !isOnboardingDeferred()) {
     return <Navigate to="/onboarding" replace />;
   }
   return <>{children}</>;

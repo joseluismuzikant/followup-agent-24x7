@@ -73,10 +73,11 @@ class Chat:
         now: datetime = TUESDAY_11,
         tracing: TurnTracing | None = None,
         visitor_contact: str | None = None,
+        llm: RecordingLlm | None = None,
     ) -> None:
         self.visitor_contact = visitor_contact
         self.config = config
-        self.llm = RecordingLlm()
+        self.llm = llm or RecordingLlm()
         self.tool_calls: list[str] = []
         self.runtime = LangGraphRuntime(
             build_lead_graph(),

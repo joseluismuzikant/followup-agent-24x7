@@ -58,12 +58,14 @@ def message_payload(
     sender: str = DEFAULT_FROM,
     phone_number_id: str = DEFAULT_PHONE_NUMBER_ID,
     slot: str | None = None,
+    option: str | None = None,
     audio: bool = False,
     name: str = "Visitante de prueba",
     wamid: str | None = None,
     timestamp: int | None = None,
 ) -> dict[str, Any]:
-    """A `messages` notification as the Cloud API sends it (text, reply button or audio)."""
+    """A `messages` notification as the Cloud API sends it (text, reply button, list row or
+    audio)."""
     message: dict[str, Any] = {
         "from": sender,
         "id": wamid or f"wamid.sim.{uuid4().hex}",
@@ -73,6 +75,14 @@ def message_payload(
         message |= {
             "type": "audio",
             "audio": {"id": uuid4().hex, "mime_type": "audio/ogg; codecs=opus", "voice": True},
+        }
+    elif option:
+        message |= {
+            "type": "interactive",
+            "interactive": {
+                "type": "list_reply",
+                "list_reply": {"id": option, "title": text or option},
+            },
         }
     elif slot:
         message |= {
