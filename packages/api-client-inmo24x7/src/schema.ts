@@ -371,6 +371,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/properties/from-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read From Link
+         * @description "Cargar desde un link": a draft for the form. Nothing is saved.
+         */
+        post: operations["read_from_link_properties_from_link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/from-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read From Text
+         * @description "Pegar texto de la publicación", for portals that block reading the link.
+         */
+        post: operations["read_from_text_properties_from_text_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/properties/{property_id}/refresh-from-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh From Link
+         * @description "Actualizar desde el link": what the publication says now, as changes to apply.
+         */
+        post: operations["refresh_from_link_properties__property_id__refresh_from_link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/properties": {
         parameters: {
             query?: never;
@@ -2078,6 +2138,15 @@ export interface components {
             /** Count */
             count: number;
         };
+        /** FieldChangeRead */
+        FieldChangeRead: {
+            /** Field */
+            field: string;
+            /** Current */
+            current: string | number | null;
+            /** Read */
+            read: string | number | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -2340,6 +2409,71 @@ export interface components {
             do_not_contact: boolean;
             /** Source */
             source?: "web_button" | null;
+        };
+        /**
+         * ListingDraftRead
+         * @description A property read from its publication, not saved. Empty / null = not found.
+         */
+        ListingDraftRead: {
+            /** Link */
+            link: string;
+            /** Title */
+            title: string;
+            /** Address */
+            address: string;
+            /** Operation */
+            operation: ("sale" | "rent") | null;
+            /** Zone */
+            zone: string;
+            /** Price */
+            price: number | null;
+            /** Currency */
+            currency: ("ARS" | "USD") | null;
+            /** Rooms */
+            rooms: number | null;
+            /** Status */
+            status: ("published" | "paused") | null;
+            conditions: components["schemas"]["ConditionsModel"];
+            /** Image Url */
+            image_url: string | null;
+            /** Floor Area M2 */
+            floor_area_m2: number | null;
+            /** Sources */
+            sources: {
+                [key: string]: "structured" | "model";
+            };
+            /** Problem */
+            problem: string | null;
+            /** Message */
+            message: string | null;
+            /** Portal */
+            portal: string;
+            /** Warnings */
+            warnings: string[];
+            duplicate?: components["schemas"]["PropertyRead"] | null;
+        };
+        /** ListingLinkRequest */
+        ListingLinkRequest: {
+            /** Url */
+            url: string;
+        };
+        /** ListingRefreshRead */
+        ListingRefreshRead: {
+            draft: components["schemas"]["ListingDraftRead"];
+            /** Changes */
+            changes: components["schemas"]["FieldChangeRead"][];
+        };
+        /** ListingRefreshRequest */
+        ListingRefreshRequest: {
+            /** Text */
+            text?: string | null;
+        };
+        /** ListingTextRequest */
+        ListingTextRequest: {
+            /** Text */
+            text: string;
+            /** Link */
+            link: string;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -4140,6 +4274,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SimulatorRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_from_link_properties_from_link_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListingLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingDraftRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_from_text_properties_from_text_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListingTextRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingDraftRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_from_link_properties__property_id__refresh_from_link_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                property_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListingRefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingRefreshRead"];
                 };
             };
             /** @description Validation Error */

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..auth import current_profile, require_role
 from ..http_errors import ApiError
+from .application.listing import ListingResult, ReadListing, RefreshResult
 from .application.properties import (
     CreateProperty,
     GetImportErrors,
@@ -38,6 +39,14 @@ from .domain.errors import (
     PropertyNotFoundError,
 )
 from .domain.imports import MAX_IMPORT_BYTES, PropertyImport
+from .domain.listing import (
+    LinkReadLimitError,
+    ListingDraft,
+    ListingTextError,
+    ListingUrlError,
+    portal_name,
+    problem_message,
+)
 from .domain.property import (
     Currency,
     Operation,
@@ -206,6 +215,93 @@ class ImportReportRead(BaseModel):
     warnings: list[str]
 
 
+class ListingLinkRequest(BaseModel):
+    url: str = Field(max_length=2000)
+
+
+class ListingTextRequest(BaseModel):
+    # The publication's text as copied (Ctrl+A, Ctrl+C); only the first 15,000 characters
+    # without the page's menus are read.
+    text: str = Field(max_length=200_000)
+    link: str = Field(max_length=2000)
+
+
+class ListingRefreshRequest(BaseModel):
+    # The publication's text, when its portal does not let us read the link.
+    text: str | None = Field(default=None, max_length=200_000)
+
+
+class ListingDraftRead(BaseModel):
+    """A property read from its publication, not saved. Empty / null = not found."""
+
+    link: str
+    title: str
+    address: str
+    operation: OperationName | None
+    zone: str
+    price: int | None
+    currency: CurrencyName | None
+    rooms: int | None
+    status: StatusName | None
+    conditions: ConditionsModel
+    # For the preview only (photos are not stored yet).
+    image_url: str | None
+    floor_area_m2: int | None
+    # Where each field came from: "structured" (the page's data) or "model" (read by the
+    # model: "Revisá este dato").
+    sources: dict[str, Literal["structured", "model"]]
+    # Why the page could not be read (blocked, gone, unreachable, timeout, too_large,
+    # not_html, not_listing), in Spanish in `message`; the form opens with the link anyway.
+    problem: str | None
+    message: str | None
+    # The portal's name from the link ("Zonaprop"), for the messages.
+    portal: str
+    warnings: list[str]
+    # The agency already has a property with this link.
+    duplicate: PropertyRead | None = None
+
+
+class FieldChangeRead(BaseModel):
+    field: str
+    current: str | int | None
+    read: str | int | None
+
+
+class ListingRefreshRead(BaseModel):
+    draft: ListingDraftRead
+    # What the publication says differently, to apply field by field.
+    changes: list[FieldChangeRead]
+
+
+def _plain(value: object) -> str | int | None:
+    if value is None or isinstance(value, int):
+        return value
+    return str(value)
+
+
+def draft_read(draft: ListingDraft, duplicate: PropertyRead | None = None) -> ListingDraftRead:
+    return ListingDraftRead(
+        link=draft.link,
+        title=draft.title,
+        address=draft.address,
+        operation=draft.operation.value if draft.operation else None,
+        zone=draft.zone,
+        price=draft.price,
+        currency=draft.currency.value if draft.currency else None,
+        rooms=draft.rooms,
+        status=draft.status.value if draft.status else None,
+        conditions=conditions_model(draft.conditions),
+        image_url=draft.image_url,
+        floor_area_m2=draft.floor_area_m2,
+        sources={name: source.value for name, source in draft.sources.items()},  # type: ignore[misc]
+        problem=draft.problem.value if draft.problem else None,
+        message=problem_message(draft.problem, draft.link) if draft.problem else None,
+        portal=portal_name(draft.link),
+        warnings=list(draft.warnings),
+        duplicate=duplicate,
+    )
+
+
 def property_read(
     item: Property, inquiries: int = 0, settings: ConditionSettings | None = None
 ) -> PropertyRead:
@@ -270,8 +366,83 @@ def build_properties_router(
     import_errors_factory: Callable[..., GetImportErrors],
     settings_factory: Callable[..., ConditionSettingsStore],
     save_settings_factory: Callable[..., SaveSettings],
+    read_listing_factory: Callable[..., ReadListing],
 ) -> APIRouter:
     router = APIRouter(tags=["properties"])
+
+    def listing_read(result: ListingResult, settings: ConditionSettingsStore, tenant_id: UUID):
+        duplicate = (
+            property_read(result.duplicate, 0, settings.get(tenant_id))
+            if result.duplicate
+            else None
+        )
+        return draft_read(result.draft, duplicate)
+
+    @router.post("/properties/from-link", response_model=ListingDraftRead)
+    def read_from_link(
+        payload: ListingLinkRequest,
+        profile: WriterDep,
+        use_case: Annotated[ReadListing, Depends(read_listing_factory)],
+        settings: Annotated[ConditionSettingsStore, Depends(settings_factory)],
+    ) -> ListingDraftRead:
+        """ "Cargar desde un link": a draft for the form. Nothing is saved."""
+        try:
+            result = use_case.from_link(profile.tenant_id, profile.id, payload.url)
+        except ListingUrlError as error:
+            raise ApiError(422, "listing_url_invalid") from error
+        except LinkReadLimitError as error:
+            raise ApiError(429, "listing_read_limit") from error
+        return listing_read(result, settings, profile.tenant_id)
+
+    @router.post("/properties/from-text", response_model=ListingDraftRead)
+    def read_from_text(
+        payload: ListingTextRequest,
+        profile: WriterDep,
+        use_case: Annotated[ReadListing, Depends(read_listing_factory)],
+        settings: Annotated[ConditionSettingsStore, Depends(settings_factory)],
+    ) -> ListingDraftRead:
+        """ "Pegar texto de la publicación", for portals that block reading the link."""
+        try:
+            result = use_case.from_text(profile.tenant_id, profile.id, payload.text, payload.link)
+        except ListingUrlError as error:
+            raise ApiError(422, "listing_url_invalid") from error
+        except ListingTextError as error:
+            raise ApiError(422, "listing_text_too_short") from error
+        except LinkReadLimitError as error:
+            raise ApiError(429, "listing_read_limit") from error
+        return listing_read(result, settings, profile.tenant_id)
+
+    @router.post("/properties/{property_id}/refresh-from-link", response_model=ListingRefreshRead)
+    def refresh_from_link(
+        property_id: UUID,
+        payload: ListingRefreshRequest,
+        profile: WriterDep,
+        use_case: Annotated[ReadListing, Depends(read_listing_factory)],
+    ) -> ListingRefreshRead:
+        """ "Actualizar desde el link": what the publication says now, as changes to apply."""
+        try:
+            result: RefreshResult = use_case.refresh(
+                profile.tenant_id, profile.id, property_id, payload.text
+            )
+        except PropertyNotFoundError as error:
+            raise _not_found() from error
+        except PropertyManagedExternallyError as error:
+            raise ApiError(409, "property_managed_by_tokko") from error
+        except ListingTextError as error:
+            raise ApiError(422, "listing_text_too_short") from error
+        except LinkReadLimitError as error:
+            raise ApiError(429, "listing_read_limit") from error
+        except ListingUrlError as error:
+            raise ApiError(422, "listing_url_invalid") from error
+        return ListingRefreshRead(
+            draft=draft_read(result.draft),
+            changes=[
+                FieldChangeRead(
+                    field=change.field, current=_plain(change.current), read=_plain(change.read)
+                )
+                for change in result.changes
+            ],
+        )
 
     @router.get("/properties", response_model=PropertyListRead)
     def list_properties(

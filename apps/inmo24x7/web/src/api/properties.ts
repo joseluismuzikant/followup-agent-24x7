@@ -3,6 +3,8 @@ import type {
   ConditionSettings,
   ConditionSettingsInput,
   ImportReport,
+  ListingDraft,
+  ListingRefresh,
   Property,
   PropertyChanges,
   PropertyInput,
@@ -112,6 +114,40 @@ export async function saveConditionSettings(
   input: ConditionSettingsInput,
 ): Promise<ConditionSettings> {
   const { data, error, response } = await apiClient.PUT("/condition-settings", { body: input });
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
+}
+
+/** "Cargar desde un link": the publication read into a draft (nothing is saved). */
+export async function readListingLink(url: string): Promise<ListingDraft> {
+  const { data, error, response } = await apiClient.POST("/properties/from-link", {
+    body: { url },
+  });
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
+}
+
+/** "Pegar texto de la publicación", for portals that do not let us read the link. */
+export async function readListingText(text: string, link: string): Promise<ListingDraft> {
+  const { data, error, response } = await apiClient.POST("/properties/from-text", {
+    body: { text, link },
+  });
+  if (data) {
+    return data;
+  }
+  throw apiError(response, error);
+}
+
+/** "Actualizar desde el link": what the publication says now, as changes to apply. */
+export async function refreshFromLink(id: string, text?: string): Promise<ListingRefresh> {
+  const { data, error, response } = await apiClient.POST(
+    "/properties/{property_id}/refresh-from-link",
+    { params: { path: { property_id: id } }, body: { text: text ?? null } },
+  );
   if (data) {
     return data;
   }

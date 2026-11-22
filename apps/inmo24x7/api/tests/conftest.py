@@ -20,11 +20,14 @@ from inmo24x7_api.billing.infrastructure.prices import load_prices
 from inmo24x7_api.container import (
     create_business_use_case,
     get_language_model,
+    get_listing_model,
+    get_page_fetcher,
     get_token_verifier,
     get_usage_recorder,
 )
 from inmo24x7_api.database import get_session
 from inmo24x7_api.main import app
+from inmo24x7_api.properties.infrastructure.listing_model import FakeListingModel
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
@@ -92,6 +95,11 @@ def db_session(database):
     session.close()
 
 
+class NoNetworkFetcher:
+    def fetch(self, url: str):
+        raise AssertionError(f"A test tried to read {url} from the network.")
+
+
 @pytest.fixture
 def client(database) -> Iterator[TestClient]:
     testing_session = sessionmaker(bind=database, autoflush=False, expire_on_commit=False)
@@ -110,6 +118,9 @@ def client(database) -> Iterator[TestClient]:
     app.dependency_overrides[get_session] = override_session
     # Never call a real model from tests, whatever LLM_MODEL the environment has.
     app.dependency_overrides[get_language_model] = lambda: FakeLanguageModel()
+    # Nor a real portal: "Cargar desde un link" reads pages only through a test's own fake.
+    app.dependency_overrides[get_listing_model] = lambda: FakeListingModel()
+    app.dependency_overrides[get_page_fetcher] = lambda: NoNetworkFetcher()
     # Usage rows go to the test database, on their own sessions as in production.
     recorder = SqlAlchemyLlmUsageRecorder(testing_session, load_prices())
     app.dependency_overrides[get_usage_recorder] = lambda: recorder

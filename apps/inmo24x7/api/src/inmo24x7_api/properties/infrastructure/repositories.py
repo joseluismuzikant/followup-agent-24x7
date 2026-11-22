@@ -1,11 +1,13 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from uuid import UUID
 
 from followup_core.conversation.domain.answers import normalize
+from followup_core.tenancy.infrastructure.models import AuditEventModel
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
+from ...audit import InmoAction
 from ...leads.infrastructure.models import LeadModel, LeadPropertyMatchModel
 from ..domain.conditions import ConditionSettings, PropertyConditions
 from ..domain.imports import FailedRow, PropertyImport
@@ -331,3 +333,23 @@ class TenantPropertySearch:
 
     def uses_samples(self, tenant_id: UUID) -> bool:
         return not self._properties.has_published(tenant_id)
+
+
+def link_reads_since(session: Session) -> Callable[[UUID, datetime], int]:
+    """The rate limit's count for "Cargar desde un link": the audit log's page reads."""
+
+    def count(tenant_id: UUID, since: datetime) -> int:
+        return (
+            session.scalar(
+                select(func.count())
+                .select_from(AuditEventModel)
+                .where(
+                    AuditEventModel.tenant_id == tenant_id,
+                    AuditEventModel.action == InmoAction.PROPERTY_LINK_READ.value,
+                    AuditEventModel.at >= since,
+                )
+            )
+            or 0
+        )
+
+    return count

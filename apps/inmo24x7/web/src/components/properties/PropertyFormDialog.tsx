@@ -1,14 +1,26 @@
 import type {
   PropertyChanges,
   ConditionSettings,
+  ListingDraft,
+  ListingFieldChange,
   Property,
   PropertyConditions,
   PropertyInput,
 } from "@followup/api-client-inmo24x7";
 import { Button, Dialog, FormField, Input, SegmentedControl } from "@followup/ui";
+import { useMutation } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
+import { refreshFromLink } from "../../api/properties";
+import { apiErrorMessage } from "../../lib/api-errors";
 import { EMPTY_CONDITIONS, forOperation } from "../../lib/conditions";
+import {
+  changeValue,
+  conditionsByModel,
+  draftPrice,
+  fieldLabels,
+  readByModel,
+} from "../../lib/listing";
 import {
   type PropertyDraft,
   type PropertyDraftErrors,
@@ -24,11 +36,30 @@ interface PropertyFormDialogProps {
   error: string | null;
   /** The agency's "Condiciones generales" (shown where the property says nothing). */
   settings?: ConditionSettings;
+  /** A new property read from its publication ("Cargar desde un link"): the form starts
+   * from it, and what the model read is marked "Revisá este dato". */
+  listing?: ListingDraft | null;
   onClose: () => void;
   onSave: (input: PropertyInput | PropertyChanges) => void;
 }
 
-function toDraft(property: Property | null): PropertyDraft {
+const REVIEW = "Revisá este dato: lo leímos del texto de la publicación.";
+
+function toDraft(property: Property | null, listing?: ListingDraft | null): PropertyDraft {
+  if (!property && listing) {
+    const operation = listing.operation ?? "rent";
+    return {
+      title: listing.title,
+      address: listing.address,
+      operation,
+      zone: listing.zone,
+      price: listing.price ? String(listing.price) : "",
+      currency: listing.currency ?? (operation === "sale" ? "USD" : "ARS"),
+      rooms: listing.rooms ? String(listing.rooms) : "",
+      link: listing.link,
+      status: listing.status ?? "published",
+    };
+  }
   return {
     title: property?.title ?? "",
     address: property?.address ?? "",
@@ -59,19 +90,24 @@ export function PropertyFormDialog({
   saving,
   error,
   settings,
+  listing,
   onClose,
   onSave,
 }: PropertyFormDialogProps) {
+  const fromListing = !property && listing ? listing : null;
   return (
     <Dialog
       open={open}
-      title={property ? "Editar propiedad" : "Agregar una propiedad"}
+      title={
+        property ? "Editar propiedad" : fromListing ? "Revisá la propiedad" : "Agregar una propiedad"
+      }
       onClose={onClose}
     >
-      {/* Remount per property so the fields start from it. */}
+      {/* Remount per property (or publication read) so the fields start from it. */}
       <PropertyForm
-        key={property?.id ?? "new"}
+        key={property?.id ?? (fromListing ? `link:${fromListing.link}` : "new")}
         property={property}
+        listing={fromListing}
         saving={saving}
         error={error}
         settings={settings}
@@ -84,6 +120,7 @@ export function PropertyFormDialog({
 
 function PropertyForm({
   property,
+  listing,
   saving,
   error,
   settings,
@@ -91,6 +128,7 @@ function PropertyForm({
   onSave,
 }: {
   property: Property | null;
+  listing: ListingDraft | null;
   saving: boolean;
   error: string | null;
   settings?: ConditionSettings;
@@ -105,11 +143,12 @@ function PropertyForm({
     rooms: useId(),
     link: useId(),
   };
-  const [draft, setDraft] = useState<PropertyDraft>(() => toDraft(property));
+  const [draft, setDraft] = useState<PropertyDraft>(() => toDraft(property, listing));
   const [errors, setErrors] = useState<PropertyDraftErrors>({});
   const [conditions, setConditions] = useState<PropertyConditions>(
-    () => property?.conditions ?? EMPTY_CONDITIONS,
+    () => property?.conditions ?? listing?.conditions ?? EMPTY_CONDITIONS,
   );
+  const review = (field: string) => (readByModel(listing, field) ? REVIEW : undefined);
   const [conditionsError, setConditionsError] = useState<string | undefined>();
   const external = property?.source === "tokko";
 
@@ -151,11 +190,30 @@ function PropertyForm({
         }
       }}
     >
+      {listing ? <ListingPreview listing={listing} /> : null}
+      {property && !external ? (
+        <RefreshFromLink
+          property={property}
+          onApply={(change) => {
+            const value = change.read;
+            setDraft((current) => ({
+              ...current,
+              [change.field]:
+                change.field === "price" || change.field === "rooms" ? String(value) : value,
+            }));
+          }}
+        />
+      ) : null}
       {external && property ? (
         <TokkoSummary property={property} />
       ) : (
         <>
-      <FormField label="Título" htmlFor={ids.title} error={errors.title}>
+      <FormField
+        label="Título"
+        htmlFor={ids.title}
+        hint={review("title")}
+        error={errors.title}
+      >
         <Input
           id={ids.title}
           value={draft.title}
@@ -163,7 +221,12 @@ function PropertyForm({
           onChange={(event) => update("title", event.target.value)}
         />
       </FormField>
-      <FormField label="Dirección" htmlFor={ids.address} error={errors.address}>
+      <FormField
+        label="Dirección"
+        htmlFor={ids.address}
+        hint={review("address")}
+        error={errors.address}
+      >
         <Input
           id={ids.address}
           value={draft.address}
@@ -171,7 +234,7 @@ function PropertyForm({
           onChange={(event) => update("address", event.target.value)}
         />
       </FormField>
-      <FormField label="Operación">
+      <FormField label="Operación" hint={review("operation")}>
         <SegmentedControl
           ariaLabel="Operación"
           options={operations}
@@ -179,7 +242,12 @@ function PropertyForm({
           onChange={(value) => update("operation", value)}
         />
       </FormField>
-      <FormField label="Zona o barrio" htmlFor={ids.zone} error={errors.zone}>
+      <FormField
+        label="Zona o barrio"
+        htmlFor={ids.zone}
+        hint={review("zone")}
+        error={errors.zone}
+      >
         <Input
           id={ids.zone}
           value={draft.zone}
@@ -188,7 +256,12 @@ function PropertyForm({
         />
       </FormField>
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Precio" htmlFor={ids.price} error={errors.price}>
+        <FormField
+        label="Precio"
+        htmlFor={ids.price}
+        hint={review("price")}
+        error={errors.price}
+      >
           <Input
             id={ids.price}
             inputMode="numeric"
@@ -197,7 +270,7 @@ function PropertyForm({
             onChange={(event) => update("price", event.target.value)}
           />
         </FormField>
-        <FormField label="Moneda">
+        <FormField label="Moneda" hint={review("currency")}>
           <SegmentedControl
             ariaLabel="Moneda"
             options={currencies}
@@ -206,7 +279,12 @@ function PropertyForm({
           />
         </FormField>
       </div>
-      <FormField label="Ambientes" htmlFor={ids.rooms} error={errors.rooms}>
+      <FormField
+        label="Ambientes"
+        htmlFor={ids.rooms}
+        hint={review("rooms")}
+        error={errors.rooms}
+      >
         <Input
           id={ids.rooms}
           inputMode="numeric"
@@ -238,6 +316,11 @@ function PropertyForm({
             Sofía las usa para ordenar las opciones y avisar antes de una visita. Lo que dejes en
             «No informado» nunca descarta a nadie.
           </p>
+          {conditionsByModel(listing) ? (
+            <p className="mt-1 text-sm text-amber-700">
+              Revisá las condiciones: algunas las leímos del texto de la publicación.
+            </p>
+          ) : null}
         </div>
         <ConditionsFields
           operation={draft.operation}
@@ -302,6 +385,163 @@ function TokkoSummary({ property }: { property: Property }) {
       >
         Ver la publicación
       </a>
+    </section>
+  );
+}
+
+/** What was read from the publication: its cover (for the preview only), title and price,
+ * and why something could not be read. */
+function ListingPreview({ listing }: { listing: ListingDraft }) {
+  const price = draftPrice(listing);
+  return (
+    <section
+      aria-label="Publicación leída"
+      className="flex flex-col gap-3 rounded-lg border bg-muted/40 p-3"
+    >
+      {listing.title || price || listing.image_url ? (
+        <div className="flex gap-3">
+          {listing.image_url ? (
+            <img
+              src={listing.image_url}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="h-20 w-24 shrink-0 rounded-md object-cover"
+            />
+          ) : null}
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm font-semibold leading-tight break-words">
+              {listing.title || "Sin título"}
+            </span>
+            {price ? <span className="text-sm">{price}</span> : null}
+            {listing.floor_area_m2 ? (
+              <span className="text-xs text-muted-foreground">{listing.floor_area_m2} m²</span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {listing.message ? (
+        <p className="text-sm" role="status">
+          {listing.message}
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Revisá los datos antes de guardar. Nada se guarda hasta que toques «Guardar».
+        </p>
+      )}
+      {listing.warnings.map((warning) => (
+        <p key={warning} className="text-sm text-amber-700">
+          {warning}
+        </p>
+      ))}
+    </section>
+  );
+}
+
+/** "Actualizar desde el link": re-read the publication (or its pasted text) and apply what
+ * changed, field by field, to the form. Saving stays the agent's. */
+function RefreshFromLink({
+  property,
+  onApply,
+}: {
+  property: Property;
+  onApply: (change: ListingFieldChange) => void;
+}) {
+  const textId = useId();
+  const [text, setText] = useState("");
+  const [applied, setApplied] = useState<string[]>([]);
+  const refresh = useMutation({
+    mutationFn: (pasted?: string) => refreshFromLink(property.id, pasted),
+    onMutate: () => setApplied([]),
+  });
+  const result = refresh.data;
+  const blocked = result?.draft.problem === "blocked";
+  return (
+    <section aria-label="Actualizar desde el link" className="flex flex-col gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-start"
+        disabled={refresh.isPending}
+        onClick={() => refresh.mutate(undefined)}
+      >
+        {refresh.isPending ? "Leyendo la publicación..." : "Actualizar desde el link"}
+      </Button>
+      {refresh.isError ? (
+        <p className="text-sm text-destructive" role="alert">
+          {apiErrorMessage(refresh.error, "No pudimos leer la publicación. Probá de nuevo.")}
+        </p>
+      ) : null}
+      {result?.draft.message ? (
+        <p className="text-sm" role="status">
+          {result.draft.message}
+        </p>
+      ) : null}
+      {blocked ? (
+        <div className="flex flex-col gap-2">
+          <label htmlFor={textId} className="text-sm font-medium">
+            Texto de la publicación
+          </label>
+          <textarea
+            id={textId}
+            rows={5}
+            value={text}
+            className="rounded-md border bg-card p-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+            onChange={(event) => setText(event.target.value)}
+          />
+          <Button
+            type="button"
+            size="sm"
+            className="self-start"
+            disabled={refresh.isPending || !text.trim()}
+            onClick={() => refresh.mutate(text)}
+          >
+            Leer texto
+          </Button>
+        </div>
+      ) : null}
+      {result && !blocked && !result.draft.message && result.changes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">La publicación dice lo mismo que acá.</p>
+      ) : null}
+      {result && result.changes.length > 0 ? (
+        <ul aria-label="Cambios en la publicación" className="flex flex-col gap-2">
+          {result.changes.map((change) => {
+            const done = applied.includes(change.field);
+            return (
+              <li
+                key={change.field}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
+              >
+                <span className="min-w-0 break-words">
+                  <span className="font-medium">{fieldLabels[change.field] ?? change.field}:</span>{" "}
+                  <span className="text-muted-foreground line-through">
+                    {changeValue(change, change.current)}
+                  </span>{" "}
+                  → {changeValue(change, change.read)}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={done}
+                  aria-label={`Aplicar ${fieldLabels[change.field] ?? change.field}`}
+                  onClick={() => {
+                    onApply(change);
+                    setApplied((current) => [...current, change.field]);
+                  }}
+                >
+                  {done ? "Aplicado" : "Aplicar"}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {applied.length > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Lo aplicado queda en el formulario: tocá «Guardar» para que quede.
+        </p>
+      ) : null}
     </section>
   );
 }

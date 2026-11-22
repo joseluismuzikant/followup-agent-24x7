@@ -26,6 +26,8 @@ class LlmOperation(StrEnum):
     COMPOSE_REPLY = "compose_reply"
     # A voice note to text (TRANSCRIBE_MODEL): billed by `audio_seconds`, no tokens.
     TRANSCRIBE = "transcribe"
+    # inmo24x7: the text of a listing page read into a property draft ("Cargar desde un link").
+    READ_LISTING = "read_listing"
 
 
 SECONDS_PER_HOUR = Decimal(3600)

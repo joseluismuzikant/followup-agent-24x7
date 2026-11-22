@@ -1,4 +1,9 @@
-import type { Property, PropertyChanges, PropertyInput } from "@followup/api-client-inmo24x7";
+import type {
+  ListingDraft,
+  Property,
+  PropertyChanges,
+  PropertyInput,
+} from "@followup/api-client-inmo24x7";
 import {
   Badge,
   Button,
@@ -30,6 +35,7 @@ import {
   updateProperty,
 } from "../api/properties";
 import { ImportDialog } from "../components/properties/ImportDialog";
+import { LinkImportDialog } from "../components/properties/LinkImportDialog";
 import { PropertyFormDialog } from "../components/properties/PropertyFormDialog";
 import { conditionBadges } from "../lib/conditions";
 import { apiErrorMessage } from "../lib/api-errors";
@@ -54,6 +60,9 @@ export function PropiedadesPage() {
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Property | "new" | null>(null);
   const [importing, setImporting] = useState(false);
+  const [readingLink, setReadingLink] = useState(false);
+  // A publication read by "Cargar desde un link": the new property's form starts from it.
+  const [listing, setListing] = useState<ListingDraft | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
   const meQuery = useQuery({ queryKey: ["me"], queryFn: fetchMe });
@@ -102,8 +111,9 @@ export function PropiedadesPage() {
   const list = listQuery.data;
   const filtering = Boolean(filters.search) || operation !== "all";
 
-  function openForm(target: Property | "new") {
+  function openForm(target: Property | "new", read: ListingDraft | null = null) {
     save.reset();
+    setListing(read);
     setEditing(target);
   }
 
@@ -115,6 +125,9 @@ export function PropiedadesPage() {
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setImporting(true)}>
               Importar CSV o Excel
+            </Button>
+            <Button variant="outline" onClick={() => setReadingLink(true)}>
+              Cargar desde un link
             </Button>
             <Button onClick={() => openForm("new")}>Agregar una</Button>
           </div>
@@ -238,10 +251,23 @@ export function PropiedadesPage() {
             : null
         }
         settings={settingsQuery.data}
+        listing={editing === "new" ? listing : null}
         onClose={() => setEditing(null)}
         onSave={(input) => save.mutate(input)}
       />
       <ImportDialog open={importing} onClose={() => setImporting(false)} />
+      <LinkImportDialog
+        open={readingLink}
+        onClose={() => setReadingLink(false)}
+        onDraft={(draft) => {
+          setReadingLink(false);
+          openForm("new", draft);
+        }}
+        onOpenExisting={(property) => {
+          setReadingLink(false);
+          openForm(property);
+        }}
+      />
     </Card>
   );
 }
