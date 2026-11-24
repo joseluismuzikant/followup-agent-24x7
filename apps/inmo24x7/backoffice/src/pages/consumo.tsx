@@ -41,6 +41,7 @@ const operationLabels: Record<string, string> = {
   extract: "Entender el mensaje",
   compose_reply: "Escribir la respuesta",
   transcribe: "Transcribir audios",
+  read_listing: "Leer publicaciones",
 };
 
 /** Consumo: LLM cost, conversations and WhatsApp templates per business, per UTC month. */

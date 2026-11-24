@@ -17,6 +17,12 @@ const messages: Record<string, string> = {
   invalid_lead_status: "Esta consulta ya cambió de estado. Recargá para ver cómo está.",
   import_too_large: "El archivo es muy grande: hasta 5 MB y 2.000 propiedades por vez.",
   lead_not_found: "No encontramos esa consulta.",
+  listing_read_limit:
+    "Leíste muchas publicaciones en la última hora. Esperá un rato o cargá la propiedad a mano.",
+  listing_text_too_short:
+    "Ese texto es muy corto. Copiá la publicación completa (Ctrl+A, Ctrl+C) y pegala acá.",
+  listing_url_invalid:
+    "Ese link no es una publicación que podamos leer. Pegá la dirección completa, que empiece con https://.",
   lead_not_whatsapp: "Solo las consultas de WhatsApp se pueden marcar como no contactar.",
   not_found: "No encontramos lo que buscabas.",
   notification_email_invalid: "Revisá los emails de aviso: ingresá entre 1 y 5 direcciones válidas.",

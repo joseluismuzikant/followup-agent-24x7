@@ -114,3 +114,7 @@ export type WidgetIntegration = components["schemas"]["WidgetRead"];
 export type WidgetInput = components["schemas"]["WidgetWrite"];
 export type IntegrationDelivery = components["schemas"]["DeliveryRead"];
 export type SyncReport = components["schemas"]["SyncReportRead"];
+// "Cargar desde un link" and "Actualizar desde el link" (Propiedades).
+export type ListingDraft = components["schemas"]["ListingDraftRead"];
+export type ListingRefresh = components["schemas"]["ListingRefreshRead"];
+export type ListingFieldChange = components["schemas"]["FieldChangeRead"];

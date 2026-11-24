@@ -62,6 +62,7 @@ from .container import (
     manage_connection_use_case,
     override_match_use_case,
     public_widget_use_case,
+    read_listing_use_case,
     reconnect_link_use_case,
     request_closure_use_case,
     resend_invitation_use_case,
@@ -188,6 +189,7 @@ def create_app() -> FastAPI:
             import_errors_use_case,
             condition_settings,
             save_condition_settings_use_case,
+            read_listing_use_case,
         )
     )
     application.include_router(

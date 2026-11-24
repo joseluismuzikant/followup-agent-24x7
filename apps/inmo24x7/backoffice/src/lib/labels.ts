@@ -47,6 +47,7 @@ const actionLabels: Record<string, string> = {
   invitation_accepted: "El dueño eligió su clave",
   agent_config_saved: "Guardó el agente",
   properties_imported: "Importó propiedades",
+  property_link_read: "Leyó una publicación (Cargar desde un link)",
   whatsapp_connected: "Conectó WhatsApp",
   whatsapp_disconnected: "Desconectó WhatsApp",
   whatsapp_error: "WhatsApp dejó de funcionar",

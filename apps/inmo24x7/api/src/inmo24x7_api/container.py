@@ -183,6 +183,7 @@ from .privacy.application import (
 )
 from .privacy.erasure import SqlAlchemyErasure
 from .product import DEFINITION, PRODUCT
+from .properties.application.listing import ReadListing
 from .properties.application.properties import (
     CreateProperty,
     GetImportErrors,
@@ -192,11 +193,15 @@ from .properties.application.properties import (
     UpdateProperty,
 )
 from .properties.domain.conditions import ConditionSettings
+from .properties.domain.listing import ListingModel, PageFetcher
+from .properties.infrastructure.listing_model import build_listing_model
+from .properties.infrastructure.page_fetcher import SafePageFetcher
 from .properties.infrastructure.repositories import (
     SqlAlchemyConditionSettingsRepository,
     SqlAlchemyPropertyImportRepository,
     SqlAlchemyPropertyRepository,
     TenantPropertySearch,
+    link_reads_since,
 )
 from .properties.infrastructure.spreadsheet import read_spreadsheet
 from .tracing import Tracing, build_tracing, turn_tracing
@@ -521,6 +526,32 @@ def import_properties_use_case(session: SessionDep) -> ImportProperties:
         SqlAlchemyPropertyImportRepository(session),
         read_spreadsheet,
         audit=SqlAlchemyAuditLog(session),
+    )
+
+
+@lru_cache
+def get_listing_model() -> ListingModel:
+    return build_listing_model(get_settings())
+
+
+def get_page_fetcher() -> PageFetcher:
+    return SafePageFetcher()
+
+
+def read_listing_use_case(
+    session: SessionDep,
+    model: Annotated[ListingModel, Depends(get_listing_model)],
+    fetcher: Annotated[PageFetcher, Depends(get_page_fetcher)],
+    usage: Annotated[LlmUsageRecorder | None, Depends(get_usage_recorder)],
+) -> ReadListing:
+    """ "Cargar desde un link" and "Actualizar desde el link"."""
+    return ReadListing(
+        SqlAlchemyPropertyRepository(session),
+        fetcher,
+        model,
+        link_reads_since(session),
+        usage,
+        SqlAlchemyAuditLog(session),
     )
 
 

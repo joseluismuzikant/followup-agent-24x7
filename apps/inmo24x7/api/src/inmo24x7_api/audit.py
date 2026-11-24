@@ -15,3 +15,7 @@ class InmoAction(StrEnum):
     INTEGRATION_CONNECTED = "integration_connected"
     INTEGRATION_UPDATED = "integration_updated"
     INTEGRATION_DISCONNECTED = "integration_disconnected"
+    # "Cargar desde un link" (properties/): one publication read ("code": read, text or the
+    # problem; "source": structured / model / both / none). Never the link. Also the
+    # per-agency rate limit's count.
+    PROPERTY_LINK_READ = "property_link_read"

@@ -32,6 +32,7 @@ Updated: 21/11/2026.
 | Integrations: Tokko Broker (property import every 6 h, qualified leads as web contacts), signed lead webhook, website script "Consultar por WhatsApp" with the property already identified | #18 |
 | Landing www.inmo24x7.com with the legal pages (privacidad, términos, eliminación de datos, acuerdo de tratamiento de datos) and the demo video | outside this repo |
 | Meta: business verified (18/11/2026); Tech Provider app review submitted (19/11/2026, up to 20 days) | outside this repo |
+| 3c: load a property from its publication link or its pasted text ("Cargar desde un link"), and "Actualizar desde el link" | — (this branch) |
 
 **Still pending from the items above:**
 
@@ -68,8 +69,8 @@ row finish without anyone touching the VM.
 - Sofía already answers with that link. Each option is its own WhatsApp message with the link
   and its preview (`leads/whatsapp.py`, `preview_url`), so WhatsApp shows the photo and title
   of the listing's own page. That is how leads see photos for now.
-- 3b (storing photos) and 3c (importing a property by reading its link) are postponed, with
-  no scraping of portals. Both moved to section 4, "Postponed".
+- 3b (storing photos) is postponed (section 4, "Postponed"). 3c (importing a property by
+  reading its link) is done: see "3c" below. No scraping of portals.
 - 3a, the full Meta integration, stays as the next objective.
 
 ### 3a. Full Meta integration
@@ -145,10 +146,10 @@ Ordered by value for the first clients. Revisit the order with their feedback.
    - an LLM model per agency, set in the backoffice only, from an allowlist of tested models;
    - cost limits per agency.
 
-### Postponed: property photos and import from a link (decision of 21/11/2026)
+### Postponed: property photos (decision of 21/11/2026)
 
 They wait because each option's link preview already shows leads the listing's own photo and
-title, and 3a is what lets real agencies use the product. No scraping of portals.
+title, and 3a is what lets real agencies use the product.
 
 #### 3b. Property images
 
@@ -179,38 +180,36 @@ title, and 3a is what lets real agencies use the product. No scraping of portals
 **Done when:** an agent uploads photos from the phone, and a lead on WhatsApp gets the
 options with their cover photos and can ask for more.
 
-#### 3c. The publication link and importing a property from it
+### 3c. Import a property from its publication link (done)
 
-**Already in the code:**
+Moved out of "Postponed" and built. The agent pastes the link of **their own** publication
+(Zonaprop, Argenprop, RE/MAX, their website) in Propiedades → "Cargar desde un link":
 
-- Every property has a required `link` (a web address), unique per agency among manual
-  listings.
-- For Tokko listings the link is Tokko's `public_url`.
-- Sofía only sends real links.
-- The website button identifies the property by its link, its id or its code.
+- `POST /properties/from-link` reads the page once, with our user agent
+  (`inmo24x7/1.0 (+https://www.inmo24x7.com)`). It is guarded against SSRF: http/https on
+  standard ports, public addresses only (checked on every redirect, at most 3, and
+  connected by the checked address), 10 s, 3 MB, `text/html`, no cookies, no retries.
+- The structured data comes first (schema.org JSON-LD, Open Graph, `<h1>`/`<title>`, meta
+  description). The model (`LLM_MODEL`, prompt `listing_extract.v1`) reads the visible text
+  only when title, operation, price, zone or rooms are still missing. Its calls are
+  `llm_usage` rows (operation `read_listing`, channel `panel`).
+- Values go through the CSV's parsing. The `link` is stored without tracking parameters.
+  The cover image is for the preview only (photos are 3b).
+- **Portals that block us** (Zonaprop answers 403): the dialog switches to "Pegar texto de
+  la publicación" and keeps the link. `POST /properties/from-text` reads the copied text
+  with the same model and mapping. The block is never worked around.
+- The form opens **pre-filled**; what the model read is marked "Revisá este dato".
+  Nothing is saved until "Guardar". A link already loaded offers "Ya cargaste esta propiedad
+  — Abrirla".
+- "Actualizar desde el link" (manual properties only) re-reads the link or a pasted text and
+  shows the changes (title, price, status…) to apply field by field.
+- Limited to 20 reads per agency and hour (`property_link_read` in the audit log, never
+  the link).
 
-**To build:** extend that `link` field; don't add a second one.
-
-- **The link as the public reference.** It is the property's page on Zonaprop, Argenprop,
-  RE/MAX, Tokko or the agency's site. It is what Sofía sends and what the website button
-  identifies. "Actualizar desde el link" re-reads it later to refresh price and status.
-- **Import from the link.** The agent pastes the link of **their own** listing (Zonaprop,
-  Argenprop, RE/MAX, their website):
-  - the server reads the page's structured data (schema.org JSON-LD, Open Graph);
-  - if that isn't enough, the LLM extracts the rest from the page text;
-  - the property form opens **pre-filled** for review, and nothing is saved without the
-    agent's confirmation;
-  - the cover photo comes from the page (3b).
-- **When the portal blocks the request,** the form opens with whatever was read and the agent
-  completes it.
-- **Limits:**
-  - only on demand, one page per request;
-  - an identified user agent;
-  - rate-limited per agency;
-  - never crawling or bulk scraping.
-
-**Done when:** pasting the link of an agency's own Zonaprop or RE/MAX listing fills the form
-with title, operation, price, currency, zone, address, rooms and cover photo.
+**To verify with the pilot agency's own links:** which portals block us besides Zonaprop.
+Which ones publish JSON-LD or Open Graph with the price and rooms. Whether Argenprop's
+and RE/MAX's titles say the zone. Whether the model keeps the price apart from the expensas
+on real texts.
 
 ## 5. Operations
 
@@ -259,7 +258,7 @@ These don't depend on code, and some take days. Start them before the item that 
 | A real agency willing to connect its number, with the WhatsApp Business app on its phone | 3a | Days |
 | A card at Meta for that agency's WABA (WhatsApp Manager) | 3a | Minutes, done by the agency |
 | Oracle Object Storage bucket and an API key for the VM | 3b (postponed) | Minutes |
-| Own listing links from the pilot agency on Zonaprop, Argenprop and RE/MAX, to test 3c | 3c (postponed) | Minutes |
+| Own listing links from the pilot agency on Zonaprop, Argenprop and RE/MAX, to verify 3c | 3c (done; verify) | Minutes |
 | A real Tokko key from an agency, to close the "to verify" list | Tokko out of beta | Days |
 | Google Cloud OAuth app with the Calendar scope (verification for sensitive scopes) | 4.3 | Days to weeks |
 | Mercado Pago subscription account | 4.5 | Days |
@@ -279,7 +278,7 @@ These don't depend on code, and some take days. Start them before the item that 
 | The app review is rejected or takes longer than 20 days | Fix what Meta asks and resubmit; meanwhile, keep connecting numbers by hand in the backoffice (it works today) |
 | Coexistence doesn't deliver the phone's replies as expected | The agent takes over from the panel's inbox (takeover works today) and Sofía pauses that conversation |
 | Templates rejected | Rewrite them as neutral utility text and resubmit early |
-| A portal blocks reading the page (3c, postponed) | The form opens with what was read and the agent completes it; never work around the block |
+| A portal blocks reading the page (3c; Zonaprop does) | The agent pastes the publication's text, or completes the form; never work around the block |
 | Image storage costs or upload sizes grow (3b, postponed) | Resize and compress on upload; keep the 5-photo limit |
 | Tokko's real API differs from the docs | The differences stay in `integrations/tokko.py`; the integration stays beta until checked |
 | Oracle ARM capacity unavailable | Google Cloud Run for the API, with the same Supabase database |
@@ -294,7 +293,7 @@ to come:
 | --- | --- |
 | 3a | S4 (live Embedded Signup, coexistence), S9 (Meta health), templates in the backoffice |
 | 3b (postponed, section 4) | S7 (photos in the form and list), S6 (thumbnails), S3 (image messages) |
-| 3c (postponed, section 4) | S7 (import from link, "Actualizar desde el link") |
+| 3c (done) | S7 ("Cargar desde un link", "Actualizar desde el link") |
 | 4.1–4.4 | S6 (follow-ups and reminders), Configuración (Google Calendar), the weekly email |
 
 ## Daily routine

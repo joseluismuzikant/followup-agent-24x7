@@ -311,6 +311,32 @@ As `dueno@inmobiliariasur.test`. The seed imports `docs/samples/propiedades.csv`
 - [ ] Inicio: "Consultas que no cumplían" and "Visitas evitadas" (this month). Simulator leads don't count, as in every KPI; the API tests cover the numbers.
 - [ ] At 390 px nothing scrolls sideways: Propiedades, the form, Configuración, Consultas and Inicio.
 
+## Load a property from its publication link (roadmap 3c)
+
+As `dueno@inmobiliariasur.test`, in Propiedades → "Cargar desde un link". Nothing is saved until "Guardar" in the form. Without `LLM_MODEL` the fake listing model reads simple patterns ("Alquiler", "$ 780.000", "2 ambientes", "Barrio: Palermo", "Dirección: …"); with a real `LLM_MODEL` it reads free text, and its calls show up in the backoffice Consumo as "Leer publicaciones".
+
+The reader refuses `localhost` and private addresses (SSRF guard), on purpose: there is no local override. To try a real page, use a public listing of an agency's **own** website; for everything else, use the text tab.
+
+- [ ] Pegar texto (works offline). Paste a link such as `https://www.zonaprop.com.ar/propiedades/prueba-1.html` and this text, then "Leer texto":
+  ```
+  Alquiler
+  $ 780.000
+  Expensas $ 60.000
+  Departamento · 2 ambientes · 45 m²
+  Dirección: Gorriti 4800
+  Barrio: Palermo
+  Seguro de caución o garantía propietaria. Contrato de 24 meses. Acepta mascotas.
+  ```
+  The form "Revisá la propiedad" opens with $ 780.000 (not the expensas), 2 ambientes, Palermo, Gorriti 4800, the guarantees, 24 months and pets; every field read says "Revisá este dato".
+- [ ] Too short: "Alquiler $ 500" → "Ese texto es muy corto…".
+- [ ] Pegar link with a public page of an agency's own site that has JSON-LD or Open Graph: the preview card shows its cover, title and price; structured fields have no "Revisá este dato" mark.
+- [ ] A Zonaprop link: Zonaprop answers 403 to our user agent. The dialog moves to "Pegar texto de la publicación", keeps the link and says "Zonaprop no deja leer la página. Abrí tu publicación, seleccioná todo (Ctrl+A), copiá (Ctrl+C) y pegalo acá."
+- [ ] Save, then paste the same link again (with `?utm_source=x` added): "Ya cargaste esta propiedad: … Abrirla" opens its form.
+- [ ] Editar a manual property → "Actualizar desde el link": the changes (price, title, status…) each have "Aplicar"; applied values go into the form and only "Guardar" stores them. When the portal blocks the link, a text box appears to paste the publication. Tokko listings don't have the button.
+- [ ] Rate limit: 20 reads per agency and hour (duplicates don't count): the 21st says "Leíste muchas publicaciones en la última hora…".
+- [ ] Backoffice → the business's activity: each read is `property_link_read` with its code and source, never the link.
+- [ ] At 390 px: the dialog's two tabs wrap, the link and text fields fit, and pasting from the phone works (long-press → "Seleccionar todo" → "Copiar" in the portal's app or site).
+
 ## Integrations: Tokko Broker, lead webhook and website button
 
 As `dueno@inmobiliariasur.test`. Nothing here talks to the real Tokko or to Zapier: `scripts/fake_integrations.py` runs a fake Tokko (port 8090) and a webhook receiver (port 8091). The formats and what is still "to verify with a real key" are in `docs/integrations.md`.

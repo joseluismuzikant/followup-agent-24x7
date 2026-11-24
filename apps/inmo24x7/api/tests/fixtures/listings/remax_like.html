@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <title>Casa en venta - Pilar | Oficina de ejemplo</title>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {"@type": "Organization", "name": "Oficina de ejemplo"},
+      {
+        "@type": ["Product", "SingleFamilyResidence"],
+        "name": "Casa 4 ambientes con jardín y pileta",
+        "image": {"@type": "ImageObject", "url": "https://img.portal.example/pilar/casa.jpg"},
+        "numberOfRooms": "4",
+        "floorSize": {"value": "180", "unitText": "m²"},
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Los Robles 350",
+          "addressLocality": "Pilar",
+          "addressRegion": "Buenos Aires"
+        },
+        "offers": {
+          "@type": "Offer",
+          "priceSpecification": {"@type": "PriceSpecification", "price": 320000, "priceCurrency": "USD"},
+          "businessFunction": "http://purl.org/goodrelations/v1#Sell"
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body><h1>Casa 4 ambientes con jardín y pileta</h1></body>
+</html>
