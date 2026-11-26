@@ -8,7 +8,9 @@ from uuid import UUID, uuid4
 from followup_core.conversation.application.threads import HandledTurn
 from followup_core.conversation.domain.thread import Channel
 from followup_core.scheduling.domain.jobs import JobQueue
+from followup_core.tenancy.domain.audit import ActorKind, AuditEvent, AuditLog
 
+from ...audit import InmoAction
 from ..domain.lead import HandOffReason, Lead, LeadStatus, Visit, VisitStatus
 from ..domain.repositories import Evaluation, LeadRepository
 from .notify import queue_lead_emails
@@ -31,10 +33,14 @@ class RecordLeadTurn:
     the lead picked, the hand-off, and the own properties the agent showed.
     """
 
-    def __init__(self, leads: LeadRepository, queue: JobQueue | None = None) -> None:
+    def __init__(
+        self, leads: LeadRepository, queue: JobQueue | None = None, audit: AuditLog | None = None
+    ) -> None:
         self._leads = leads
         # New-lead emails (real leads only); None where they are not wanted.
         self._queue = queue
+        # The agent-failure hand-off is audited (codes only).
+        self._audit = audit
 
     def on_turn(self, turn: HandledTurn) -> None:
         thread = turn.thread
@@ -68,9 +74,24 @@ class RecordLeadTurn:
         if visit:
             lead = lead.move_to(LeadStatus.VISIT_PROPOSED, at) if not lead.is_handed_off else lead
         reason = state.get("hand_off_reason")
+        newly_handed_off = bool(reason) and not lead.is_handed_off
         if reason:
             lead = lead.hand_off(HandOffReason(reason), at)
         self._leads.save(lead)
+        if (
+            newly_handed_off
+            and reason == HandOffReason.AGENT_FAILURE.value
+            and self._audit is not None
+        ):
+            self._audit.record(
+                AuditEvent(
+                    lead.tenant_id,
+                    at,
+                    ActorKind.SYSTEM,
+                    InmoAction.AGENT_FAILURE_HAND_OFF,
+                    {"code": turn.termination_reason},
+                )
+            )
 
         if visit:
             self._record_visit(lead.id, visit, at)

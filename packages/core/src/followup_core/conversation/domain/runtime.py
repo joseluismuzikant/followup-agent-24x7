@@ -35,6 +35,10 @@ class TurnMetrics:
     model: str = ""
     prompt_versions: dict[str, str] = field(default_factory=dict)
     usage: TokenUsage = TokenUsage()
+    # The execution guard's count for the turn (estimated tokens included).
+    model_calls: int = 0
+    tokens: int = 0
+    elapsed_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +50,9 @@ class AgentTurn:
     # The graph read this turn's message as "don't write to me again" ("BAJA"): the
     # channel sets the contact's do-not-contact flag.
     opt_out: bool = False
+    # Why the turn ended ("completed", "turn_deadline", "agent_failure", ...; see
+    # application/execution_guard.TerminationReason). Codes only.
+    termination_reason: str = "completed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +67,9 @@ class TurnInput:
     choice_id: str | None = None
     # How to reach the visitor when the channel already knows it (WhatsApp: their number).
     visitor_contact: str | None = None
+    # The channel's last attempt at this turn (the inbound job has no retry left): a model
+    # outage runs the turn degraded and hands off instead of failing silently.
+    final_attempt: bool = False
 
 
 class AgentRuntime(Protocol):

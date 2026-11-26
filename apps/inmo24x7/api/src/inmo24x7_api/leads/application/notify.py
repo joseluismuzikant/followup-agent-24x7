@@ -156,6 +156,15 @@ class SendLeadEmail:
                 )
             elif lead.hand_off_reason is HandOffReason.HUMAN:
                 headline = "Pidió hablar con alguien del equipo."
+            elif lead.hand_off_reason is HandOffReason.STALLED:
+                headline = (
+                    "La conversación no avanzaba: el asistente te la pasó para que la sigas vos."
+                )
+            elif lead.hand_off_reason is HandOffReason.AGENT_FAILURE:
+                headline = (
+                    "El asistente no estaba disponible: le avisamos que una persona del equipo "
+                    "le escribe. Respondele vos."
+                )
             else:
                 headline = "Dejó sus datos para que alguien del equipo lo contacte."
         else:

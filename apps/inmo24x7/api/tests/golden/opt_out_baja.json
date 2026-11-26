@@ -1,0 +1,84 @@
+{
+  "description": "A plain BAJA: the fixed confirmation and nothing else, without a model call.",
+  "intents": [
+    "greet",
+    "ask"
+  ],
+  "model_calls": 4,
+  "state": {
+    "answers": {
+      "operation": "alquiler"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": null,
+    "chosen_property_ids": [],
+    "condition_events": [],
+    "last_intent": "ask",
+    "progress": {
+      "answered_keys_count": 1,
+      "chosen_count": 0,
+      "last_intent": "ask",
+      "last_progress_turn": 2,
+      "same_intent_turns": 1,
+      "stage": "qualifying"
+    },
+    "property_matches": {},
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_opt_out": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 3
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Te ayudo a encontrar tu próxima propiedad. Contame: ¿si busca comprar o alquilar? (compra / alquiler)"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Quiero alquilar"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿zona o barrio?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "BAJA"
+      },
+      "opt_out": true,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Listo, no te vamos a escribir más. Si algún día querés volver a consultar, escribinos."
+        }
+      ]
+    }
+  ]
+}

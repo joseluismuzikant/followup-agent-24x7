@@ -1,0 +1,246 @@
+{
+  "description": "The decisive question (garantía), then the requirement said plainly; the lead cannot meet it: the fitting option is suggested.",
+  "intents": [
+    "greet",
+    "ask",
+    "present_options",
+    "ask",
+    "ask",
+    "requirement_check",
+    "offer_fitting"
+  ],
+  "model_calls": 13,
+  "state": {
+    "answers": {
+      "garantia": "ninguna",
+      "operation": "alquiler",
+      "plazo_meses": 1,
+      "zone": "Palermo"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": null,
+    "chosen_property_ids": [
+      "00000000-0000-0000-0000-000000000001"
+    ],
+    "condition_events": [
+      {
+        "kind": "mismatch",
+        "property_id": "00000000-0000-0000-0000-000000000001"
+      },
+      {
+        "kind": "visit_avoided",
+        "property_id": "00000000-0000-0000-0000-000000000001"
+      }
+    ],
+    "gate_asked": [
+      "garantia"
+    ],
+    "last_intent": "offer_fitting",
+    "offered_cards": [
+      {
+        "address": "Honduras 4800",
+        "conditions": {},
+        "id": "00000000-0000-0000-0000-000000000002",
+        "label": "2 ambientes · Honduras 4800",
+        "link": "https://x.test/honduras",
+        "operation": "rent",
+        "price_label": "$900.000 por mes",
+        "rooms": 2,
+        "title": "2 ambientes",
+        "zone": "Palermo"
+      },
+      {
+        "address": "Gorriti 4800",
+        "conditions": {
+          "contrato_minimo_meses": 24,
+          "garantias": [
+            "caucion"
+          ]
+        },
+        "id": "00000000-0000-0000-0000-000000000001",
+        "label": "2 ambientes · Gorriti 4800",
+        "link": "https://x.test/gorriti",
+        "operation": "rent",
+        "price_label": "$800.000 por mes",
+        "rooms": 2,
+        "title": "2 ambientes",
+        "zone": "Palermo"
+      }
+    ],
+    "pending_card": null,
+    "progress": {
+      "answered_keys_count": 4,
+      "chosen_count": 1,
+      "last_intent": "offer_fitting",
+      "last_progress_turn": 5,
+      "same_intent_turns": 1,
+      "stage": "property_chosen"
+    },
+    "properties_presented": true,
+    "property_matches": {
+      "00000000-0000-0000-0000-000000000001": {
+        "accepted": [],
+        "failed": [
+          {
+            "asks": "pide seguro de caución",
+            "reason": "pide seguro de caución; no tiene garantía",
+            "requirement": "garantia"
+          },
+          {
+            "asks": "pide contrato de 2 años",
+            "reason": "pide contrato de 2 años; busca 1 mes",
+            "requirement": "contrato_minimo"
+          }
+        ],
+        "features": [],
+        "notes": [],
+        "status": "no_cumple"
+      },
+      "00000000-0000-0000-0000-000000000002": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      }
+    },
+    "requirement_check": null,
+    "requirements_asked": [
+      "00000000-0000-0000-0000-000000000001:garantia"
+    ],
+    "shown_property_ids": [
+      "00000000-0000-0000-0000-000000000002",
+      "00000000-0000-0000-0000-000000000001"
+    ],
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 6
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Te ayudo a encontrar tu próxima propiedad. Contame: ¿si busca comprar o alquilar? (compra / alquiler)"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Quiero alquilar por 1 mes"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿zona o barrio?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Palermo"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": {
+            "cards": [
+              {
+                "address": "Honduras 4800",
+                "id": "00000000-0000-0000-0000-000000000002",
+                "is_sample": false,
+                "link": "https://x.test/honduras",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$900.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes",
+                "zone": "Palermo"
+              },
+              {
+                "address": "Gorriti 4800",
+                "id": "00000000-0000-0000-0000-000000000001",
+                "is_sample": false,
+                "link": "https://x.test/gorriti",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$800.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes",
+                "zone": "Palermo"
+              }
+            ]
+          },
+          "text": "¡Mirá estas opciones que te pueden gustar!"
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Me interesa la de Gorriti"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿qué garantía tiene para alquilar? (propietaria / caucion / recibo_de_sueldo / otra / ninguna)"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "No tengo garantía"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Antes de coordinar: esta propiedad pide seguro de caución. ¿Podrías cumplir con eso?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "no puedo"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Entendido! Entonces te pueden servir 2 ambientes · Honduras 4800. ¿Querés visitar alguna?"
+        }
+      ]
+    }
+  ]
+}

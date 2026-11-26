@@ -1,0 +1,204 @@
+{
+  "description": "A burst on WhatsApp: a text and a transcribed voice note, read together in one turn.",
+  "intents": [
+    "greet",
+    "present_options",
+    "ask",
+    "offer_slots"
+  ],
+  "model_calls": 6,
+  "state": {
+    "answers": {
+      "operation": "alquiler",
+      "zone": "Palermo"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": null,
+    "chosen_property_ids": [
+      "palermo-honduras-mono"
+    ],
+    "condition_events": [],
+    "contact": "+54 9 11 5555-0188",
+    "last_intent": "offer_slots",
+    "offered_cards": [
+      {
+        "address": "Honduras 5600, Palermo",
+        "conditions": {},
+        "id": "palermo-honduras-mono",
+        "label": "Monoambiente a estrenar · Honduras 5600, Palermo",
+        "link": "/ejemplo/palermo-honduras-mono",
+        "operation": "rent",
+        "price_label": "$620.000 por mes",
+        "rooms": 1,
+        "title": "Monoambiente a estrenar",
+        "zone": "Palermo"
+      },
+      {
+        "address": "Güemes 4300, Palermo",
+        "conditions": {},
+        "id": "palermo-guemes-2amb-alq",
+        "label": "2 ambientes amoblado · Güemes 4300, Palermo",
+        "link": "/ejemplo/palermo-guemes-2amb-alq",
+        "operation": "rent",
+        "price_label": "$850.000 por mes",
+        "rooms": 2,
+        "title": "2 ambientes amoblado",
+        "zone": "Palermo"
+      }
+    ],
+    "pending_card": null,
+    "progress": {
+      "answered_keys_count": 2,
+      "chosen_count": 1,
+      "last_intent": "offer_slots",
+      "last_progress_turn": 2,
+      "same_intent_turns": 1,
+      "stage": "visit_offered"
+    },
+    "properties_presented": true,
+    "property_matches": {
+      "palermo-guemes-2amb-alq": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      },
+      "palermo-honduras-mono": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      }
+    },
+    "shown_property_ids": [
+      "palermo-honduras-mono",
+      "palermo-guemes-2amb-alq"
+    ],
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 2,
+    "visit_offer": {
+      "property_id": "palermo-honduras-mono",
+      "property_label": "Monoambiente a estrenar · Honduras 5600, Palermo",
+      "slots": [
+        {
+          "id": "slot-202611031330",
+          "label": "martes 3/11, 13:30",
+          "short_label": "mar 3/11 13:30",
+          "starts_at": "2026-11-03T13:30:00-03:00"
+        },
+        {
+          "id": "slot-202611031630",
+          "label": "martes 3/11, 16:30",
+          "short_label": "mar 3/11 16:30",
+          "starts_at": "2026-11-03T16:30:00-03:00"
+        }
+      ]
+    }
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "burst": [
+          [
+            "text",
+            "hola"
+          ],
+          [
+            "audio",
+            "busco un dos ambientes para alquilar en Palermo"
+          ]
+        ]
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Buenísimo, te busco opciones de alquiler en Palermo."
+        },
+        {
+          "author": "agent",
+          "payload": {
+            "cards": [
+              {
+                "address": "Honduras 5600, Palermo",
+                "id": "palermo-honduras-mono",
+                "is_sample": true,
+                "link": "/ejemplo/palermo-honduras-mono",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$620.000 por mes",
+                "rooms": 1,
+                "title": "Monoambiente a estrenar",
+                "zone": "Palermo"
+              },
+              {
+                "address": "Güemes 4300, Palermo",
+                "id": "palermo-guemes-2amb-alq",
+                "is_sample": true,
+                "link": "/ejemplo/palermo-guemes-2amb-alq",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$850.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes amoblado",
+                "zone": "Palermo"
+              }
+            ]
+          },
+          "text": "¡Mirá estas opciones que te pueden gustar!"
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "burst": [
+          [
+            "audio",
+            "me interesa la primera"
+          ]
+        ]
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": {
+            "slots": [
+              {
+                "id": "slot-202611031330",
+                "label": "martes 3/11, 13:30",
+                "short_label": "mar 3/11 13:30"
+              },
+              {
+                "id": "slot-202611031630",
+                "label": "martes 3/11, 16:30",
+                "short_label": "mar 3/11 16:30"
+              }
+            ]
+          },
+          "text": "¡Buenísimo! Para ver Monoambiente a estrenar · Honduras 5600, Palermo te propongo martes 3/11, 13:30 o martes 3/11, 16:30. ¿Cuál te queda mejor?"
+        }
+      ]
+    }
+  ]
+}

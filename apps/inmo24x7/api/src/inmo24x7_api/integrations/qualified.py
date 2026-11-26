@@ -83,6 +83,8 @@ def summary(
         sentences.append("Le interesa: " + "; ".join(item.title for item in chosen) + ".")
     if lead.hand_off_reason is HandOffReason.HUMAN:
         sentences.append("Pidió hablar con alguien del equipo.")
+    elif lead.hand_off_reason in (HandOffReason.STALLED, HandOffReason.AGENT_FAILURE):
+        sentences.append("El asistente no pudo seguir la conversación: necesita una persona.")
     if lead.source == WEB_BUTTON:
         sentences.append("Llegó por el botón de la web.")
     if lead.do_not_contact:

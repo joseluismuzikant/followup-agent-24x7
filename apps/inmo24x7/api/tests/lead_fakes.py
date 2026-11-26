@@ -1,13 +1,15 @@
 """Runs the inmo24x7 lead graph through the real LangGraph runtime, with the fake LLM, an
 in-memory checkpointer and a pinned clock, so whole conversations are deterministic."""
 
-from collections.abc import Sequence
+import time as monotonic_time
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, time
 from typing import Any
 from uuid import UUID, uuid4
 
-from followup_core.conversation.domain.llm import ReplyRequest
-from followup_core.conversation.domain.runtime import BusinessContext, TurnInput
+from followup_core.conversation.application.execution_guard import ExecutionLimits
+from followup_core.conversation.domain.llm import ReplyRequest, TranscriptLine
+from followup_core.conversation.domain.runtime import AgentTurn, BusinessContext, TurnInput
 from followup_core.conversation.domain.thread import Channel, Thread, ThreadKey, ThreadStatus
 from followup_core.conversation.infrastructure.fake_llm import FakeLanguageModel
 from followup_core.conversation.infrastructure.langgraph_runtime import (
@@ -74,6 +76,8 @@ class Chat:
         tracing: TurnTracing | None = None,
         visitor_contact: str | None = None,
         llm: RecordingLlm | None = None,
+        limits: ExecutionLimits | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self.visitor_contact = visitor_contact
         self.config = config
@@ -85,7 +89,10 @@ class Chat:
             self.llm,
             tracing,
             self._recording_tools(search or ListingSearch()),
+            limits=limits,
+            clock=clock or monotonic_time.monotonic,
         )
+        self.last_turn: AgentTurn | None = None
         tenant_id = uuid4()
         self.thread = Thread(
             uuid4(),
@@ -113,19 +120,28 @@ class Chat:
 
         return registry.wrapped(lambda tool: record(tool.name))
 
-    def say(self, text: str, choice_id: str | None = None) -> list[dict[str, Any]]:
+    def say(
+        self,
+        text: str,
+        choice_id: str | None = None,
+        *,
+        final_attempt: bool = False,
+        transcript: Sequence[TranscriptLine] = (),
+    ) -> list[dict[str, Any]]:
         turn = self.runtime.handle(
             self.thread,
             TurnInput(
                 self.config,
                 self.business,
-                [],
+                list(transcript),
                 text,
                 now=self.now,
                 choice_id=choice_id,
                 visitor_contact=self.visitor_contact,
+                final_attempt=final_attempt,
             ),
         )
+        self.last_turn = turn
         messages = [
             {
                 "text": m.text,

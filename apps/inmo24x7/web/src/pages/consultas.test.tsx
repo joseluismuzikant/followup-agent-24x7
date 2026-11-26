@@ -250,6 +250,22 @@ describe("ConsultasPage", () => {
     expect(within(panel).getByText("Espera tu confirmación")).toBeTruthy();
   });
 
+  it("says why the agent passed on a conversation it could not carry on", async () => {
+    vi.mocked(fetchLead).mockResolvedValue(
+      detail({ status: "human_requested", hand_off_reason: "stalled" }),
+    );
+    renderPage("/consultas?lead=l1");
+
+    const panel = await screen.findByRole("complementary", { name: "Detalle de la consulta" });
+    expect(await within(panel).findByText("La conversación no avanzaba")).toBeTruthy();
+
+    vi.mocked(fetchLead).mockResolvedValue(
+      detail({ id: "l3", status: "human_requested", hand_off_reason: "agent_failure" }),
+    );
+    renderPage("/consultas?lead=l3");
+    expect(await screen.findByText("El asistente no estaba disponible")).toBeTruthy();
+  });
+
   it("asks to take the conversation before replying", async () => {
     const user = userEvent.setup();
     vi.mocked(takeOverLead).mockResolvedValue(

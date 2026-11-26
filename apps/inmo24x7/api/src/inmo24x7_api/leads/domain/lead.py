@@ -36,6 +36,12 @@ class HandOffReason(StrEnum):
     HUMAN = "human"  # the lead asked for a person
     VISIT = "visit"  # picked a visit slot and left contact details
     QUALIFIED = "qualified"  # answered everything without picking a visit
+    STALLED = "stalled"  # the conversation stopped moving forward (leads/progress.py)
+    AGENT_FAILURE = "agent_failure"  # the model was down on the message's last attempt
+
+
+# Hand-offs where the lead waits for a person (status "Pidió hablar con alguien").
+PERSON_NEEDED = frozenset({HandOffReason.HUMAN, HandOffReason.STALLED, HandOffReason.AGENT_FAILURE})
 
 
 WEB_BUTTON = "web_button"  # "Web — botón": the website's "Consultar por WhatsApp"
@@ -150,9 +156,10 @@ class Lead:
         return replace(self, status=status, history=(*self.history, StatusChange(status, at)))
 
     def hand_off(self, reason: HandOffReason, at: datetime) -> "Lead":
-        """Once per lead; a person asking for help also moves the status."""
+        """Once per lead; a person asking for help (or a conversation the agent could not
+        carry on) also moves the status."""
         lead = self
-        if reason is HandOffReason.HUMAN:
+        if reason in PERSON_NEEDED:
             lead = lead.move_to(LeadStatus.HUMAN_REQUESTED, at)
         if lead.is_handed_off:
             return lead

@@ -19,3 +19,6 @@ class InmoAction(StrEnum):
     # problem; "source": structured / model / both / none). Never the link. Also the
     # per-agency rate limit's count.
     PROPERTY_LINK_READ = "property_link_read"
+    # The lead agent (leads/graph.py): the model was down on a message's last attempt, so the
+    # conversation went to the team with a fixed reply. Codes only ("reason"), never text.
+    AGENT_FAILURE_HAND_OFF = "agent_failure_hand_off"

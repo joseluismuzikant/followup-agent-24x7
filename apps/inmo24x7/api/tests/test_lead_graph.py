@@ -238,10 +238,13 @@ def test_after_the_hand_off_the_agent_never_proposes_a_visit_again() -> None:
     chat.say("ana@example.com")
     cards = [card["id"] for card in chat.turns[2][0]["cards"]]
 
-    for text in ["¿Tienen algo en Belgrano?", f"Me gusta la de {cards[1]}"]:
-        (reply,) = chat.say(text)
-        assert reply["slots"] is None and reply["cards"] is None
-        assert chat.intents()[-1] == "after_hand_off"
+    (reply,) = chat.say("¿Tienen algo en Belgrano?")
+    assert reply["slots"] is None and reply["cards"] is None
+    assert chat.intents()[-1] == "after_hand_off"
+    # Later messages within 12 hours: stored for the team, unanswered, no model call.
+    calls = chat.llm.calls
+    assert chat.say(f"Me gusta la de {cards[1]}") == []
+    assert chat.llm.calls == calls
     assert chat.state()["visit_offer"]["property_id"] == cards[0]
 
 

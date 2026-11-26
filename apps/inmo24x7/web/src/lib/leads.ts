@@ -15,6 +15,12 @@ export const leadStatusTones: Record<LeadStatus, "info" | "warning" | "danger" |
   visit_confirmed: "success",
 };
 
+/** Why the agent passed the conversation on, when it could not carry it on itself. */
+export const handOffReasonLabels: Partial<Record<string, string>> = {
+  stalled: "La conversación no avanzaba",
+  agent_failure: "El asistente no estaba disponible",
+};
+
 export const deliveryLabels: Record<DeliveryStatus, string> = {
   queued: "Enviando",
   sent: "Enviado",

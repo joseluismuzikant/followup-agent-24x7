@@ -1,6 +1,20 @@
 """The inmo24x7 lead graph.
 
-START -> extract -> respond -> END, once per inbound message.
+START -> guard_input -> extract -> respond -> guard_output -> END, once per inbound message.
+
+The governing rule: the model proposes text and values; this module decides, validates,
+limits and persists. Limits, counters and termination are never in a prompt, never a model
+output, and never changed by one.
+
+- guard_input: the message normalised (core guards), suspicious patterns logged (codes
+  only, never blocked), values from older checkpoints checked again.
+- extract: one model call for values, validated here; only `EXTRACT_KEYS` are written.
+- respond: `plan_turn` decides the steps; the model words each one. A turn that hit a limit
+  (conversation/application/execution_guard.py) or whose model is down on the message's last
+  attempt is worded with `safe_texts`.
+- guard_output: every outbound text checked (length, links, contacts, income, grounding of
+  answers); a failing one is replaced by its fixed text. Progress and the per-turn keys are
+  settled here, at the end of the turn.
 
 The flow is decided here in code (`plan_turn`); the language model only reads values out of
 the message (`extract`) and words each reply for an intent this module chose. Tools come from
@@ -23,22 +37,41 @@ the registry in `tools.py`. Rules enforced here, not in prompts:
   visit times; the lead's source is "web_button".
 """
 
-from collections.abc import Sequence
+import logging
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, NotRequired, TypedDict
 
+from followup_core.conversation.application.execution_guard import (
+    ExecutionStopped,
+    TerminationReason,
+)
 from followup_core.conversation.domain.answers import normalize, parse_answer
+from followup_core.conversation.domain.errors import LlmUnavailableError
+from followup_core.conversation.domain.guards import (
+    find_amounts,
+    find_contacts,
+    find_urls,
+    mentions_income,
+    normalize_inbound,
+    sanitize_untrusted,
+    suspicion_flags,
+)
 from followup_core.conversation.domain.llm import (
     CONTACT_KEY,
     NAME_KEY,
     Choice,
+    Extraction,
     ExtractionRequest,
     ReplyIntent,
     ReplyRequest,
 )
 from followup_core.conversation.infrastructure.langgraph_runtime import GraphContext
 from followup_core.messaging.domain.opt_out import OPT_OUT_CONFIRMATION, is_opt_out
-from followup_core.tenancy.domain.agent_config import QualificationQuestion
+from followup_core.tenancy.domain.agent_config import QualificationQuestion, QuestionKind
+from followup_core.tenancy.domain.business_settings import ScheduleBlock, is_within_hours
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
@@ -47,6 +80,7 @@ from ..properties.domain.conditions import (
     MatchStatus,
     PropertyConditions,
     common_failure,
+    condition_phrases,
     evaluate,
 )
 from ..properties.domain.property import Currency, Operation
@@ -65,6 +99,14 @@ from .conditions import (
 )
 from .display import money, price_label
 from .domain.lead import HandOffReason
+from .progress import (
+    AFTER_HAND_OFF_QUIET_HOURS,
+    REPEATED_INTENT_TURNS,
+    StallAction,
+    advance,
+    stall_decision,
+)
+from .safe_texts import AGENT_FAILURE_TEXT, DEFERRED_ANSWER, safe_text
 from .tools import (
     CONDITION_POLICY,
     FIND_REFERENCED_PROPERTY,
@@ -90,7 +132,41 @@ REQUIRED_FILTERS = ("operation", "zone")
 SALE_ONLY_QUESTIONS = frozenset({"mortgage_approved"})
 _ORDINALS = ("primera", "segunda", "tercera")
 MAX_CONTACT_LENGTH = 120
-MAX_NAME_LENGTH = 80
+# A name: letters, spaces, apostrophes and hyphens only, at most four words.
+MAX_NAME_LENGTH = 40
+MAX_NAME_WORDS = 4
+# A free-text answer (a zone): short, without links or role markers.
+MAX_TEXT_ANSWER = 60
+# Property strings that reach a prompt (titles and addresses are imported from CSV, Tokko
+# or a portal page: untrusted).
+MAX_PROPERTY_TEXT = 120
+MAX_CONDITIONS_NOTE = 300
+# An outbound text longer than this is replaced by its fixed text.
+MAX_REPLY_LENGTH = 700
+# The yes / no to OFFER_HUMAN ("¿Querés que te contacte una persona del equipo?").
+QUIERE_PERSONA = "quiere_persona"
+OFFER_HUMAN_QUESTION = QualificationQuestion(
+    QUIERE_PERSONA, "Si quiere que lo contacte una persona del equipo", QuestionKind.BOOLEAN
+)
+# Answers the lead may change later, and that search again (1.4).
+REFINABLE_KEYS = ("operation", "zone", "rooms", "budget")
+# Reply intents whose message asks something (OFFER_HUMAN replaces the turn's question).
+ASKING_INTENTS = frozenset(
+    {
+        ReplyIntent.ASK,
+        ReplyIntent.ASK_NAME,
+        ReplyIntent.ASK_CONTACT,
+        ReplyIntent.INVALID_CONTACT,
+        ReplyIntent.OFFER_VISIT,
+        ReplyIntent.OFFER_SLOTS,
+        ReplyIntent.REQUIREMENT_CHECK,
+        ReplyIntent.REQUIREMENT_CONFIRM,
+        ReplyIntent.OFFER_FITTING,
+    }
+)
+
+logger = logging.getLogger("inmo24x7.lead_agent")
+_NAME = re.compile(r"^[^\W\d_]+(?:['’ -][^\W\d_]+)*$")
 
 
 class LeadState(TypedDict):
@@ -146,6 +222,51 @@ class LeadState(TypedDict):
     lead_source: NotRequired[str | None]
     # The card the first message named (the website button); Sofía greets naming it.
     referenced_card: NotRequired[str | None]
+    # Per turn (guard_input and extract set them; guard_output resets them): suspicious
+    # patterns (codes), whether the lead asked something and about what, whether they
+    # changed a search answer, and the model being down on the message's last attempt.
+    turn_flags: NotRequired[list[str]]
+    turn_needs_answer: NotRequired[bool]
+    turn_topic: NotRequired[str | None]
+    turn_refine_search: NotRequired[bool]
+    turn_agent_failure: NotRequired[bool]
+    # Questions answered from the data, and deferred to the team ("lo consulto").
+    answers_given: NotRequired[int]
+    answers_deferred: NotRequired[int]
+    # leads/progress.py: {stage, answered_keys_count, chosen_count, last_progress_turn,
+    # last_intent, same_intent_turns}.
+    progress: NotRequired[dict[str, Any]]
+    # OFFER_HUMAN was asked (once per conversation).
+    stall_offered: NotRequired[bool]
+    # When the last reply after the hand-off went out (ISO datetime).
+    after_hand_off_replied_at: NotRequired[str | None]
+    # Transient: why the turn ended (the trace's outputs; never part of the snapshot).
+    termination_reason: NotRequired[str]
+
+
+# What `extract` may write. Anything else a model returns never reaches the state.
+EXTRACT_KEYS = frozenset(
+    {
+        "turn_opt_out",
+        "turn_choice",
+        "turn_wants_human",
+        "turn_contact_invalid",
+        "turn_can_meet",
+        "turn_wants_alternatives",
+        "turn_needs_answer",
+        "turn_topic",
+        "turn_refine_search",
+        "turn_agent_failure",
+        "answers",
+        "visitor_name",
+        "contact",
+        "lead_source",
+        "offered_cards",
+        "shown_property_ids",
+        "properties_presented",
+        "referenced_card",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +279,12 @@ class Step:
     failure: dict[str, Any] | None = None
     # PRESENT_OPTIONS again after the lead accepted a requirement ("nothing fits": yes).
     again: bool = False
+    # PRESENT_OPTIONS again because the lead changed a search answer.
+    refine: bool = False
+    # HAND_OFF: the reason when the planner decides it (stalled, agent failure).
+    reason: HandOffReason | None = None
+    # Logged when the conversation stalled ("conversation_stalled" / "conversation_limit").
+    stall: str | None = None
 
 
 def enabled_questions(context: GraphContext) -> list[QualificationQuestion]:
@@ -291,24 +418,112 @@ def _changes_visit(state: LeadState, slot: dict[str, Any] | None) -> bool:
     )
 
 
+def _answers_now(state: LeadState) -> bool:
+    """ANSWER_QUESTION goes first: the lead asked something, did not opt out, the thread is
+    not with a person on their request, and the message is not only a tapped button."""
+    return (
+        bool(state.get("turn_needs_answer"))
+        and not state.get("turn_opt_out")
+        and state.get("hand_off_reason") != HandOffReason.HUMAN.value
+    )
+
+
+def _progressing(state: LeadState) -> bool:
+    """This turn's own message already moves the conversation: a new answer, a pick, a
+    changed search or the answer to a requirement."""
+    progress = state.get("progress") or {}
+    known = progress.get("answered_keys_count")
+    return (
+        (known is not None and len(state.get("answers") or {}) > int(known))
+        or state.get("turn_choice") is not None
+        or bool(state.get("turn_refine_search"))
+        or state.get("turn_can_meet") is not None
+        or state.get("turn_wants_alternatives") is not None
+    )
+
+
 def plan_turn(
     state: LeadState,
     questions: Sequence[QualificationQuestion],
     policy: ConditionPolicy | None = None,
 ) -> list[Step]:
     """The intents of this turn, in order. Each step becomes one outbound message, and only
-    one step per turn asks something, so a message never asks two things."""
-    policy = policy or ConditionPolicy()
-    first_turn = state.get("turns", 0) == 0
-    choice = state.get("turn_choice")
-    slot = _slot(state, choice)
+    one step per turn asks something, so a message never asks two things.
+
+    Around the flow (`_flow_steps`): the model being down on the last attempt hands off; an
+    answer to the lead's question goes first (it asks nothing); a conversation that stopped
+    moving offers a person once (instead of the turn's own question) and later hands off
+    (leads/progress.py)."""
+    if state.get("turn_agent_failure"):
+        return [Step(ReplyIntent.HAND_OFF, reason=HandOffReason.AGENT_FAILURE)]
+    answer = _answers_now(state)
     if state.get("hand_off_reason"):
         # Changing the time of the visit already proposed is still possible.
-        if _changes_visit(state, slot) and not state.get("turn_wants_human"):
+        if _changes_visit(state, _slot(state, state.get("turn_choice"))) and not state.get(
+            "turn_wants_human"
+        ):
             return [Step(ReplyIntent.SLOT_CHOSEN)]
-        return [Step(ReplyIntent.AFTER_HAND_OFF)]
+        # After a hand-off it may answer, but it never proposes anything.
+        return [Step(ReplyIntent.ANSWER_QUESTION if answer else ReplyIntent.AFTER_HAND_OFF)]
+    first_turn = state.get("turns", 0) == 0
     if state.get("turn_wants_human"):
         return _with_greeting([Step(ReplyIntent.HAND_OFF)], first_turn)
+
+    steps = _flow_steps(state, questions, policy or ConditionPolicy())
+    progress = state.get("progress") or {}
+    repeated = (
+        not _progressing(state)
+        and steps[-1].intent is not ReplyIntent.AFTER_HAND_OFF
+        and steps[-1].intent.value == progress.get("last_intent")
+        and int(progress.get("same_intent_turns") or 0) + 1 >= REPEATED_INTENT_TURNS
+    )
+    decision = stall_decision(state, progressing=_progressing(state), repeated=repeated)
+    if decision.action is StallAction.HAND_OFF:
+        return [Step(ReplyIntent.HAND_OFF, reason=HandOffReason.STALLED, stall=decision.reason)]
+    if answer:
+        steps = _answer_first(steps)
+    if decision.action is StallAction.OFFER_HUMAN:
+        steps = _offer_human_instead(steps, decision.reason)
+    return steps
+
+
+def _answer_first(steps: list[Step]) -> list[Step]:
+    """The answer right after the greeting (a greeting that asks gives its question to its
+    own step, after the answer)."""
+    answer = Step(ReplyIntent.ANSWER_QUESTION)
+    if steps and steps[0].intent is ReplyIntent.GREET:
+        greet = steps[0]
+        rest = steps[1:]
+        if greet.question is not None:
+            rest = [Step(ReplyIntent.ASK, greet.question), *rest]
+        return [Step(ReplyIntent.GREET), answer, *rest]
+    return [answer, *steps]
+
+
+def _offer_human_instead(steps: list[Step], reason: str | None) -> list[Step]:
+    """OFFER_HUMAN replaces the turn's own question; a turn that asks nothing (a hand-off,
+    nothing fits) gets nothing extra."""
+    last = steps[-1]
+    offer = Step(ReplyIntent.OFFER_HUMAN, stall=reason)
+    if last.intent is ReplyIntent.GREET and last.question is not None:
+        return [*steps[:-1], Step(ReplyIntent.GREET), offer]
+    if last.intent in ASKING_INTENTS:
+        return [*steps[:-1], offer]
+    return steps
+
+
+def _flow_steps(
+    state: LeadState,
+    questions: Sequence[QualificationQuestion],
+    policy: ConditionPolicy,
+) -> list[Step]:
+    first_turn = state.get("turns", 0) == 0
+    if state.get("turn_refine_search"):
+        # A changed search answer starts the options again: whatever was pending about the
+        # old ones (a requirement, a decisive question, "nothing fits") is dropped.
+        state = {**state, "requirement_check": None, "pending_card": None, "relax_offer": None}
+    choice = state.get("turn_choice")
+    slot = _slot(state, choice)
 
     steps: list[Step] = []
     visit = bool(state.get("visit"))
@@ -367,6 +582,9 @@ def plan_turn(
     )
     if filters_ready and not state.get("properties_presented") and not relaxed:
         steps.append(Step(ReplyIntent.PRESENT_OPTIONS))
+    elif state.get("turn_refine_search") and not relaxed:
+        # Even after the options were shown: the search runs again with the new answers.
+        steps.append(Step(ReplyIntent.PRESENT_OPTIONS, refine=True))
     if pending is not None and not visit:
         steps.append(Step(ReplyIntent.ASK, pending))
     elif not state.get("visitor_name"):
@@ -431,8 +649,87 @@ def _clean(value: str | None, limit: int) -> str | None:
     return text if 0 < len(text) <= limit else None
 
 
-def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
+def clean_name(value: str | None) -> str | None:
+    """A name as it may be stored and repeated to the lead: letters, spaces, apostrophes
+    and hyphens, at most MAX_NAME_LENGTH characters and MAX_NAME_WORDS words, and nothing
+    that reads as an instruction. Anything else is not a name (the agent asks again)."""
+    text = _clean(normalize_inbound(value or ""), MAX_NAME_LENGTH)
+    if text is None or not _NAME.fullmatch(text) or len(text.split()) > MAX_NAME_WORDS:
+        return None
+    return None if suspicion_flags(text) else text
+
+
+def clean_text_answer(value: Any) -> str | None:
+    """A free-text answer (a zone): short, without links or role markers."""
+    if not isinstance(value, str):
+        return None
+    text = _clean(normalize_inbound(value), MAX_TEXT_ANSWER)
+    if text is None or find_urls(text) or suspicion_flags(text) - {"url"}:
+        return None
+    return text
+
+
+def _text_keys(questions: Sequence[QualificationQuestion]) -> set[str]:
+    return {q.key for q in questions if q.kind is QuestionKind.TEXT}
+
+
+def _checked_answer(question: QualificationQuestion, raw: Any) -> Any:
+    value = parse_answer(question, raw)
+    if value is not None and question.kind is QuestionKind.TEXT:
+        return clean_text_answer(value)
+    return value
+
+
+def guard_input(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
+    """The message as the agent reads it (normalised), its suspicious patterns (logged as
+    codes, never blocked), and stored values checked again with today's rules (a checkpoint
+    from before them may hold a longer name or a zone with a link)."""
     context = runtime.context
+    context.execution.stage = "guard_input"
+    inbound = normalize_inbound(state["inbound"]) or state["inbound"].strip()
+    flags = sorted(suspicion_flags(state["inbound"]))
+    if flags:
+        logger.info(
+            "injection_suspected",
+            extra={"tenant_id": str(context.turn.business.tenant_id), "codes": flags},
+        )
+    update: dict[str, Any] = {"inbound": inbound, "turn_flags": flags}
+    name = state.get("visitor_name")
+    if name and clean_name(name) != name:
+        update["visitor_name"] = clean_name(name)
+    answers = state.get("answers") or {}
+    texts = _text_keys(enabled_questions(context))
+    stale = [key for key in texts if key in answers and clean_text_answer(answers[key]) is None]
+    if stale:
+        update["answers"] = {k: v for k, v in answers.items() if k not in stale}
+    return update
+
+
+def _only_allowed(update: dict[str, Any]) -> dict[str, Any]:
+    """`extract` writes only EXTRACT_KEYS (a bug here is a test failure, never a new key)."""
+    return {key: value for key, value in update.items() if key in EXTRACT_KEYS}
+
+
+def known_answers(answers: Mapping[str, Any], enabled: set[str]) -> dict[str, Any]:
+    """The search answers the lead may change, as read-only context for the model."""
+    return {key: answers[key] for key in REFINABLE_KEYS if key in enabled and key in answers}
+
+
+def _deterministic(
+    state: LeadState, context: GraphContext, offered: Sequence[Choice]
+) -> Extraction:
+    """What can be read without the model: a tapped choice and a plain yes / no (the
+    opt-out matcher ran before)."""
+    return Extraction(choice_id=selected_choice(context.turn.choice_id, None, offered))
+
+
+def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
+    return _only_allowed(_extract(state, runtime))
+
+
+def _extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
+    context = runtime.context
+    context.execution.stage = "extract"
     turn = context.turn
     if is_opt_out(state["inbound"]):
         # A clear "BAJA": no model call, nothing else is read from this message.
@@ -441,7 +738,13 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         return {}
     answers = dict(state.get("answers") or {})
     handed_off = bool(state.get("hand_off_reason"))
-    questions = applicable_questions(enabled_questions(context), answers)
+    offered = offered_choices(state)
+    if handed_off and state.get("after_hand_off_replied_at"):
+        # Later messages after a hand-off: no model call (only a tapped slot counts).
+        return {"turn_choice": selected_choice(turn.choice_id, None, offered)}
+    all_questions = enabled_questions(context)
+    enabled = {q.key for q in all_questions}
+    questions = applicable_questions(all_questions, answers)
     pending = [] if handed_off else [q for q in questions if q.key not in answers]
     # The lead's situation is read from every message, asked or not (never guessed).
     facts = (
@@ -449,7 +752,10 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         if handed_off
         else [q for q in facts_for(_operation(answers.get("operation"))) if q.key not in answers]
     )
-    confirmation = CONFIRMATIONS.get(state.get("asked_key") or "")
+    asked_key = state.get("asked_key") or ""
+    confirmation = CONFIRMATIONS.get(asked_key) or (
+        OFFER_HUMAN_QUESTION if asked_key == QUIERE_PERSONA else None
+    )
     update: dict[str, Any] = {}
     # The channel may already know how to reach the visitor (WhatsApp: their own number),
     # so the agent never asks for it.
@@ -457,44 +763,67 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         update["contact"] = turn.visitor_contact
     wants_name = not handed_off and not state.get("visitor_name")
     wants_contact = not handed_off and not state.get("contact") and "contact" not in update
-    offered = offered_choices(state)
     referenced = _referenced_listing(state, runtime.context, update)
+    refinable = {} if handed_off else known_answers(answers, enabled)
 
-    result = context.llm.extract(
-        ExtractionRequest(
-            questions=[*pending, *facts, *([confirmation] if confirmation else [])],
-            transcript=turn.transcript,
-            latest=state["inbound"],
-            asked_key=state.get("asked_key"),
-            wants_name=wants_name,
-            wants_contact=wants_contact,
-            choices=offered,
+    try:
+        result = context.llm.extract(
+            ExtractionRequest(
+                questions=[*pending, *facts, *([confirmation] if confirmation else [])],
+                transcript=turn.transcript,
+                latest=state["inbound"],
+                asked_key=state.get("asked_key"),
+                wants_name=wants_name,
+                wants_contact=wants_contact,
+                choices=offered,
+                known_answers=refinable,
+            )
         )
-    )
+    except ExecutionStopped:
+        result = _deterministic(state, context, offered)
+    except LlmUnavailableError:
+        if not turn.final_attempt:
+            raise
+        # The message's last attempt: no silence. Only deterministic signals are read and
+        # the conversation goes to the team.
+        context.execution.stop(TerminationReason.PROVIDER_UNAVAILABLE)
+        result = _deterministic(state, context, offered)
+        update["turn_agent_failure"] = True
     if result.wants_opt_out:
         return {"turn_opt_out": True}
     update["turn_choice"] = selected_choice(turn.choice_id, result.choice_id, offered)
     update["turn_wants_human"] = result.wants_human
+    # A tapped button never asks anything.
+    update["turn_needs_answer"] = result.needs_answer and turn.choice_id is None
+    update["turn_topic"] = result.topic if update["turn_needs_answer"] else None
     if handed_off:
         return update
 
     for question in [*pending, *facts]:
-        value = parse_answer(question, result.values.get(question.key))
+        value = _checked_answer(question, result.values.get(question.key))
         if value is not None:
             answers[question.key] = value
+    if _refine(answers, refinable, result.changed_answers, all_questions):
+        update["turn_refine_search"] = True
     if confirmation is not None:
         said = parse_answer(confirmation, result.values.get(confirmation.key))
         if not isinstance(said, bool):
             # Common short answers ("si dale", "no puedo") never depend on the model.
             said = read_yes_no(state["inbound"])
-        key = "turn_can_meet" if confirmation.key == PUEDE_CUMPLIR else "turn_wants_alternatives"
-        update[key] = said
+        if confirmation.key == QUIERE_PERSONA:
+            if said:
+                update["turn_wants_human"] = True
+        else:
+            key = (
+                "turn_can_meet" if confirmation.key == PUEDE_CUMPLIR else "turn_wants_alternatives"
+            )
+            update[key] = said
     if referenced is not None:
         _choose_referenced(update, answers, referenced, state)
     update["answers"] = answers
     # A message that picks a card or a slot is that pick, never a name or a contact.
     picked = update["turn_choice"] is not None
-    if wants_name and not picked and (name := _clean(result.visitor_name, MAX_NAME_LENGTH)):
+    if wants_name and not picked and (name := clean_name(result.visitor_name)):
         update["visitor_name"] = name
     if wants_contact and not picked and (raw := _clean(result.contact, MAX_CONTACT_LENGTH)):
         contact = context.tools.call(SAVE_CONTACT, SaveContactInput(raw))
@@ -503,6 +832,28 @@ def extract(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         else:
             update["turn_contact_invalid"] = True
     return update
+
+
+def _refine(
+    answers: dict[str, Any],
+    known: Mapping[str, Any],
+    changed: Mapping[str, Any],
+    questions: Sequence[QualificationQuestion],
+) -> bool:
+    """A changed search answer is taken only for a known, enabled key, only when it is valid
+    for its question and differs from what is stored."""
+    by_key = {q.key: q for q in questions}
+    refined = False
+    for key, raw in changed.items():
+        question = by_key.get(key)
+        if key not in known or question is None:
+            continue
+        value = _checked_answer(question, raw)
+        if value is None or value == answers.get(key):
+            continue
+        answers[key] = value
+        refined = True
+    return refined
 
 
 def _referenced_listing(
@@ -532,20 +883,15 @@ def _choose_referenced(
     """The named property is already chosen: offered as the only card, its operation and
     zone answered (they are the property's), and picked this turn."""
     card = _card_payload(PropertyMatch(listing, False))
-    update["offered_cards"] = [
-        {
-            "id": card["id"],
-            "label": card_label(card),
-            "operation": card["operation"],
-            "conditions": listing.conditions.to_json(),
-        }
-    ]
+    update["offered_cards"] = [offered_card(card, listing.conditions)]
     update["shown_property_ids"] = [*(state.get("shown_property_ids") or []), card["id"]]
     update["properties_presented"] = True
     update["referenced_card"] = card["id"]
     update["turn_choice"] = card["id"]
     answers.setdefault("operation", "alquiler" if listing.operation is Operation.RENT else "compra")
-    answers.setdefault("zone", listing.zone)
+    answers.setdefault("zone", clean_text_answer(listing.zone) or "")
+    if not answers["zone"]:
+        answers.pop("zone")
 
 
 def _operation(answer: Any) -> Operation | None:
@@ -575,10 +921,11 @@ def _card_payload(match: PropertyMatch) -> dict[str, Any]:
     item = match.listing
     return {
         "id": item.id,
-        "title": item.title,
-        "address": item.address,
+        # Imported text (CSV, Tokko, a portal): sanitised before any prompt sees it.
+        "title": sanitize_untrusted(item.title, MAX_PROPERTY_TEXT),
+        "address": sanitize_untrusted(item.address, MAX_PROPERTY_TEXT),
         "operation": item.operation.value,
-        "zone": item.zone,
+        "zone": sanitize_untrusted(item.zone, MAX_PROPERTY_TEXT),
         "price_label": price_label(item),
         "rooms": item.rooms,
         # Always the listing's own link (or the sample's local page); never generated.
@@ -589,7 +936,91 @@ def _card_payload(match: PropertyMatch) -> dict[str, Any]:
 
 
 def card_label(card: dict[str, Any]) -> str:
-    return f"{card['title']} · {card['address']}"
+    title = sanitize_untrusted(card["title"], MAX_PROPERTY_TEXT)
+    address = sanitize_untrusted(card["address"], MAX_PROPERTY_TEXT)
+    return f"{title} · {address}"
+
+
+def offered_card(card: dict[str, Any], conditions: PropertyConditions) -> dict[str, Any]:
+    """A shown card as the state keeps it: what the lead may pick and ask about. Its strings
+    are already sanitised (`_card_payload`)."""
+    return {
+        "id": card["id"],
+        "label": card_label(card),
+        "operation": card["operation"],
+        # Effective conditions as shown: the inbox never recomputes them.
+        "conditions": conditions.to_json(),
+        "title": card["title"],
+        "address": card["address"],
+        "zone": card["zone"],
+        "price_label": card["price_label"],
+        "rooms": card["rooms"],
+        "link": card["link"],
+    }
+
+
+def _note(conditions: PropertyConditions) -> str:
+    return sanitize_untrusted(conditions.condiciones or "", MAX_CONDITIONS_NOTE)
+
+
+_WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábados", "domingos")
+
+
+def hours_text(blocks: Sequence[ScheduleBlock]) -> str:
+    """ "lunes a viernes de 9:00 a 18:00": the team's hours in words, for answers."""
+    by_hours: dict[tuple[str, str], list[int]] = {}
+    for block in blocks:
+        hours = (f"{block.opens:%-H:%M}", f"{block.closes:%-H:%M}")
+        by_hours.setdefault(hours, []).append(block.weekday)
+    parts = []
+    for (opens, closes), days in sorted(by_hours.items(), key=lambda item: min(item[1])):
+        days = sorted(set(days))
+        if len(days) > 2 and days == list(range(days[0], days[-1] + 1)):
+            when = f"{_WEEKDAYS[days[0]]} a {_WEEKDAYS[days[-1]]}"
+        else:
+            names = [_WEEKDAYS[day] for day in days]
+            when = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " y " + names[-1]
+        parts.append(f"{when} de {opens} a {closes}")
+    return "; ".join(parts)
+
+
+def answer_data(
+    cards: Sequence[dict[str, Any]], answers: dict[str, Any], context: GraphContext
+) -> dict[str, Any]:
+    """The only data ANSWER_QUESTION may use: the options shown, in order, and the agency.
+    Every imported string is sanitised; nothing here is ever an instruction."""
+    turn = context.turn
+    business = turn.business
+    options = []
+    for position, card in enumerate(cards, start=1):
+        conditions = _card_conditions(card)
+        match = card_match(card, answers)
+        options.append(
+            {
+                "posicion": position,
+                "titulo": card.get("title") or card.get("label"),
+                "direccion": card.get("address"),
+                "zona": card.get("zone"),
+                "operacion": card.get("operation"),
+                "precio": card.get("price_label"),
+                "ambientes": card.get("rooms"),
+                "link": card.get("link"),
+                "condiciones": condition_phrases(conditions),
+                "nota": _note(conditions) or None,
+                "le_sirve": list(match.features),
+                "pide": [failure.asks for failure in match.failed],
+            }
+        )
+    return {
+        "opciones": options,
+        "inmobiliaria": {
+            "nombre": business.business_name,
+            "horario": hours_text(business.team_hours) or None,
+            "abierto_ahora": is_within_hours(business.team_hours, business.timezone, turn.now)
+            if business.team_hours
+            else False,
+        },
+    }
 
 
 def feature_line(matches: Sequence[PropertyMatch]) -> str:
@@ -616,13 +1047,14 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     if state.get("turn_opt_out"):
         # Fixed text (never the model's wording), and nothing else this turn.
         return {
-            "outbox": [{"text": OPT_OUT_CONFIRMATION, "payload": None}],
+            "outbox": [{"text": OPT_OUT_CONFIRMATION, "payload": None, "fixed": True}],
             "opt_out": True,
             "turn_opt_out": False,
             "asked_key": None,
             "turns": state.get("turns", 0) + 1,
         }
     context = runtime.context
+    context.execution.stage = "respond"
     turn = context.turn
     config = turn.agent_config
     questions = enabled_questions(context)
@@ -645,17 +1077,59 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
     events: list[dict[str, Any]] = list(state.get("condition_events") or [])
     chosen: list[str] = list(state.get("chosen_property_ids") or [])
 
-    def reply(step: Step) -> str:
-        return context.llm.compose_reply(
-            ReplyRequest(
-                intent=step.intent,
-                tone=config.tone,
-                agent_name=config.agent_name,
-                business_name=turn.business.business_name,
-                question=step.question,
-                facts={key: value for key, value in facts.items() if value},
-            )
-        ).text
+    execution = context.execution
+    failed = False
+
+    def fixed(step: Step) -> str:
+        values = {
+            **facts,
+            "agent": config.agent_name,
+            "business": turn.business.business_name,
+            "question": step.question.label if step.question else "",
+        }
+        return safe_text(step.intent, values, hand_off=bool(facts.get("hand_off")))
+
+    def reply(step: Step, data: Mapping[str, Any] | None = None) -> tuple[str, bool]:
+        """The model's wording, or the fixed text once the turn stopped (a limit) or the
+        model is down on the message's last attempt. True when the text is fixed."""
+        nonlocal failed
+        if execution.is_stopped or failed:
+            return fixed(step), True
+        try:
+            text = context.llm.compose_reply(
+                ReplyRequest(
+                    intent=step.intent,
+                    tone=config.tone,
+                    agent_name=config.agent_name,
+                    business_name=turn.business.business_name,
+                    question=step.question,
+                    facts={key: value for key, value in facts.items() if value},
+                    lead_message=state["inbound"] if data is not None else None,
+                    data=data or {},
+                )
+            ).text
+        except ExecutionStopped:
+            return fixed(step), True
+        except LlmUnavailableError:
+            if not turn.final_attempt:
+                raise
+            execution.stop(TerminationReason.PROVIDER_UNAVAILABLE)
+            failed = True
+            return fixed(step), True
+        return text, False
+
+    def message(step: Step, payload: dict[str, Any] | None = None, **extra: Any) -> None:
+        text, is_fixed = reply(step, extra.pop("data", None))
+        outbox.append(
+            {
+                "text": text,
+                "payload": payload,
+                "intent": step.intent.value,
+                "fixed": is_fixed,
+                # What the output guard sends instead if this text fails its checks.
+                "safe": fixed(step),
+            }
+        )
 
     def choose(card_id: str | None) -> None:
         if card_id and card_id not in chosen:
@@ -674,6 +1148,8 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
 
     outbox: list[dict[str, Any]] = []
     asked_key: str | None = None
+    offers_human = any(step.intent is ReplyIntent.OFFER_HUMAN for step in steps)
+    replied_at = state.get("after_hand_off_replied_at")
     for index, step in enumerate(steps):
         # Facts belong to their own step: a slot noted in this turn must not leak into the
         # hand-off message that follows it.
@@ -698,12 +1174,52 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             previous = state.get("gate_asked") if state.get("pending_card") == step.card_id else []
             update["gate_asked"] = [*(previous or []), step.question.key]
 
+        elif intent is ReplyIntent.ANSWER_QUESTION:
+            # Only from the options shown and the agency; it asks nothing.
+            cards = update.get("offered_cards") or state.get("offered_cards") or []
+            outbox.append(
+                {
+                    **_answer_message(reply, step, answer_data(cards, answers, context)),
+                    "payload": None,
+                }
+            )
+            if state.get("hand_off_reason"):
+                update["after_hand_off_replied_at"] = turn.now.isoformat()
+            continue
+
+        elif intent is ReplyIntent.AFTER_HAND_OFF:
+            # The first reply after the hand-off is worded as always; later ones are one
+            # fixed text at most every AFTER_HAND_OFF_QUIET_HOURS, without the model; other
+            # messages are only stored (the team sees them in the inbox).
+            if replied_at is None:
+                message(step)
+            elif turn.now - datetime.fromisoformat(replied_at) >= timedelta(
+                hours=AFTER_HAND_OFF_QUIET_HOURS
+            ):
+                outbox.append(
+                    {"text": fixed(step), "payload": None, "intent": intent.value, "fixed": True}
+                )
+            else:
+                continue
+            update["after_hand_off_replied_at"] = turn.now.isoformat()
+            continue
+
+        elif intent is ReplyIntent.OFFER_HUMAN:
+            update["stall_offered"] = True
+            execution.finish(TerminationReason.CONVERSATION_STALLED)
+
         elif intent is ReplyIntent.PRESENT_OPTIONS:
             if step.again:
                 offer = state.get("relax_offer") or {}
                 if offer.get("requirement"):
                     accept(offer["requirement"])
                 update["relax_offer"] = None
+            if step.refine:
+                # A changed search: what was pending about the old options is dropped; what
+                # was already told (requirements, shown ids) is kept.
+                update["relax_offer"] = None
+                update["requirement_check"] = None
+                update["pending_card"] = None
             matches = context.tools.call(
                 SEARCH_PROPERTIES,
                 SearchPropertiesInput(
@@ -718,13 +1234,7 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                 cards = [_card_payload(match) for match in matches]
                 payload = {"cards": cards}
                 update["offered_cards"] = [
-                    {
-                        "id": card["id"],
-                        "label": card_label(card),
-                        "operation": card["operation"],
-                        # Effective conditions as shown: the inbox never recomputes them.
-                        "conditions": match.listing.conditions.to_json(),
-                    }
+                    offered_card(card, match.listing.conditions)
                     for card, match in zip(cards, matches, strict=True)
                 ]
                 update["shown_property_ids"] = [
@@ -738,6 +1248,7 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                     and policy.offer_alternatives
                     and not state.get("relax_asked")
                     and not step.again
+                    and not offers_human
                 ):
                     relax = {"requirement": failure.requirement.value, "asks": failure.asks}
 
@@ -755,7 +1266,7 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             events.append(_event("mismatch", card["id"]))
             facts["option"] = card["label"]
             facts["requirement"] = step.failure["asks"]
-            note = _card_conditions(card).condiciones
+            note = _note(_card_conditions(card))
             if note:
                 facts["conditions_note"] = note
 
@@ -825,7 +1336,7 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                 facts["option"] = card["label"]
                 facts["slots"] = " o ".join(slot["label"] for slot in slots)
                 facts["after_hours"] = "sí" if proposal.after_hours else ""
-                note = _card_conditions(card).condiciones
+                note = _note(_card_conditions(card))
                 if note:
                     facts["conditions_note"] = note
                 payload = {
@@ -852,20 +1363,27 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
             update["visit_invited"] = True
 
         if intent is ReplyIntent.HAND_OFF:
-            if state.get("turn_wants_human"):
-                reason = HandOffReason.HUMAN
-            elif update.get("visit") or state.get("visit"):
-                reason = HandOffReason.VISIT
-            else:
-                reason = HandOffReason.QUALIFIED
+            reason = _hand_off_reason(state, update, step)
+            if step.stall:
+                execution.finish(TerminationReason(step.stall))
             result: HandOffResult = context.tools.call(HAND_OFF, HandOffInput(reason))
             update["hand_off_reason"] = result.reason.value
-            if not (index > 0 and _folds_hand_off(steps, index - 1)):
-                outbox.append({"text": reply(Step(intent)), "payload": None})
+            if reason is HandOffReason.AGENT_FAILURE:
+                execution.finish(TerminationReason.AGENT_FAILURE)
+                outbox.append(
+                    {
+                        "text": AGENT_FAILURE_TEXT,
+                        "payload": None,
+                        "intent": intent.value,
+                        "fixed": True,
+                    }
+                )
+            elif not (index > 0 and _folds_hand_off(steps, index - 1)):
+                message(Step(intent))
             outbox.append({"text": result.event, "payload": None, "author": "system"})
             continue
 
-        outbox.append({"text": reply(Step(intent, step.question)), "payload": payload})
+        message(Step(intent, step.question), payload)
         if relax is not None:
             # Every option fails on the same requirement: ask about it once, and nothing else
             # this turn.
@@ -875,17 +1393,36 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
                 "visitor_name": state.get("visitor_name") or "",
                 "requirement": plural(relax["asks"]),
             }
-            outbox.append({"text": reply(Step(ReplyIntent.ASK_RELAX)), "payload": None})
+            message(Step(ReplyIntent.ASK_RELAX))
             asked_key = VER_ALTERNATIVAS
             break
         if step.question is not None:
             asked_key = step.question.key
+        elif intent is ReplyIntent.OFFER_HUMAN:
+            asked_key = QUIERE_PERSONA
         elif intent is ReplyIntent.ASK_NAME:
             asked_key = NAME_KEY
         elif intent in (ReplyIntent.ASK_CONTACT, ReplyIntent.INVALID_CONTACT):
             asked_key = CONTACT_KEY
         elif intent in (ReplyIntent.REQUIREMENT_CHECK, ReplyIntent.REQUIREMENT_CONFIRM):
             asked_key = PUEDE_CUMPLIR
+
+    if failed and not update.get("hand_off_reason") and not state.get("hand_off_reason"):
+        # The model went down mid-turn on the last attempt: what was said is fixed text, and
+        # the team takes the conversation from here.
+        result = context.tools.call(HAND_OFF, HandOffInput(HandOffReason.AGENT_FAILURE))
+        update["hand_off_reason"] = result.reason.value
+        execution.finish(TerminationReason.AGENT_FAILURE)
+        outbox.append(
+            {
+                "text": AGENT_FAILURE_TEXT,
+                "payload": None,
+                "intent": ReplyIntent.HAND_OFF.value,
+                "fixed": True,
+            }
+        )
+        outbox.append({"text": result.event, "payload": None, "author": "system"})
+        asked_key = None
 
     # A lead who asks for a person after another kind of hand-off still gets human_requested.
     if state.get("hand_off_reason") and state.get("turn_wants_human"):
@@ -908,17 +1445,176 @@ def respond(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
         "turn_contact_invalid": False,
         "turn_can_meet": None,
         "turn_wants_alternatives": None,
+        "turn_agent_failure": False,
         "property_matches": matches,
         "chosen_property_ids": chosen,
         "condition_events": events,
     }
 
 
+def _hand_off_reason(state: LeadState, update: dict[str, Any], step: Step) -> HandOffReason:
+    if step.reason is not None:
+        return step.reason
+    if state.get("turn_wants_human"):
+        return HandOffReason.HUMAN
+    if update.get("visit") or state.get("visit"):
+        return HandOffReason.VISIT
+    return HandOffReason.QUALIFIED
+
+
+def _answer_message(reply: Any, step: Step, data: dict[str, Any]) -> dict[str, Any]:
+    text, is_fixed = reply(step, data)
+    return {"text": text, "intent": step.intent.value, "fixed": is_fixed, "data": data}
+
+
+# --- Output guard -------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CheckedText:
+    text: str
+    # A code when the text was replaced ("too_long", "contact", "income", "question",
+    # "ungrounded", "empty"); None when it passed (links may have been removed).
+    blocked: str | None = None
+
+
+_SAMPLE_LINK = re.compile(r"^/ejemplo/")
+
+
+def allowed_links(state: Mapping[str, Any], outbox: Sequence[Mapping[str, Any]]) -> set[str]:
+    """Links a reply may contain: the shown cards' own links (or the sample pages)."""
+    links = {str(card.get("link")) for card in state.get("offered_cards") or [] if card.get("link")}
+    for item in outbox:
+        for card in (item.get("payload") or {}).get("cards") or []:
+            if card.get("link"):
+                links.add(str(card["link"]))
+    return {link.rstrip("/") for link in links}
+
+
+def check_text(
+    text: str,
+    intent: ReplyIntent,
+    allowed: set[str],
+    data: Mapping[str, Any] | None = None,
+) -> CheckedText:
+    """One outbound text against the output rules (deterministic, every mode)."""
+    if len(text) > MAX_REPLY_LENGTH:
+        return CheckedText(text, "too_long")
+    for url in find_urls(text):
+        if url.rstrip("/") not in allowed and not _SAMPLE_LINK.match(url):
+            text = text.replace(url, "").replace("  ", " ")
+    text = text.strip()
+    if not text:
+        return CheckedText(text, "empty")
+    if find_contacts(text):
+        return CheckedText(text, "contact")
+    if mentions_income(text):
+        return CheckedText(text, "income")
+    if intent is ReplyIntent.ANSWER_QUESTION:
+        if "?" in text or "¿" in text:
+            return CheckedText(text, "question")
+        grounded = find_amounts(_flatten(data or {}))
+        if not find_amounts(text) <= grounded:
+            return CheckedText(text, "ungrounded")
+    return CheckedText(text)
+
+
+def _flatten(value: Any) -> str:
+    if isinstance(value, Mapping):
+        return " ".join(_flatten(item) for item in value.values())
+    if isinstance(value, list | tuple):
+        return " ".join(_flatten(item) for item in value)
+    return "" if value is None else str(value)
+
+
+def is_deferred(text: str) -> bool:
+    return "lo consulto con el equipo" in normalize(text)
+
+
+# Per-turn keys, reset when the turn ends.
+TURN_KEYS = ("turn_flags", "turn_needs_answer", "turn_topic", "turn_refine_search")
+
+
+def guard_output(state: LeadState, runtime: Runtime[GraphContext]) -> dict[str, Any]:
+    """Every agent text this turn goes out only if it passes `check_text`; a failing one is
+    replaced by its fixed text (an answer by the "lo consulto" text). Then the turn's
+    outcome: answers given or deferred, progress, and the per-turn keys reset."""
+    context = runtime.context
+    execution = context.execution
+    execution.stage = "guard_output"
+    allowed = allowed_links(state, state.get("outbox") or [])
+    outbox: list[dict[str, Any]] = []
+    given = int(state.get("answers_given") or 0)
+    deferred = int(state.get("answers_deferred") or 0)
+    answered = False
+    for item in state.get("outbox") or []:
+        item = dict(item)
+        data = item.pop("data", None)
+        if item.get("author") == "system" or not item.get("intent"):
+            outbox.append(item)
+            continue
+        intent = ReplyIntent(item["intent"])
+        checked = check_text(item["text"], intent, allowed, data)
+        text = checked.text
+        if checked.blocked:
+            execution.guard_blocks += 1
+            code = "answer_ungrounded" if checked.blocked == "ungrounded" else "reply_guard_blocked"
+            logger.warning(
+                code,
+                extra={
+                    "tenant_id": str(context.turn.business.tenant_id),
+                    "intent": intent.value,
+                    "code": checked.blocked,
+                },
+            )
+            text = (
+                DEFERRED_ANSWER
+                if intent is ReplyIntent.ANSWER_QUESTION
+                else str(item.get("safe") or safe_text(intent))
+            )
+            if intent is not ReplyIntent.ANSWER_QUESTION:
+                execution.finish(TerminationReason.GUARD_BLOCKED)
+        if intent is ReplyIntent.ANSWER_QUESTION:
+            if checked.blocked or is_deferred(text):
+                deferred += 1
+            else:
+                given += 1
+                answered = True
+        item.pop("safe", None)
+        outbox.append({**item, "text": text})
+    after = {**state, "outbox": outbox}
+    sent = [
+        item["intent"] for item in outbox if item.get("author") != "system" and item.get("intent")
+    ]
+    progress = advance(
+        state,
+        after,
+        refined=bool(state.get("turn_refine_search")),
+        answered=answered,
+        sent_intent=sent[-1] if sent else None,
+    )
+    return {
+        "outbox": outbox,
+        "answers_given": given,
+        "answers_deferred": deferred,
+        "progress": progress.to_json(),
+        "termination_reason": execution.termination_reason.value,
+        **{
+            key: None if key == "turn_topic" else ([] if key == "turn_flags" else False)
+            for key in TURN_KEYS
+        },
+    }
+
+
 def build_lead_graph() -> StateGraph[Any, Any, Any, Any]:
     graph = StateGraph(LeadState, context_schema=GraphContext)
+    graph.add_node("guard_input", guard_input)
     graph.add_node("extract", extract)
     graph.add_node("respond", respond)
-    graph.add_edge(START, "extract")
+    graph.add_node("guard_output", guard_output)
+    graph.add_edge(START, "guard_input")
+    graph.add_edge("guard_input", "extract")
     graph.add_edge("extract", "respond")
-    graph.add_edge("respond", END)
+    graph.add_edge("respond", "guard_output")
+    graph.add_edge("guard_output", END)
     return graph

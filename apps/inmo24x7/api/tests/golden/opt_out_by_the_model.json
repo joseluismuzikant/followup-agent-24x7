@@ -1,0 +1,67 @@
+{
+  "description": "An opt-out in other words, read by the model.",
+  "intents": [
+    "greet"
+  ],
+  "model_calls": 3,
+  "state": {
+    "answers": {},
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": null,
+    "chosen_property_ids": [],
+    "condition_events": [],
+    "last_intent": "greet",
+    "progress": {
+      "answered_keys_count": 0,
+      "chosen_count": 0,
+      "last_intent": "greet",
+      "last_progress_turn": 1,
+      "same_intent_turns": 1,
+      "stage": "qualifying"
+    },
+    "property_matches": {},
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_opt_out": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 2
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Te ayudo a encontrar tu próxima propiedad. Contame: ¿si busca comprar o alquilar? (compra / alquiler)"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "no me molesten más"
+      },
+      "opt_out": true,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Listo, no te vamos a escribir más. Si algún día querés volver a consultar, escribinos."
+        }
+      ]
+    }
+  ]
+}

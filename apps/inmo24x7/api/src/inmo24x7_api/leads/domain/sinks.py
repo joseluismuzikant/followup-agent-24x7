@@ -39,7 +39,7 @@ class QualifiedLead:
     tenant_id: UUID
     created_at: datetime
     handed_off_at: datetime | None
-    hand_off_reason: str | None  # human / visit / qualified
+    hand_off_reason: str | None  # human / visit / qualified / stalled / agent_failure
     name: str | None
     phone: str | None
     email: str | None

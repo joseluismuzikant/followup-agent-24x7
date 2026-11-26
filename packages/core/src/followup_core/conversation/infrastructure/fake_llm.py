@@ -50,6 +50,59 @@ _ORDINALS = (
 )
 # Words too common in listing labels to identify one of them.
 _COMMON = frozenset({"ambientes", "ambiente", "con", "del", "luminoso", "reciclado", "frente"})
+# A question about the options, the agency or the process ("¿acepta mascotas?").
+_QUESTION_WORDS = frozenset(
+    {
+        "acepta",
+        "aceptan",
+        "tiene",
+        "cuanto",
+        "cual",
+        "expensas",
+        "horario",
+        "horarios",
+        "atienden",
+        "pide",
+        "piden",
+        "requisitos",
+        "mascotas",
+        "cochera",
+        "balcon",
+        "barata",
+        "barato",
+        "cara",
+        "caro",
+        "grande",
+        "conviene",
+        "diferencia",
+    }
+)
+_COMPARISON_WORDS = frozenset(
+    {"barata", "barato", "cara", "caro", "grande", "conviene", "diferencia"}
+)
+_AGENCY_WORDS = frozenset({"horario", "horarios", "atienden", "oficina"})
+_STOP_WORDS = frozenset(
+    {
+        "acepta",
+        "aceptan",
+        "tiene",
+        "la",
+        "el",
+        "de",
+        "que",
+        "y",
+        "es",
+        "una",
+        "un",
+        "primera",
+        "segunda",
+        "tercera",
+        "esa",
+        "esta",
+    }
+)
+DEFERRED_ANSWER = "Eso no lo tengo acá, lo consulto con el equipo y te aviso."
+_OPERATIONS = {"compr": "compra", "alquil": "alquiler"}
 
 
 def _choice_id(choices: Sequence[Choice], text: str) -> str | None:
@@ -318,6 +371,11 @@ _TEMPLATES: dict[ReplyIntent, dict[Tone, str]] = {
             "el equipo le avisará si surge alguna."
         ),
     },
+    ReplyIntent.OFFER_HUMAN: {
+        Tone.WARM: "Para no hacerte perder tiempo: ¿querés que te contacte una persona del equipo?",
+        Tone.PROFESSIONAL: "¿Querés que te contacte una persona del equipo?",
+        Tone.FORMAL: "¿Desea que lo contacte una persona del equipo?",
+    },
     ReplyIntent.AFTER_HAND_OFF: {
         Tone.WARM: (
             "Ya le pasé tu consulta al equipo, te escriben muy pronto. ¡Gracias por la paciencia!"
@@ -385,6 +443,17 @@ class FakeLanguageModel:
         if request.wants_contact or request.asked_key == CONTACT_KEY:
             match = _EMAIL.search(text) or _PHONE.search(text)
             contact = match.group(0).strip() if match else None
+        words = set(re.findall(r"[a-z]+", normalize(text)))
+        asks = ("?" in text or "¿" in text) and bool(words & _QUESTION_WORDS)
+        topic = None
+        if asks:
+            topic = (
+                "comparison"
+                if words & _COMPARISON_WORDS
+                else "agency_question"
+                if words & _AGENCY_WORDS
+                else "property_question"
+            )
         return Extraction(
             values=values,
             visitor_name=name,
@@ -392,6 +461,9 @@ class FakeLanguageModel:
             choice_id=_choice_id(request.choices, text),
             wants_human=bool(_HUMAN.search(normalize(text))),
             wants_opt_out=bool(_OPT_OUT.search(normalize(text))),
+            needs_answer=asks,
+            topic=topic,
+            changed_answers=_changes(request.known_answers, text),
         )
 
     @staticmethod
@@ -404,6 +476,8 @@ class FakeLanguageModel:
 
     def compose_reply(self, request: ReplyRequest) -> Reply:
         self._call()
+        if request.intent is ReplyIntent.ANSWER_QUESTION:
+            return Reply(_answer(request))
         tone = request.tone
         question = request.question
         asked = ""
@@ -451,3 +525,78 @@ class FakeLanguageModel:
         ):
             text += f" Además: {facts['conditions_note']}"
         return Reply(text)
+
+
+def _changes(known: Mapping[str, Any], text: str) -> dict[str, Any]:
+    """A known answer said again with another value ("¿y en Caballito?", "mejor 3 ambientes",
+    "mejor comprar", "hasta 900 mil pesos")."""
+    changed: dict[str, Any] = {}
+    said = normalize(text)
+    place = _PLACE.search(text) if "zone" in known else None
+    if place and normalize(place.group(1)) != normalize(str(known["zone"])):
+        changed["zone"] = place.group(1)
+    rooms = _ROOMS.search(text) if "rooms" in known else None
+    if rooms and int(rooms.group(1)) != known["rooms"]:
+        changed["rooms"] = int(rooms.group(1))
+    if "operation" in known:
+        for prefix, value in _OPERATIONS.items():
+            if re.search(rf"\b{prefix}", said) and normalize(str(known["operation"])) != value:
+                changed["operation"] = value
+    if "budget" in known and (budget := _money(text, asked=False)) and budget != known["budget"]:
+        changed["budget"] = budget
+    return changed
+
+
+def _price(option: Mapping[str, Any]) -> int | None:
+    digits = re.sub(r"[^\d]", "", str(option.get("precio") or ""))
+    return int(digits) if digits else None
+
+
+def _answer(request: ReplyRequest) -> str:
+    """Only from request.data: the option asked about (by position), a comparison of prices,
+    the agency's hours; anything else is the deferred answer."""
+    data = request.data
+    question = normalize(request.lead_message or "")
+    words = set(re.findall(r"[a-z]+", question))
+    options = [o for o in data.get("opciones") or [] if isinstance(o, Mapping)]
+    if words & {"barata", "barato"} and options:
+        priced = [(price, o) for o in options if (price := _price(o)) is not None]
+        if priced:
+            _, cheapest = min(priced, key=lambda item: item[0])
+            return (
+                f"La más barata es la {_position(cheapest)}: "
+                f"{cheapest.get('titulo')}, a {cheapest.get('precio')}."
+            )
+    if words & _AGENCY_WORDS:
+        agency = data.get("inmobiliaria") or {}
+        if agency.get("horario"):
+            return f"El equipo atiende {agency['horario']}."
+    option = next(
+        (
+            o
+            for index, pattern in enumerate(_ORDINALS)
+            if pattern.search(question)
+            for o in options
+            if o.get("posicion") == index + 1
+        ),
+        options[0] if len(options) == 1 else None,
+    )
+    if option is not None:
+        topic = [w for w in words - _STOP_WORDS - _QUESTION_WORDS if len(w) >= 5]
+        topic += [w for w in words & {"mascotas", "cochera", "balcon", "expensas"}]
+        phrases = [str(p) for p in option.get("condiciones") or []]
+        position = _position(option)
+        for word in topic:
+            for phrase in phrases:
+                if word in normalize(phrase):
+                    yes = not normalize(phrase).startswith("no ")
+                    return f"{'Sí' if yes else 'No'}, la {position} {phrase}."
+    return DEFERRED_ANSWER
+
+
+_POSITIONS = {1: "primera", 2: "segunda", 3: "tercera"}
+
+
+def _position(option: Mapping[str, Any]) -> str:
+    position = option.get("posicion")
+    return _POSITIONS.get(position, "opción") if isinstance(position, int) else "opción"

@@ -49,6 +49,7 @@ Updated: 26/11/2026.
 | Inicio after login; the wizard only while the business is missing | #23 |
 | Audio messages transcribed for Sofía; "Probar el agente" after signing in; Consumo shows audio usage | #24 |
 | 3c: load a property from its publication link or its pasted text ("Cargar desde un link"), and "Actualizar desde el link" | #25 |
+| Lead agent hardening (phases 0–1): golden conversations; lead and property text only in user-role DATA; input and output guards; Sofía answers the lead's questions from the options shown; a changed search answer searches again; per-turn limits (model calls, tokens, time); the last attempt hands off instead of failing silently; the stall policy (offer a person, then a `stalled` hand-off) | — (feature/agent-hardening) |
 | Landing www.inmo24x7.com with the legal pages (privacidad, términos, eliminación de datos, acuerdo de tratamiento de datos) and the demo video | outside this repo |
 | Meta: business verified (18/11/2026); Tech Provider app review submitted (19/11/2026, up to 20 days) | outside this repo |
 
@@ -57,6 +58,9 @@ Updated: 26/11/2026.
 - The Tokko integration is beta. Five points need checking with a real agency's key
   ([`integrations.md`](integrations.md), "To verify with a real key").
 - 3c needs checking with the pilot agency's own links (see "3c" in section 4).
+- The agent hardening needs checking with the real model (`LLM_MODEL`): how often answers are
+  deferred, whether GPT-5.4 nano fits the output caps (`LLM_REASONING_EFFORT=minimal`), and
+  the `agent_terminated` logs of the first weeks ([`go-live.md`](go-live.md), 12c).
 
 ## 2. In progress
 
@@ -238,6 +242,34 @@ Ordered by value for the first clients. Revisit the order with their feedback.
    - an LLM model per agency, set in the backoffice only, from an allowlist of tested models;
    - cost limits per agency.
 
+### Agente con herramientas (híbrido), para más adelante
+
+A bounded tool-calling step after `extract`. When the simple answer step cannot answer the
+lead's question from the options already shown, it would call read-only tools (an offered
+property, a comparison, requirements, a search preview, the agency's info) through a gateway
+that the application controls. The design is in
+[`hybrid-agent-design.md`](hybrid-agent-design.md).
+
+**Build it when at least one of these is true**, measured with the hardening's logs and the
+`llm_usage` table:
+
+1. **Unanswered questions are frequent.** With 3 or more agencies live for 4 weeks or more,
+   or 300 or more real conversations, more than about 15 % of the turns with `needs_answer`
+   end deferred ("lo consulto"). The inbox also shows that the data existed somewhere the
+   simple answer step couldn't reach.
+2. **The properties get richer data.** Description, m², expensas, amenities or photos (3b)
+   come in from the form, imports or Tokko, and answering needs searching or comparing beyond
+   the options already shown.
+3. **New multi-step capabilities need tool use:**
+   - visit times from the agent's real calendar (4.3);
+   - several properties in one visit;
+   - "show me similar ones" across the whole catalog.
+4. **A model with reliable tool calling fits the cost.** The cost per conversation stays
+   within what the plan price allows (see Consumo).
+
+Until then, the hardening's answer step (`ANSWER_QUESTION` plus the guards) is the supported
+design.
+
 ### Postponed: property photos (decision of 21/11/2026)
 
 They wait because each option's link preview already shows leads the listing's own photo and
@@ -399,7 +431,9 @@ It depends on 6a and on 3a (real numbers).
   Before asking for data or documents, she asks for **consent** to use them for that and to
   share them with the provider they choose.
 - She collects what 6a's document list needs:
-  - income and employment type, seniority;
+  - income and employment type, seniority. Today the agent never reads income and the
+    output guard blocks replies that mention it (agent hardening): 6b changes that rule
+    deliberately, only for this step and with consent;
   - documents sent on WhatsApp (DNI, pay slips, monotributo records), as photos or PDFs.
     Reading documents is new: today only text and audio are read (#24).
 - She calls the MCP server (6a) and presents the **compatible options**: provider, estimated

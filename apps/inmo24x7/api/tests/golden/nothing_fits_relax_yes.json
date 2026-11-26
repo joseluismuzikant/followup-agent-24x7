@@ -1,0 +1,228 @@
+{
+  "description": "Every option asks for a 2-year contract and the lead wants 1 month: asked once if they would consider it; yes shows the options again.",
+  "intents": [
+    "greet",
+    "ask",
+    "present_options",
+    "ask_relax",
+    "present_options",
+    "ask"
+  ],
+  "model_calls": 10,
+  "state": {
+    "answers": {
+      "acepta_requisitos": [
+        "contrato_minimo"
+      ],
+      "operation": "alquiler",
+      "plazo_meses": 1,
+      "zone": "Palermo"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": "budget",
+    "chosen_property_ids": [],
+    "condition_events": [],
+    "last_intent": "ask",
+    "offered_cards": [
+      {
+        "address": "Thames 4800",
+        "conditions": {
+          "contrato_minimo_meses": 24
+        },
+        "id": "00000000-0000-0000-0000-000000000003",
+        "label": "2 ambientes · Thames 4800",
+        "link": "https://x.test/thames",
+        "operation": "rent",
+        "price_label": "$700.000 por mes",
+        "rooms": 2,
+        "title": "2 ambientes",
+        "zone": "Palermo"
+      },
+      {
+        "address": "Malabia 4800",
+        "conditions": {
+          "contrato_minimo_meses": 24
+        },
+        "id": "00000000-0000-0000-0000-000000000004",
+        "label": "2 ambientes · Malabia 4800",
+        "link": "https://x.test/malabia",
+        "operation": "rent",
+        "price_label": "$750.000 por mes",
+        "rooms": 2,
+        "title": "2 ambientes",
+        "zone": "Palermo"
+      }
+    ],
+    "progress": {
+      "answered_keys_count": 4,
+      "chosen_count": 0,
+      "last_intent": "ask",
+      "last_progress_turn": 4,
+      "same_intent_turns": 1,
+      "stage": "options_shown"
+    },
+    "properties_presented": true,
+    "property_matches": {
+      "00000000-0000-0000-0000-000000000003": {
+        "accepted": [
+          "contrato de 2 años"
+        ],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "cumple"
+      },
+      "00000000-0000-0000-0000-000000000004": {
+        "accepted": [
+          "contrato de 2 años"
+        ],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "cumple"
+      }
+    },
+    "relax_asked": true,
+    "relax_offer": null,
+    "shown_property_ids": [
+      "00000000-0000-0000-0000-000000000003",
+      "00000000-0000-0000-0000-000000000004",
+      "00000000-0000-0000-0000-000000000003",
+      "00000000-0000-0000-0000-000000000004"
+    ],
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 4
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Te ayudo a encontrar tu próxima propiedad. Contame: ¿si busca comprar o alquilar? (compra / alquiler)"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Quiero alquilar por 1 mes"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿zona o barrio?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Palermo"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": {
+            "cards": [
+              {
+                "address": "Thames 4800",
+                "id": "00000000-0000-0000-0000-000000000003",
+                "is_sample": false,
+                "link": "https://x.test/thames",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$700.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes",
+                "zone": "Palermo"
+              },
+              {
+                "address": "Malabia 4800",
+                "id": "00000000-0000-0000-0000-000000000004",
+                "is_sample": false,
+                "link": "https://x.test/malabia",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$750.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes",
+                "zone": "Palermo"
+              }
+            ]
+          },
+          "text": "¡Mirá estas opciones que te pueden gustar!"
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Por ahora las opciones que tenemos piden contrato de 2 años. ¿Te interesaría verlas igual?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "sí, me interesa verlas"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": {
+            "cards": [
+              {
+                "address": "Thames 4800",
+                "id": "00000000-0000-0000-0000-000000000003",
+                "is_sample": false,
+                "link": "https://x.test/thames",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$700.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes",
+                "zone": "Palermo"
+              },
+              {
+                "address": "Malabia 4800",
+                "id": "00000000-0000-0000-0000-000000000004",
+                "is_sample": false,
+                "link": "https://x.test/malabia",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$750.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes",
+                "zone": "Palermo"
+              }
+            ]
+          },
+          "text": "¡Mirá estas opciones que te pueden gustar!"
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    }
+  ]
+}

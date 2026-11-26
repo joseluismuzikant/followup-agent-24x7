@@ -49,7 +49,7 @@ from .domain.repositories import InboxTab, LeadFilters, Search
 logger = logging.getLogger("inmo24x7.leads")
 
 LeadStatusName = Literal["qualifying", "visit_proposed", "human_requested", "visit_confirmed"]
-HandOffReasonName = Literal["human", "visit", "qualified"]
+HandOffReasonName = Literal["human", "visit", "qualified", "stalled", "agent_failure"]
 TabName = Literal["attention", "visits", "all"]
 MAX_TEAM_MESSAGE = 4096
 

@@ -16,6 +16,7 @@ from followup_core.conversation.application.control import (
     ReleaseThread,
     TakeOverThread,
 )
+from followup_core.conversation.application.execution_guard import ExecutionLimits
 from followup_core.conversation.application.ports import BusinessContextSource
 from followup_core.conversation.application.simulator import (
     GetSimulator,
@@ -416,7 +417,26 @@ def agent_runtime(
     if not isinstance(connection, psycopg.Connection):
         raise TypeError("The agent runtime needs a psycopg 3 connection.")
     tools = lead_tools(property_search(session))
-    return LangGraphRuntime(get_lead_graph(), PostgresSaver(connection), llm, tracing, tools, usage)
+    return LangGraphRuntime(
+        get_lead_graph(),
+        PostgresSaver(connection),
+        llm,
+        tracing,
+        tools,
+        usage,
+        limits=get_execution_limits(),
+    )
+
+
+@lru_cache
+def get_execution_limits() -> ExecutionLimits:
+    """The per-turn agent limits: the code's defaults, lowered by settings (never raised)."""
+    settings = get_settings()
+    return ExecutionLimits().lowered(
+        max_model_calls_per_turn=settings.agent_max_model_calls_per_turn,
+        turn_deadline_seconds=settings.agent_turn_deadline_seconds,
+        max_tokens_per_turn=settings.agent_max_tokens_per_turn,
+    )
 
 
 RuntimeDep = Annotated[LangGraphRuntime, Depends(agent_runtime)]
@@ -768,7 +788,11 @@ def job_handlers(
             _agent_configs(session),
             _business_context(session),
             clock=clock,
-            observers=[RecordLeadTurn(SqlAlchemyLeadRepository(session), queue)],
+            observers=[
+                RecordLeadTurn(
+                    SqlAlchemyLeadRepository(session), queue, SqlAlchemyAuditLog(session)
+                )
+            ],
         )
         return ProcessInbound(
             events,

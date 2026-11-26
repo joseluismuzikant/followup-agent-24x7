@@ -50,6 +50,8 @@ class HandledTurn:
     agent_paused: bool = False
     # The agent read the message as "don't write to me again" (AgentTurn.opt_out).
     opt_out: bool = False
+    # AgentTurn.termination_reason ("completed" when the agent did not run).
+    termination_reason: str = "completed"
 
 
 class TurnObserver(Protocol):
@@ -122,6 +124,7 @@ class HandleIncomingMessage:
         *,
         choice_id: str | None = None,
         visitor_contact: str | None = None,
+        final_attempt: bool = False,
     ) -> HandledTurn:
         """One turn for one message, or for a burst of them (`InboundPart`s, each stored on
         its own; the agent reads their texts joined, in order)."""
@@ -172,6 +175,7 @@ class HandleIncomingMessage:
                 now=received_at,
                 choice_id=choice_id,
                 visitor_contact=visitor_contact,
+                final_attempt=final_attempt,
             ),
         )
 
@@ -206,6 +210,7 @@ class HandleIncomingMessage:
             trace_run_id=turn.trace_run_id,
             inbound_messages=inbound_messages,
             opt_out=turn.opt_out,
+            termination_reason=turn.termination_reason,
         )
         for observer in self._observers:
             observer.on_turn(handled)

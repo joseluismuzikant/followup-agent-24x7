@@ -378,6 +378,9 @@ class ProcessInbound:
                 parts,
                 choice_id=taps[-1] if taps else None,
                 visitor_contact=channel_contact(wa_id),
+                # No retry left: the agent answers degraded (and hands off) instead of the
+                # job ending dead with the lead unanswered.
+                final_attempt=job.attempts >= job.max_attempts,
             )
             replies = list(turn.outbound)
             opted_out = turn.opt_out

@@ -18,8 +18,8 @@ from followup_core.conversation.infrastructure.llm_providers import (
 from ..config import Settings
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
-EXTRACT_PROMPT = "extract.v6"
-REPLY_PROMPT = "reply.v6"
+EXTRACT_PROMPT = "extract.v7"
+REPLY_PROMPT = "reply.v7"
 
 logger = logging.getLogger("inmo24x7.llm")
 

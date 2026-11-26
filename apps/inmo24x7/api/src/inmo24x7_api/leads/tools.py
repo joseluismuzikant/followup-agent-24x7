@@ -30,6 +30,13 @@ PROPOSE_VISIT = "propose_visit"
 HAND_OFF = "hand_off"
 
 HAND_OFF_EVENT = "El agente derivó la consulta a tu equipo"
+# The inbox shows why when the agent could not carry the conversation on.
+HAND_OFF_EVENTS: Mapping[HandOffReason, str] = {
+    HandOffReason.STALLED: "La conversación no avanzaba: el agente la derivó a tu equipo",
+    HandOffReason.AGENT_FAILURE: (
+        "El asistente no estaba disponible: el agente derivó la consulta a tu equipo"
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +165,8 @@ def _propose_visit(arguments: ProposeVisitInput) -> VisitProposal:
 
 
 def _hand_off(arguments: HandOffInput) -> HandOffResult:
-    return HandOffResult(reason=arguments.reason, event=HAND_OFF_EVENT)
+    event = HAND_OFF_EVENTS.get(arguments.reason, HAND_OFF_EVENT)
+    return HandOffResult(reason=arguments.reason, event=event)
 
 
 def lead_handlers(search: PropertySearch) -> Mapping[str, Callable[[Any], Any]]:

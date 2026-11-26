@@ -1,0 +1,171 @@
+{
+  "description": "The team takes the conversation: messages are stored, not answered; after the release the agent reads what it missed with the new message.",
+  "intents": [
+    "greet",
+    "ask",
+    "present_options",
+    "ask_name"
+  ],
+  "model_calls": 7,
+  "state": {
+    "answers": {
+      "budget": {
+        "amount": 800000,
+        "currency": "ARS"
+      },
+      "operation": "alquiler",
+      "rooms": 2,
+      "zone": "en Palermo hasta 800 mil pesos 2 ambientes"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": "visitor_name",
+    "chosen_property_ids": [],
+    "condition_events": [],
+    "last_intent": "ask_name",
+    "offered_cards": [
+      {
+        "address": "Güemes 4300, Palermo",
+        "conditions": {},
+        "id": "palermo-guemes-2amb-alq",
+        "label": "2 ambientes amoblado · Güemes 4300, Palermo",
+        "link": "/ejemplo/palermo-guemes-2amb-alq",
+        "operation": "rent",
+        "price_label": "$850.000 por mes",
+        "rooms": 2,
+        "title": "2 ambientes amoblado",
+        "zone": "Palermo"
+      }
+    ],
+    "progress": {
+      "answered_keys_count": 4,
+      "chosen_count": 0,
+      "last_intent": "ask_name",
+      "last_progress_turn": 3,
+      "same_intent_turns": 1,
+      "stage": "options_shown"
+    },
+    "properties_presented": true,
+    "property_matches": {
+      "palermo-guemes-2amb-alq": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      }
+    },
+    "shown_property_ids": [
+      "palermo-guemes-2amb-alq"
+    ],
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 3
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Te ayudo a encontrar tu próxima propiedad. Contame: ¿si busca comprar o alquilar? (compra / alquiler)"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Quiero alquilar"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿zona o barrio?"
+        }
+      ]
+    },
+    {
+      "in": {
+        "take_over": true
+      },
+      "out": []
+    },
+    {
+      "agent_paused": true,
+      "in": {
+        "say": "en Palermo"
+      },
+      "opt_out": false,
+      "out": []
+    },
+    {
+      "in": {
+        "team": "¿Qué presupuesto tenés?"
+      },
+      "out": []
+    },
+    {
+      "agent_paused": true,
+      "in": {
+        "say": "hasta 800 mil pesos"
+      },
+      "opt_out": false,
+      "out": []
+    },
+    {
+      "in": {
+        "release": true
+      },
+      "out": []
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "2 ambientes"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": {
+            "cards": [
+              {
+                "address": "Güemes 4300, Palermo",
+                "id": "palermo-guemes-2amb-alq",
+                "is_sample": true,
+                "link": "/ejemplo/palermo-guemes-2amb-alq",
+                "operation": "rent",
+                "over_budget": true,
+                "price_label": "$850.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes amoblado",
+                "zone": "Palermo"
+              }
+            ]
+          },
+          "text": "¡Mirá estas opciones que te pueden gustar!"
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¿Cómo te llamás?"
+        }
+      ]
+    }
+  ]
+}

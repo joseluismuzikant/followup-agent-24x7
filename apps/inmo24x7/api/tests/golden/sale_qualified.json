@@ -1,0 +1,277 @@
+{
+  "description": "Buying: every question answered, the visit declined: a qualified hand-off, then two messages after it.",
+  "intents": [
+    "greet",
+    "ask",
+    "present_options",
+    "ask",
+    "ask",
+    "ask_name",
+    "ask_contact",
+    "offer_visit",
+    "hand_off",
+    "after_hand_off"
+  ],
+  "model_calls": 19,
+  "state": {
+    "after_hand_off_replied_at": "2026-11-03T14:09:00+00:00",
+    "answers": {
+      "budget": {
+        "amount": 200000,
+        "currency": "USD"
+      },
+      "operation": "compra",
+      "rooms": 3,
+      "zone": "Belgrano"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": null,
+    "chosen_property_ids": [],
+    "condition_events": [],
+    "contact": "juan@example.com",
+    "hand_off_reason": "qualified",
+    "last_intent": "after_hand_off",
+    "offered_cards": [
+      {
+        "address": "Juramento 2400, Belgrano",
+        "conditions": {},
+        "id": "belgrano-juramento-3amb",
+        "label": "3 ambientes con cochera · Juramento 2400, Belgrano",
+        "link": "/ejemplo/belgrano-juramento-3amb",
+        "operation": "sale",
+        "price_label": "USD 198.000",
+        "rooms": 3,
+        "title": "3 ambientes con cochera",
+        "zone": "Belgrano"
+      },
+      {
+        "address": "Av. Cabildo 2100, Belgrano",
+        "conditions": {},
+        "id": "belgrano-cabildo-4amb",
+        "label": "4 ambientes con dependencia · Av. Cabildo 2100, Belgrano",
+        "link": "/ejemplo/belgrano-cabildo-4amb",
+        "operation": "sale",
+        "price_label": "USD 320.000",
+        "rooms": 4,
+        "title": "4 ambientes con dependencia",
+        "zone": "Belgrano"
+      }
+    ],
+    "progress": {
+      "answered_keys_count": 4,
+      "chosen_count": 0,
+      "last_intent": "after_hand_off",
+      "last_progress_turn": 8,
+      "same_intent_turns": 1,
+      "stage": "handed_off"
+    },
+    "properties_presented": true,
+    "property_matches": {
+      "belgrano-cabildo-4amb": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      },
+      "belgrano-juramento-3amb": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      }
+    },
+    "shown_property_ids": [
+      "belgrano-juramento-3amb",
+      "belgrano-cabildo-4amb"
+    ],
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 10,
+    "visit_invited": true,
+    "visitor_name": "Juan Gómez"
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Te ayudo a encontrar tu próxima propiedad. Contame: ¿si busca comprar o alquilar? (compra / alquiler)"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Quiero comprar"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿zona o barrio?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Belgrano"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": {
+            "cards": [
+              {
+                "address": "Juramento 2400, Belgrano",
+                "id": "belgrano-juramento-3amb",
+                "is_sample": true,
+                "link": "/ejemplo/belgrano-juramento-3amb",
+                "operation": "sale",
+                "over_budget": false,
+                "price_label": "USD 198.000",
+                "rooms": 3,
+                "title": "3 ambientes con cochera",
+                "zone": "Belgrano"
+              },
+              {
+                "address": "Av. Cabildo 2100, Belgrano",
+                "id": "belgrano-cabildo-4amb",
+                "is_sample": true,
+                "link": "/ejemplo/belgrano-cabildo-4amb",
+                "operation": "sale",
+                "over_budget": false,
+                "price_label": "USD 320.000",
+                "rooms": 4,
+                "title": "4 ambientes con dependencia",
+                "zone": "Belgrano"
+              }
+            ]
+          },
+          "text": "¡Mirá estas opciones que te pueden gustar!"
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "hasta 200 mil dólares"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿cantidad de ambientes?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "3"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¿Cómo te llamás?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "me llamo Juan Gómez"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¿A qué teléfono o email te puede escribir alguien del equipo?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "juan@example.com"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¿Te gustaría visitar alguna? Decime cuál y te propongo horarios."
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "no, gracias"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Gracias, Juan Gómez! Le paso tu consulta a una persona del equipo, que te va a escribir muy pronto."
+        },
+        {
+          "author": "system",
+          "payload": null,
+          "text": "El agente derivó la consulta a tu equipo"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "gracias!"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Ya le pasé tu consulta al equipo, te escriben muy pronto. ¡Gracias por la paciencia!"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "¿me escriben hoy?"
+      },
+      "opt_out": false,
+      "out": []
+    }
+  ]
+}

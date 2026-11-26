@@ -476,6 +476,80 @@ traffic. Details, disk math and LogQL in `deploy/observability.md`.
    business's LLM cost passes it in a month (Backoffice → Consumo shows the numbers). Fill in
    the real prices in `packages/platform/src/followup_platform/billing/llm_prices.toml` first, or costs stay empty.
 
+## 12c. The lead agent's limits and hand-offs
+
+The agent runs one turn per inbound message (or burst). The model proposes text and values;
+code decides, validates, limits and persists. Nothing below is in a prompt, and nothing a
+model returns changes it.
+
+**Per-turn limits** (`packages/core/.../conversation/application/execution_guard.py`). Each
+is checked before every model call:
+
+| Limit | Default | Hard cap | Lower it with |
+| --- | --- | --- | --- |
+| Model calls per turn (extract, replies, answer) | 6 | 8 | `AGENT_MAX_MODEL_CALLS_PER_TURN` |
+| Turn deadline | 25 s | 40 s | `AGENT_TURN_DEADLINE_SECONDS` |
+| Tokens per turn (input + output; `len/3` when the provider reports none) | 10,000 | 16,000 | `AGENT_MAX_TOKENS_PER_TURN` |
+| Output tokens per call (the provider's `max_tokens`) | extract 300, reply 250, answer 300 | — | — |
+
+- The variables can only **lower** a limit: a higher value is ignored, and a value above
+  the hard cap is impossible.
+- When a limit is hit, no further model call is made in that turn. The rest of the turn is
+  worded with fixed texts (`leads/safe_texts.py`), the state moves exactly as the planner
+  decided, and the turn commits once.
+- `LLM_TIMEOUT_SECONDS` (20) and `max_retries=1` still apply to each call.
+- **`LLM_REASONING_EFFORT`:** with OpenAI GPT-5 models, reasoning tokens count against
+  `max_tokens`. Keep it at `minimal` (or the model's lowest) so 250 output tokens are
+  enough for a reply. An empty reply fails the call.
+
+**Final attempt instead of silence.** When the model is down on a WhatsApp message's last
+job attempt (`attempts = max_attempts`), the turn does not fail:
+- the lead gets *"Te paso con una persona del equipo, te escribe a la brevedad."*;
+- the conversation is handed off with reason `agent_failure`;
+- the team gets the hand-off email ("El asistente no estaba disponible");
+- the audit log records `agent_failure_hand_off`;
+- the job ends `done`, not `dead`.
+
+**New hand-off reasons.** Both show as "Pidió hablar con alguien" (`human_requested`). The
+inbox shows a badge and a system event that says why.
+- `stalled`: the conversation stopped moving forward (`leads/progress.py`):
+  - the same reply intent three turns in a row;
+  - 5 turns without progress, or 2 questions deferred to the team: Sofía asks once whether
+    a person should contact them;
+  - 8 turns without progress: the hand-off;
+  - 40 turns in total: the same hand-off, logged as `conversation_limit`.
+- `agent_failure`: see above.
+
+**After any hand-off:**
+- the first reply is worded by the model, as before;
+- later messages get at most one fixed reply every 12 hours, with no model call;
+- anything else is stored, unanswered, for the team.
+
+**Logs** (Loki, JSON fields; codes and counts only, never message text):
+- `agent_terminated`: `reason`, `stage`, `model_calls`, `tokens`, `elapsed_ms`, `tenant_id`,
+  `thread_id`. Written for every turn that did not simply complete. The reason is also
+  `termination_reason` in the trace's outputs.
+- `injection_suspected`: `codes` (`instruction_override`, `role_marker`, `envelope_marker`,
+  `encoded_payload`, `limit_tampering`, `url`). For auditing only: the message is answered
+  as usual.
+- `reply_guard_blocked` and `answer_ungrounded`: `intent`, `code`. A reply was replaced by
+  its fixed text: a foreign link left nothing, a phone or email, income, too long, a
+  question in an answer, or an amount that is not in the answer's data.
+
+```logql
+# Terminated turns by reason, last 24 h
+sum by (reason) (count_over_time({environment="production", service=~"api|worker"} | json | message="agent_terminated" [24h]))
+
+# Replies replaced by their fixed text
+{environment="production"} | json | message=~"reply_guard_blocked|answer_ungrounded"
+```
+
+What to watch:
+- `turn_deadline` or `token_budget` more than now and then: the limits or the prompts need
+  tuning. Check Consumo for the tokens per turn.
+- `provider_unavailable`: the provider's status page.
+- Many `conversation_stalled`: read those conversations in the inbox.
+
 ## After go-live
 
 - Health: Backoffice → Salud del sistema (jobs, webhooks, failed sends by Meta code, recent

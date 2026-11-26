@@ -37,6 +37,7 @@ import {
   formatDateTime,
   formatTime,
   fromLocalInput,
+  handOffReasonLabels,
   leadName,
   toLocalInput,
 } from "../../lib/leads";
@@ -181,6 +182,9 @@ export function LeadPanel({ leadId, canAct }: { leadId: string; canAct: boolean 
             {leadName(lead)}
             <LeadStatusBadge status={lead.status} />
             {optedOut ? <Badge tone="danger">Pidió no ser contactado</Badge> : null}
+            {lead.hand_off_reason && handOffReasonLabels[lead.hand_off_reason] ? (
+              <Badge tone="warning">{handOffReasonLabels[lead.hand_off_reason]}</Badge>
+            ) : null}
             {lead.source === "web_button" ? <Badge tone="info">Web — botón</Badge> : null}
             {lead.is_test ? <Badge>Prueba</Badge> : null}
           </h2>

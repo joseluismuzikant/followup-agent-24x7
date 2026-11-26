@@ -53,6 +53,16 @@ class ReplyIntent(StrEnum):
     # Nothing fits: thank them, say the team lets them know if something comes up. Asks
     # nothing.
     NO_FIT = "no_fit"
+    # Answer what the lead asked, only from request.data (the options shown, the agency);
+    # without the answer there, say it is checked with the team. Asks nothing.
+    ANSWER_QUESTION = "answer_question"
+    # The conversation is not moving forward: ask once whether they want a person from the
+    # team to contact them (instead of this turn's own question).
+    OFFER_HUMAN = "offer_human"
+
+
+# What the lead's question is about (Extraction.topic).
+QUESTION_TOPICS = ("property_question", "comparison", "agency_question", "other")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +108,11 @@ class ExtractionRequest:
     wants_name: bool = False
     wants_contact: bool = False
     choices: Sequence[Choice] = ()
+    # Answers already given that the lead may change ("¿y en Caballito?"): operation, zone,
+    # rooms and budget. Read-only context; a change comes back in Extraction.changed_answers.
+    known_answers: Mapping[str, Any] = field(default_factory=dict)
+    # The provider's max_tokens for this call (set by the runtime's execution guard).
+    max_output_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +129,13 @@ class Extraction:
     # The lead asked not to be written to again ("no me molesten más"): a second signal next
     # to the deterministic "BAJA" matcher, never for "baja" with another meaning.
     wants_opt_out: bool = False
+    # The lead asked something about the options, the agency or the process; `topic` is one
+    # of QUESTION_TOPICS. Both validated here: anything else is False / None.
+    needs_answer: bool = False
+    topic: str | None = None
+    # New values for known answers (ExtractionRequest.known_answers keys only); the caller
+    # validates them with `parse_answer`.
+    changed_answers: Mapping[str, Any] = field(default_factory=dict)
     usage: TokenUsage = TokenUsage()
 
 
@@ -125,6 +147,12 @@ class ReplyRequest:
     business_name: str
     question: QualificationQuestion | None = None
     facts: Mapping[str, str] = field(default_factory=dict)
+    # ANSWER_QUESTION only: what the lead wrote and the only data the answer may use. Both
+    # are sent to the model as data, never as instructions.
+    lead_message: str | None = None
+    data: Mapping[str, Any] = field(default_factory=dict)
+    # The provider's max_tokens for this call (set by the runtime's execution guard).
+    max_output_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

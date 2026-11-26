@@ -1,0 +1,177 @@
+{
+  "description": "The lead asks for a person mid-flow: a human hand-off; later messages after it.",
+  "intents": [
+    "greet",
+    "present_options",
+    "ask",
+    "hand_off",
+    "after_hand_off"
+  ],
+  "model_calls": 7,
+  "state": {
+    "after_hand_off_replied_at": "2026-11-03T14:03:00+00:00",
+    "answers": {
+      "operation": "alquiler",
+      "zone": "Palermo"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": null,
+    "chosen_property_ids": [],
+    "condition_events": [],
+    "hand_off_reason": "human",
+    "last_intent": "after_hand_off",
+    "offered_cards": [
+      {
+        "address": "Honduras 5600, Palermo",
+        "conditions": {},
+        "id": "palermo-honduras-mono",
+        "label": "Monoambiente a estrenar · Honduras 5600, Palermo",
+        "link": "/ejemplo/palermo-honduras-mono",
+        "operation": "rent",
+        "price_label": "$620.000 por mes",
+        "rooms": 1,
+        "title": "Monoambiente a estrenar",
+        "zone": "Palermo"
+      },
+      {
+        "address": "Güemes 4300, Palermo",
+        "conditions": {},
+        "id": "palermo-guemes-2amb-alq",
+        "label": "2 ambientes amoblado · Güemes 4300, Palermo",
+        "link": "/ejemplo/palermo-guemes-2amb-alq",
+        "operation": "rent",
+        "price_label": "$850.000 por mes",
+        "rooms": 2,
+        "title": "2 ambientes amoblado",
+        "zone": "Palermo"
+      }
+    ],
+    "progress": {
+      "answered_keys_count": 2,
+      "chosen_count": 0,
+      "last_intent": "after_hand_off",
+      "last_progress_turn": 2,
+      "same_intent_turns": 1,
+      "stage": "handed_off"
+    },
+    "properties_presented": true,
+    "property_matches": {
+      "palermo-guemes-2amb-alq": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      },
+      "palermo-honduras-mono": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      }
+    },
+    "shown_property_ids": [
+      "palermo-honduras-mono",
+      "palermo-guemes-2amb-alq"
+    ],
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 3
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola, quiero alquilar en Palermo"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Buenísimo, te busco opciones de alquiler en Palermo."
+        },
+        {
+          "author": "agent",
+          "payload": {
+            "cards": [
+              {
+                "address": "Honduras 5600, Palermo",
+                "id": "palermo-honduras-mono",
+                "is_sample": true,
+                "link": "/ejemplo/palermo-honduras-mono",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$620.000 por mes",
+                "rooms": 1,
+                "title": "Monoambiente a estrenar",
+                "zone": "Palermo"
+              },
+              {
+                "address": "Güemes 4300, Palermo",
+                "id": "palermo-guemes-2amb-alq",
+                "is_sample": true,
+                "link": "/ejemplo/palermo-guemes-2amb-alq",
+                "operation": "rent",
+                "over_budget": false,
+                "price_label": "$850.000 por mes",
+                "rooms": 2,
+                "title": "2 ambientes amoblado",
+                "zone": "Palermo"
+              }
+            ]
+          },
+          "text": "¡Mirá estas opciones que te pueden gustar!"
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Prefiero hablar con una persona"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Gracias! Le paso tu consulta a una persona del equipo, que te va a escribir muy pronto."
+        },
+        {
+          "author": "system",
+          "payload": null,
+          "text": "El agente derivó la consulta a tu equipo"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "¿hola?"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Ya le pasé tu consulta al equipo, te escriben muy pronto. ¡Gracias por la paciencia!"
+        }
+      ]
+    }
+  ]
+}

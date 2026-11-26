@@ -1,0 +1,175 @@
+{
+  "description": "The website button names a property on WhatsApp (the contact comes from the channel): greeted, its slots right away, a slot tapped, the name, a visit hand-off.",
+  "intents": [
+    "greet",
+    "offer_slots",
+    "slot_chosen",
+    "ask_name",
+    "hand_off"
+  ],
+  "model_calls": 8,
+  "state": {
+    "answers": {
+      "operation": "alquiler",
+      "rooms": 2,
+      "zone": "Palermo"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": null,
+    "chosen_property_ids": [
+      "00000000-0000-0000-0000-000000000005"
+    ],
+    "condition_events": [],
+    "contact": "+54 9 11 5555-0188",
+    "hand_off_reason": "visit",
+    "last_intent": "hand_off",
+    "lead_source": "web_button",
+    "offered_cards": [
+      {
+        "address": "Gorriti 4800",
+        "conditions": {},
+        "id": "00000000-0000-0000-0000-000000000005",
+        "label": "2 ambientes luminoso · Gorriti 4800",
+        "link": "https://www.inmosur.com.ar/propiedades/gorriti-4800",
+        "operation": "rent",
+        "price_label": "$850.000 por mes",
+        "rooms": 2,
+        "title": "2 ambientes luminoso",
+        "zone": "Palermo"
+      }
+    ],
+    "pending_card": null,
+    "progress": {
+      "answered_keys_count": 3,
+      "chosen_count": 1,
+      "last_intent": "hand_off",
+      "last_progress_turn": 3,
+      "same_intent_turns": 1,
+      "stage": "handed_off"
+    },
+    "properties_presented": true,
+    "property_matches": {
+      "00000000-0000-0000-0000-000000000005": {
+        "accepted": [],
+        "failed": [],
+        "features": [],
+        "notes": [],
+        "status": "sin_datos"
+      }
+    },
+    "referenced_card": "00000000-0000-0000-0000-000000000005",
+    "shown_property_ids": [
+      "00000000-0000-0000-0000-000000000005"
+    ],
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 3,
+    "visit": {
+      "label": "martes 3/11, 16:30",
+      "property_id": "00000000-0000-0000-0000-000000000005",
+      "property_label": "2 ambientes luminoso · Gorriti 4800",
+      "starts_at": "2026-11-03T16:30:00-03:00"
+    },
+    "visit_offer": {
+      "property_id": "00000000-0000-0000-0000-000000000005",
+      "property_label": "2 ambientes luminoso · Gorriti 4800",
+      "slots": [
+        {
+          "id": "slot-202611031330",
+          "label": "martes 3/11, 13:30",
+          "short_label": "mar 3/11 13:30",
+          "starts_at": "2026-11-03T13:30:00-03:00"
+        },
+        {
+          "id": "slot-202611031630",
+          "label": "martes 3/11, 16:30",
+          "short_label": "mar 3/11 16:30",
+          "starts_at": "2026-11-03T16:30:00-03:00"
+        }
+      ]
+    },
+    "visitor_name": "Laura Díaz"
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola, me interesa la propiedad «2 ambientes luminoso» (ref. https://www.inmosur.com.ar/propiedades/gorriti-4800)"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. ¡Qué bueno que te interese 2 ambientes luminoso · Gorriti 4800!"
+        },
+        {
+          "author": "agent",
+          "payload": {
+            "slots": [
+              {
+                "id": "slot-202611031330",
+                "label": "martes 3/11, 13:30",
+                "short_label": "mar 3/11 13:30"
+              },
+              {
+                "id": "slot-202611031630",
+                "label": "martes 3/11, 16:30",
+                "short_label": "mar 3/11 16:30"
+              }
+            ]
+          },
+          "text": "¡Buenísimo! Para ver 2 ambientes luminoso · Gorriti 4800 te propongo martes 3/11, 13:30 o martes 3/11, 16:30. ¿Cuál te queda mejor?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "el segundo",
+        "tap": "slot:1"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Listo! Te anoté para el martes 3/11, 16:30. El equipo te lo confirma."
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¿Cómo te llamás?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Me llamo Laura Díaz"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Gracias, Laura Díaz! Le paso tu consulta a una persona del equipo, que te va a escribir muy pronto."
+        },
+        {
+          "author": "system",
+          "payload": null,
+          "text": "El agente derivó la consulta a tu equipo"
+        }
+      ]
+    }
+  ]
+}

@@ -2306,7 +2306,7 @@ export interface components {
             /** Handed Off At */
             handed_off_at: string | null;
             /** Hand Off Reason */
-            hand_off_reason: ("human" | "visit" | "qualified") | null;
+            hand_off_reason: ("human" | "visit" | "qualified" | "stalled" | "agent_failure") | null;
             /**
              * Created At
              * Format: date-time
@@ -2382,7 +2382,7 @@ export interface components {
             /** Handed Off At */
             handed_off_at: string | null;
             /** Hand Off Reason */
-            hand_off_reason: ("human" | "visit" | "qualified") | null;
+            hand_off_reason: ("human" | "visit" | "qualified" | "stalled" | "agent_failure") | null;
             /**
              * Created At
              * Format: date-time

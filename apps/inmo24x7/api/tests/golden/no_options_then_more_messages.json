@@ -1,0 +1,150 @@
+{
+  "description": "No listing in the zone: no options, then the flow keeps asking; several turns that make no commercial progress.",
+  "intents": [
+    "greet",
+    "no_options",
+    "ask",
+    "ask",
+    "offer_human",
+    "ask",
+    "ask",
+    "hand_off"
+  ],
+  "model_calls": 14,
+  "state": {
+    "answers": {
+      "operation": "alquiler",
+      "zone": "Mataderos"
+    },
+    "answers_deferred": 0,
+    "answers_given": 0,
+    "asked_key": null,
+    "chosen_property_ids": [],
+    "condition_events": [],
+    "hand_off_reason": "stalled",
+    "last_intent": "hand_off",
+    "progress": {
+      "answered_keys_count": 2,
+      "chosen_count": 0,
+      "last_intent": "hand_off",
+      "last_progress_turn": 6,
+      "same_intent_turns": 1,
+      "stage": "handed_off"
+    },
+    "properties_presented": true,
+    "property_matches": {},
+    "stall_offered": true,
+    "turn_agent_failure": false,
+    "turn_can_meet": null,
+    "turn_choice": null,
+    "turn_contact_invalid": false,
+    "turn_flags": [],
+    "turn_needs_answer": false,
+    "turn_refine_search": false,
+    "turn_topic": null,
+    "turn_wants_alternatives": null,
+    "turn_wants_human": false,
+    "turns": 6
+  },
+  "turns": [
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "Hola, quiero alquilar en Mataderos"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Hola! Soy Sofía, de Inmobiliaria Sur. Buenísimo, te busco opciones de alquiler en Mataderos."
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Todavía no tengo algo justo para vos, pero sigo buscando."
+        },
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "¿no tienen nada?"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "bueno"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Para no hacerte perder tiempo: ¿querés que te contacte una persona del equipo?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "¿y ahora?"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "dale"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "Contame: ¿presupuesto?"
+        }
+      ]
+    },
+    {
+      "agent_paused": false,
+      "in": {
+        "say": "¿hay algo?"
+      },
+      "opt_out": false,
+      "out": [
+        {
+          "author": "agent",
+          "payload": null,
+          "text": "¡Gracias! Le paso tu consulta a una persona del equipo, que te va a escribir muy pronto."
+        },
+        {
+          "author": "system",
+          "payload": null,
+          "text": "La conversación no avanzaba: el agente la derivó a tu equipo"
+        }
+      ]
+    }
+  ]
+}

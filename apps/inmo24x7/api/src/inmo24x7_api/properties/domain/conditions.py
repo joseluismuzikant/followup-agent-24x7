@@ -427,3 +427,29 @@ def common_failure(matches: Sequence[Match]) -> Failure | None:
         return None
     requirement = sorted(shared)[0]
     return next(item for item in matches[0].failed if item.requirement is requirement)
+
+
+_FLAG_PHRASES: tuple[tuple[str, str, str], ...] = (
+    ("temporal", "acepta alquiler temporario", "no acepta alquiler temporario"),
+    ("amueblado", "está amueblada", "no está amueblada"),
+    ("mascotas", "acepta mascotas", "no acepta mascotas"),
+    ("apto_profesional", "es apta uso profesional", "no es apta uso profesional"),
+    ("apto_credito", "es apta crédito", "no es apta crédito"),
+    ("acepta_financiacion", "acepta financiación", "no acepta financiación"),
+    ("acepta_permuta", "acepta permuta", "no acepta permuta"),
+)
+
+
+def condition_phrases(conditions: PropertyConditions) -> list[str]:
+    """The informed conditions as short phrases ("acepta mascotas", "pide contrato de 2
+    años"), for answering a lead's question. Unknown fields say nothing."""
+    phrases: list[str] = []
+    if conditions.garantias:
+        phrases.append(f"acepta {_guarantees(conditions.garantias)}")
+    if conditions.contrato_minimo_meses:
+        phrases.append(f"pide contrato de {months_label(conditions.contrato_minimo_meses)}")
+    for name, yes, no in _FLAG_PHRASES:
+        value = getattr(conditions, name)
+        if value is not None:
+            phrases.append(yes if value else no)
+    return phrases

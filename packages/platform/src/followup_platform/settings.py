@@ -119,6 +119,11 @@ class Settings:
     llm_timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS
     # OpenAI GPT-5 only: "minimal" or "low"; empty = the provider's default.
     llm_reasoning_effort: str = ""
+    # Per-turn agent limits (conversation/application/execution_guard.py). None = the code's
+    # default; a value can only lower it (a higher one is ignored, never above the hard cap).
+    agent_max_model_calls_per_turn: int | None = None
+    agent_turn_deadline_seconds: float | None = None
+    agent_max_tokens_per_turn: int | None = None
     # Voice notes to text ("openai:gpt-transcribe", "deepseek:asr"); empty = off (audios get
     # the fixed "solo puedo leer texto" reply). Its own provider: LLM_MODEL may be Claude.
     transcribe_model: str = ""
@@ -204,6 +209,18 @@ def _positive_number(name: str, default: float) -> float:
     if value <= 0:
         raise ConfigurationError(f"{name} must be greater than zero.")
     return value
+
+
+def _optional_limit(name: str) -> float | None:
+    """An agent limit override: empty = the default; otherwise a positive number."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    return _positive_number(name, 1.0)
+
+
+def _int_or_none(value: float | None) -> int | None:
+    return None if value is None else int(value)
 
 
 def _flag(name: str, default: bool) -> bool:
@@ -481,6 +498,11 @@ def load_settings(spec: ProductSpec) -> Settings:
         llm_base_url=os.getenv("LLM_BASE_URL", "").strip(),
         llm_timeout_seconds=_positive_number("LLM_TIMEOUT_SECONDS", DEFAULT_LLM_TIMEOUT_SECONDS),
         llm_reasoning_effort=_reasoning_effort(),
+        agent_max_model_calls_per_turn=_int_or_none(
+            _optional_limit("AGENT_MAX_MODEL_CALLS_PER_TURN")
+        ),
+        agent_turn_deadline_seconds=_optional_limit("AGENT_TURN_DEADLINE_SECONDS"),
+        agent_max_tokens_per_turn=_int_or_none(_optional_limit("AGENT_MAX_TOKENS_PER_TURN")),
         transcribe_model=transcribe_model,
         transcribe_api_key=transcribe_api_key,
         transcribe_max_seconds=_positive_number(

@@ -556,3 +556,27 @@ def test_transcription_is_off_by_default(monkeypatch) -> None:
     _transcribe_env(monkeypatch, "")
 
     assert get_settings().transcribe_model == ""
+
+
+def test_agent_limits_can_only_be_lowered(monkeypatch) -> None:
+    from inmo24x7_api.container import get_execution_limits
+
+    monkeypatch.setenv("AGENT_MAX_MODEL_CALLS_PER_TURN", "4")
+    monkeypatch.setenv("AGENT_TURN_DEADLINE_SECONDS", "99")
+    monkeypatch.delenv("AGENT_MAX_TOKENS_PER_TURN", raising=False)
+    get_execution_limits.cache_clear()
+    try:
+        limits = get_execution_limits()
+    finally:
+        get_execution_limits.cache_clear()
+
+    assert limits.max_model_calls_per_turn == 4
+    assert limits.turn_deadline_seconds == 25.0  # 99 would raise it: the default stays
+    assert limits.max_tokens_per_turn == 10_000
+
+
+def test_an_agent_limit_must_be_a_positive_number(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_MAX_TOKENS_PER_TURN", "-5")
+
+    with pytest.raises(ConfigurationError):
+        get_settings()
