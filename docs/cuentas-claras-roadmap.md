@@ -11,7 +11,9 @@
 
 - No Cuentas Claras code is deleted.
 - Production keeps it off: its compose profile `cuentas-claras` stays disabled.
-- **Resume when** inmo24x7 has its first paying clients.
+- **Future phase** (decision of 26/11/2026): revisit when inmo24x7's 3a, 5a and billing
+  (4.5) are done and it has steady paying clients ([`roadmap-mvp.md`](roadmap-mvp.md),
+  section 7).
 
 The active roadmap is [`roadmap-mvp.md`](roadmap-mvp.md) (inmo24x7).
 
